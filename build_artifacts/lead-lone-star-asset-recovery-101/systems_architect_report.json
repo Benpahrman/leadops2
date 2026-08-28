@@ -1,0 +1,131 @@
+{
+    "role": "SYSTEMS_ARCHITECT",
+    "iteration": 1,
+    "status": "PASSED",
+    "schema_version": "1.0",
+    "field_contracts": {
+        "attorney_email": {
+            "type": "str",
+            "nullable": false,
+            "primary_key": false,
+            "formatting_rule": "email"
+        },
+        "attorney_name": {
+            "type": "str",
+            "nullable": false,
+            "primary_key": false,
+            "formatting_rule": "name"
+        },
+        "attorney_phone": {
+            "type": "str",
+            "nullable": false,
+            "primary_key": false,
+            "formatting_rule": "phone"
+        },
+        "case_number": {
+            "type": "str",
+            "nullable": false,
+            "primary_key": false,
+            "formatting_rule": "case_number"
+        },
+        "court_division": {
+            "type": "str",
+            "nullable": false,
+            "primary_key": false,
+            "formatting_rule": "court_division"
+        },
+        "decedent_name": {
+            "type": "str",
+            "nullable": false,
+            "primary_key": false,
+            "formatting_rule": "name"
+        },
+        "est_value": {
+            "type": "float",
+            "nullable": false,
+            "primary_key": false,
+            "formatting_rule": "currency"
+        },
+        "filing_date": {
+            "type": "datetime",
+            "nullable": false,
+            "primary_key": false,
+            "formatting_rule": "YYYY-MM-DD"
+        }
+    },
+    "max_fields_enforced": 15,
+    "fields_count": 8,
+    "validation_rules": [
+        {
+            "rule": "max_length",
+            "field": "attorney_name",
+            "max_length": 100
+        },
+        {
+            "rule": "max_length",
+            "field": "attorney_phone",
+            "max_length": 20
+        },
+        {
+            "rule": "max_length",
+            "field": "case_number",
+            "max_length": 20
+        },
+        {
+            "rule": "max_length",
+            "field": "court_division",
+            "max_length": 50
+        },
+        {
+            "rule": "max_length",
+            "field": "decedent_name",
+            "max_length": 100
+        },
+        {
+            "rule": "max_length",
+            "field": "est_value",
+            "max_length": 10
+        },
+        {
+            "rule": "max_length",
+            "field": "filing_date",
+            "max_length": 10
+        },
+        {
+            "rule": "min_length",
+            "field": "attorney_name",
+            "min_length": 1
+        },
+        {
+            "rule": "min_length",
+            "field": "attorney_phone",
+            "min_length": 1
+        },
+        {
+            "rule": "min_length",
+            "field": "case_number",
+            "min_length": 1
+        },
+        {
+            "rule": "min_length",
+            "field": "court_division",
+            "min_length": 1
+        },
+        {
+            "rule": "min_length",
+            "field": "decedent_name",
+            "min_length": 1
+        },
+        {
+            "rule": "min_length",
+            "field": "est_value",
+            "min_length": 1
+        },
+        {
+            "rule": "min_length",
+            "field": "filing_date",
+            "min_length": 1
+        }
+    ],
+    "notes": "Systems Architect AI Agent: Pydantic contracts enforced for 8 fields."
+}

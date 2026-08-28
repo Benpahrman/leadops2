@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "clerk-docs": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://mcp.clerk.com/mcp"
+      ]
+    },
+    "clerk-tools": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@clerk/agent-toolkit",
+        "-p=local-mcp"
+      ],
+      "env": {
+        "CLERK_SECRET_KEY": "sk_test_nmUjaHRso3K6ESjDKBcW1lyXOsKmwdsRYBRMg0nQef"
+      }
+    }
+  }
+}

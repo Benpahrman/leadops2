@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LeadOps Lead",
+  "type": "object",
+  "required": ["schema_version", "lead_id", "state", "tier_key", "created_at", "updated_at"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "lead_id": {"type": "string", "minLength": 1},
+    "state": {"enum": ["PROSPECTING", "REVIEW", "PITCH_PENDING_APPROVAL", "OUTREACH_SENT", "CONVERSATIONAL_INTAKE", "SOW_GENERATED", "DEPOSIT_PAID", "DEV_BUILDING", "ESCROW_PREVIEW", "FINAL_PAID", "DELIVERED", "WARRANTY_ACTIVE", "WARRANTY_EXPIRED", "ARCHIVED"]},
+    "tier_key": {"enum": ["weekly", "daily", "ai", "buyout"]},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "selected_fields": {"type": "array", "items": {"type": "string"}, "maxItems": 25, "uniqueItems": true},
+    "qa_score": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+    "preview_rows": {"type": "integer", "minimum": 0},
+    "payments": {
+      "type": "object",
+      "properties": {
+        "deposit_paid": {"type": "boolean"},
+        "final_paid": {"type": "boolean"},
+        "subscription_active": {"type": "boolean"},
+        "buyout_paid": {"type": "boolean"},
+        "paypal_event_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+      },
+      "additionalProperties": false
+    },
+    "audit_log": {"type": "array", "items": {"type": "object"}}
+  },
+  "additionalProperties": false
+}

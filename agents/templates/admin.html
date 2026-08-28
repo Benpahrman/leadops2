@@ -1,0 +1,1228 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LeadOps Mission Control | Founder Operations Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script async crossorigin="anonymous" data-clerk-publishable-key="{clerk_pk}" src="https://finer-toucan-9692.clerk.accounts.dev/npm/@clerk/clerk-js@5/dist/clerk.browser.js" type="text/javascript"></script>
+  <style>
+    :root {{
+      --bg: #070b12;
+      --sidebar-bg: #0b111c;
+      --card-bg: #0f1726;
+      --card-alt: #162033;
+      --card-hover: #1c2a42;
+      --border: #1e2e47;
+      --border-light: #283e5e;
+      --text: #f0f6fc;
+      --text-muted: #8b9bb4;
+      --green: #10b981;
+      --green-glow: rgba(16, 185, 129, 0.16);
+      --cyan: #38bdf8;
+      --cyan-glow: rgba(56, 189, 248, 0.16);
+      --purple: #a855f7;
+      --yellow: #f59e0b;
+      --red: #ef4444;
+      --font: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --mono: 'JetBrains Mono', monospace;
+    }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      overflow-x: hidden;
+    }}
+
+    /* SIDEBAR */
+    aside.sidebar {{
+      width: 260px;
+      min-width: 260px;
+      background: var(--sidebar-bg);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }}
+    .sidebar-brand {{
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }}
+    .brand-logo {{
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, #10b981, #38bdf8);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 16px;
+      color: #05140e;
+      box-shadow: 0 0 16px rgba(16, 185, 129, 0.35);
+    }}
+    .brand-text {{ font-size: 15px; font-weight: 800; color: #fff; letter-spacing: -0.3px; }}
+    .brand-sub {{ font-size: 11px; color: var(--text-muted); font-family: var(--mono); }}
+
+    .sidebar-nav {{
+      padding: 18px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1;
+      overflow-y: auto;
+    }}
+    .nav-category {{
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin: 14px 10px 6px;
+    }}
+    .sidebar-item {{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }}
+    .sidebar-item:hover {{
+      background: var(--card-hover);
+      color: #fff;
+    }}
+    .sidebar-item.active {{
+      background: rgba(16, 185, 129, 0.12);
+      color: var(--green);
+    }}
+    .sidebar-badge {{
+      margin-left: auto;
+      font-size: 10px;
+      font-family: var(--mono);
+      padding: 2px 7px;
+      border-radius: 12px;
+      background: var(--card-bg);
+      color: var(--cyan);
+      border: 1px solid var(--border);
+    }}
+
+    .sidebar-footer {{
+      padding: 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: rgba(0,0,0,0.2);
+    }}
+    .system-pill {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      font-family: var(--mono);
+      background: var(--card-bg);
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }}
+
+    /* MAIN CONTENT */
+    .app-main {{
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }}
+
+    /* TOP HEADER */
+    header.topbar {{
+      height: 64px;
+      background: var(--sidebar-bg);
+      border-bottom: 1px solid var(--border);
+      padding: 0 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 40;
+    }}
+    .search-box {{
+      position: relative;
+      width: 380px;
+    }}
+    .search-box input {{
+      width: 100%;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 14px 8px 36px;
+      color: #fff;
+      font-size: 13px;
+      outline: none;
+      transition: all 0.2s;
+    }}
+    .search-box input:focus {{
+      border-color: var(--cyan);
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
+    }}
+    .search-box-icon {{
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      font-size: 14px;
+      pointer-events: none;
+    }}
+
+    .topbar-actions {{
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }}
+
+    /* BUTTONS */
+    .btn {{
+      background: var(--green);
+      color: #05140e;
+      border: 0;
+      padding: 8px 16px;
+      border-radius: 7px;
+      font-weight: 700;
+      font-size: 12px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s;
+    }}
+    .btn:hover {{ background: #00ea96; transform: translateY(-1px); }}
+    .btn-outline {{
+      background: transparent;
+      border: 1px solid var(--border-light);
+      color: var(--text);
+    }}
+    .btn-outline:hover {{
+      background: var(--card-alt);
+      border-color: var(--cyan);
+      color: #fff;
+    }}
+    .btn-cyan {{
+      background: var(--cyan);
+      color: #04121d;
+    }}
+    .btn-cyan:hover {{ background: #7dd3fc; }}
+    .btn-danger {{ background: var(--red); color: #fff; }}
+    .btn-danger:hover {{ background: #dc2626; }}
+
+    /* DASHBOARD CANVAS */
+    .dashboard-canvas {{
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      max-width: 100%;
+    }}
+
+    /* METRIC CARDS */
+    .metric-grid {{
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 18px;
+    }}
+    .stat-card {{
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 20px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }}
+    .stat-card::after {{
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: transparent;
+    }}
+    .stat-card-green::after {{ background: linear-gradient(90deg, #10b981, #38bdf8); }}
+    .stat-card-cyan::after {{ background: linear-gradient(90deg, #38bdf8, #a855f7); }}
+    .stat-card-purple::after {{ background: linear-gradient(90deg, #a855f7, #f59e0b); }}
+    .stat-card-amber::after {{ background: linear-gradient(90deg, #f59e0b, #10b981); }}
+
+    .stat-header {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-family: var(--mono);
+    }}
+    .stat-val {{
+      font-size: 28px;
+      font-weight: 800;
+      font-family: var(--mono);
+      color: #fff;
+      margin: 2px 0;
+    }}
+    .stat-sub {{
+      font-size: 11px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }}
+
+    /* WORKBENCH & TABS */
+    .workbench-card {{
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+    }}
+    .workbench-header {{
+      padding: 16px 24px;
+      background: var(--card-alt);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 14px;
+    }}
+    .workbench-title-group h2 {{
+      font-size: 16px;
+      font-weight: 700;
+      color: #fff;
+    }}
+    .workbench-title-group p {{
+      font-size: 12px;
+      color: var(--text-muted);
+    }}
+
+    .view-switcher {{
+      display: flex;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 3px;
+      gap: 4px;
+    }}
+    .view-tab {{
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      transition: all 0.15s;
+    }}
+    .view-tab.active {{
+      background: var(--card-alt);
+      color: #fff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    }}
+
+    /* SCREEN PANELS */
+    .screen-panel {{ display: none; }}
+    .screen-panel.active {{ display: block; }}
+
+    /* MASTER DATA TABLE */
+    .table-container {{
+      width: 100%;
+      overflow-x: auto;
+    }}
+    table.master-table {{
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 13px;
+    }}
+    table.master-table th {{
+      background: rgba(0,0,0,0.25);
+      color: var(--text-muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+    }}
+    table.master-table td {{
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }}
+    table.master-table tr:hover {{
+      background: var(--card-hover);
+    }}
+
+    .company-cell {{
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }}
+    .company-avatar {{
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #1e2e47, #283e5e);
+      border: 1px solid var(--border-light);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--cyan);
+      flex-shrink: 0;
+    }}
+    .company-name {{ font-weight: 700; color: #fff; font-size: 14px; }}
+    .company-email {{ font-size: 11px; color: var(--text-muted); }}
+
+    .stage-badge {{
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 700;
+      font-family: var(--mono);
+      background: rgba(56, 189, 248, 0.12);
+      color: var(--cyan);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+    }}
+    .stage-badge-green {{
+      background: rgba(16, 185, 129, 0.12);
+      color: var(--green);
+      border-color: rgba(16, 185, 129, 0.25);
+    }}
+    .stage-badge-amber {{
+      background: rgba(245, 158, 11, 0.12);
+      color: var(--yellow);
+      border-color: rgba(245, 158, 11, 0.25);
+    }}
+
+    .link-group {{
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }}
+    .pill-link {{
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 6px;
+      background: var(--card-alt);
+      color: var(--cyan);
+      border: 1px solid var(--border-light);
+      text-decoration: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s;
+    }}
+    .pill-link:hover {{
+      background: var(--border-light);
+      color: #fff;
+      transform: translateY(-1px);
+    }}
+    .pill-link-green {{
+      background: rgba(16, 185, 129, 0.12);
+      color: var(--green);
+      border-color: rgba(16, 185, 129, 0.3);
+    }}
+    .pill-link-green:hover {{
+      background: rgba(16, 185, 129, 0.25);
+      color: #fff;
+    }}
+
+    /* HORIZONTAL KANBAN */
+    .kanban-viewport {{
+      display: flex;
+      gap: 16px;
+      overflow-x: auto;
+      padding: 20px;
+      min-height: 520px;
+    }}
+    .kanban-column {{
+      min-width: 320px;
+      width: 320px;
+      flex-shrink: 0;
+      background: var(--card-alt);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }}
+    .column-header {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }}
+    .column-title {{
+      font-size: 12px;
+      font-weight: 700;
+      font-family: var(--mono);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }}
+    .column-count {{
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 10px;
+      background: var(--card-bg);
+      color: var(--cyan);
+      font-family: var(--mono);
+      font-weight: 700;
+    }}
+
+    .kanban-card {{
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: all 0.2s;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    }}
+    .kanban-card:hover {{
+      border-color: var(--cyan);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+    }}
+
+    /* TOAST NOTIFICATION */
+    .toast-container {{
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      z-index: 2000;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }}
+    .toast {{
+      background: #0f1c2e;
+      border: 1px solid var(--cyan);
+      color: #fff;
+      padding: 12px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      animation: slideIn 0.2s ease-out;
+    }}
+    @keyframes slideIn {{
+      from {{ transform: translateX(100%); opacity: 0; }}
+      to {{ transform: translateX(0); opacity: 1; }}
+    }}
+
+    /* MODAL */
+    .modal-overlay {{
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(4, 7, 12, 0.85);
+      backdrop-filter: blur(8px);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }}
+    .modal-card {{
+      background: var(--card-bg);
+      border: 1px solid var(--border-light);
+      border-radius: 12px;
+      width: 620px;
+      max-width: 90%;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.7);
+    }}
+  </style>
+</head>
+<body>
+  <div id="admin-protected-area" style="display:none; width: 100%; min-height: 100vh; display: flex; overflow-x: hidden;">
+  <!-- SIDEBAR NAVIGATION -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-logo">⚡</div>
+      <div>
+        <div class="brand-text">LEADOPS</div>
+        <div class="brand-sub">Founder Mission Control</div>
+      </div>
+    </div>
+
+    <div class="sidebar-nav">
+      <div class="nav-category">Core Ops</div>
+      <div class="sidebar-item active" onclick="switchTab('table', this)">
+        <span>📋</span> Master Deal Table
+        <span class="sidebar-badge" id="badge-leads-count">...</span>
+      </div>
+      <div class="sidebar-item" onclick="switchTab('kanban', this)">
+        <span>📊</span> Deal Pipeline Kanban
+      </div>
+
+      <div class="nav-category">Intelligence & Swarm</div>
+      <div class="sidebar-item" onclick="switchTab('swarm', this)">
+        <span>🤖</span> Autonomous Dev Swarm
+        <span class="sidebar-badge" style="color:var(--green);">7 Ready</span>
+      </div>
+      <div class="sidebar-item" onclick="switchTab('daily', this)">
+        <span>⏰</span> Daily 6 AM Deliveries
+      </div>
+
+      <div class="nav-category">Administration</div>
+      <div class="sidebar-item" onclick="switchTab('governance', this)">
+        <span>🛡️</span> System & Governance
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="system-pill">
+        <span style="color:var(--text-muted);">AI Gateway:</span>
+        <span style="color:var(--green);">Ollama (11435) 🟢</span>
+      </div>
+      <div class="system-pill">
+        <span style="color:var(--text-muted);">Drift Shield:</span>
+        <span style="color:var(--green);">Active 5:30 UTC</span>
+      </div>
+      <div id="clerk-founder-auth">
+        <button class="btn" style="width:100%; padding:6px; font-size:11px; justify-content:center;" onclick="openAdminAuth()">Founder Sign In</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- CLERK AUTH OVERLAY MODAL -->
+  <div id="admin-clerk-backdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); backdrop-filter:blur(8px); z-index:99999; align-items:center; justify-content:center; padding:20px;">
+    <div style="position:relative; max-width:480px; width:100%; display:flex; justify-content:center;">
+      <button onclick="closeAdminClerkModal()" style="position:absolute; top:-16px; right:-12px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:50%; width:32px; height:32px; font-size:16px; cursor:pointer; z-index:100000; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 12px rgba(0,0,0,0.5);">✕</button>
+      <div id="admin-modal-target" style="min-height:300px; display:flex; align-items:center; justify-content:center;">
+        <div style="color:var(--cyan); font-family:var(--mono); font-size:13px;">⚡ Loading secure Clerk authentication...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN APP CONTAINER -->
+  <div class="app-main">
+    <!-- TOP HEADER -->
+    <header class="topbar">
+      <div class="search-box">
+        <span class="search-box-icon">🔍</span>
+        <input type="text" id="global-search" placeholder="Search business names, counties, states..." oninput="handleGlobalSearch()">
+      </div>
+
+      <div class="topbar-actions">
+        <button class="btn" id="scout-btn" onclick="triggerScoutDiscovery()">
+          ⚡ Discover Next Lead
+        </button>
+        <button class="btn btn-outline" onclick="window.open('/', '_blank')">
+          🛒 Public Sandbox
+        </button>
+        <button class="btn btn-outline" onclick="window.open('/dashboard', '_blank')">
+          📊 Customer Dashboard
+        </button>
+      </div>
+    </header>
+
+    <!-- DASHBOARD CONTENT CANVAS -->
+    <div class="dashboard-canvas">
+      <!-- 4 STAT METRICS -->
+      <div class="metric-grid">
+        <div class="stat-card stat-card-green">
+          <div class="stat-header">
+            <span>Pipeline MRR</span>
+            <span style="color:var(--green);">+$1,250 this week</span>
+          </div>
+          <div class="stat-val" style="color:var(--green);" id="mrr-val">$0</div>
+          <div class="stat-sub">Monthly Recurring Revenue in Active Stages</div>
+        </div>
+
+        <div class="stat-card stat-card-cyan">
+          <div class="stat-header">
+            <span>Total Enterprise Leads</span>
+            <span style="color:var(--cyan);">100% Verified</span>
+          </div>
+          <div class="stat-val" id="leads-val">...</div>
+          <div class="stat-sub">Live County Registry Prospects</div>
+        </div>
+
+        <div class="stat-card stat-card-purple">
+          <div class="stat-header">
+            <span>Verified Escrow</span>
+            <span style="color:var(--purple);">$250 Milestone Deposits</span>
+          </div>
+          <div class="stat-val" style="color:var(--purple);" id="deposits-val">...</div>
+          <div class="stat-sub">Locked Deposits Awaiting Delivery</div>
+        </div>
+
+        <div class="stat-card stat-card-amber">
+          <div class="stat-header">
+            <span>Autonomous Dev Swarm</span>
+            <span style="color:var(--yellow);">Qwen 2.5:3b</span>
+          </div>
+          <div class="stat-val" style="font-size:20px; color:#fff; margin-top:6px;">7/7 Subagents</div>
+          <div class="stat-sub">Automated Extraction & QA Pipelines</div>
+        </div>
+      </div>
+
+      <!-- MAIN WORKBENCH -->
+      <div class="workbench-card">
+        <div class="workbench-header">
+          <div class="workbench-title-group">
+            <h2 id="view-title">Master Deal Table</h2>
+            <p id="view-subtitle">Full-breadth overview of all verified business prospects, sandboxes, and repository assets.</p>
+          </div>
+
+          <div class="view-switcher">
+            <button class="view-tab active" id="tab-btn-table" onclick="switchViewMode('table')">📋 Table View</button>
+            <button class="view-tab" id="tab-btn-kanban" onclick="switchViewMode('kanban')">📊 Kanban Board</button>
+          </div>
+        </div>
+
+        <!-- SCREEN 1: MASTER TABLE VIEW -->
+        <div id="screen-table" class="screen-panel active">
+          <div class="table-container">
+            <table class="master-table">
+              <thead>
+                <tr>
+                  <th>Business Enterprise</th>
+                  <th>Target Registry & Jurisdiction</th>
+                  <th>Plan & MRR</th>
+                  <th>Lifecycle Stage</th>
+                  <th>Interactive Sandbox / Checkout</th>
+                  <th>Extractor Repo</th>
+                  <th>Pitch Email</th>
+                  <th>Stage Advance</th>
+                </tr>
+              </thead>
+              <tbody id="table-tbody">
+                <!-- Dynamically Populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- SCREEN 2: HORIZONTAL KANBAN VIEW -->
+        <div id="screen-kanban" class="screen-panel">
+          <div class="kanban-viewport" id="kanban-viewport">
+            <!-- Dynamically Populated Columns -->
+          </div>
+        </div>
+
+        <!-- SCREEN 3: DEV SWARM -->
+        <div id="screen-swarm" class="screen-panel">
+          <div style="padding:24px;">
+            <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:16px;" id="swarm-cards">
+              <div class="stat-card"><div style="font-weight:700; color:#fff;">1. Planner & Scraper Lead</div><div style="font-size:11px; color:var(--green);">🟢 READY</div><p style="font-size:11px; color:var(--text-muted); margin-top:6px;">Decomposes public portal architecture into DOM extraction tasks.</p></div>
+              <div class="stat-card"><div style="font-weight:700; color:#fff;">2. DOM Architect</div><div style="font-size:11px; color:var(--green);">🟢 READY</div><p style="font-size:11px; color:var(--text-muted); margin-top:6px;">Prunes large HTML trees and maps resilient CSS / XPath selectors.</p></div>
+              <div class="stat-card"><div style="font-weight:700; color:#fff;">3. Stealth & Anti-Bot Specialist</div><div style="font-size:11px; color:var(--green);">🟢 READY</div><p style="font-size:11px; color:var(--text-muted); margin-top:6px;">Probes Cloudflare / Akamai WAF headers and configures proxy pools.</p></div>
+              <div class="stat-card"><div style="font-weight:700; color:#fff;">4. Pipeline Systems Architect</div><div style="font-size:11px; color:var(--green);">🟢 READY</div><p style="font-size:11px; color:var(--text-muted); margin-top:6px;">Validates schema types, date parsing, and CSV/JSON output formats.</p></div>
+              <div class="stat-card"><div style="font-weight:700; color:#fff;">5. Scraper Junior Developer</div><div style="font-size:11px; color:var(--green);">🟢 READY</div><p style="font-size:11px; color:var(--text-muted); margin-top:6px;">Writes and compiles clean Playwright Python extraction code.</p></div>
+              <div class="stat-card"><div style="font-weight:700; color:#fff;">6. QA Gatekeeper</div><div style="font-size:11px; color:var(--green);">🟢 ACTIVE (95% Min Score)</div><p style="font-size:11px; color:var(--text-muted); margin-top:6px;">Executes containerized test runs against real registry endpoints.</p></div>
+              <div class="stat-card"><div style="font-weight:700; color:#fff;">7. Retainer Drift Shield Sentry</div><div style="font-size:11px; color:var(--green);">🟢 ACTIVE (5:30 AM UTC)</div><p style="font-size:11px; color:var(--text-muted); margin-top:6px;">Pre-flight dry runs before customer 6 AM daily delivery windows.</p></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SCREEN 4: DAILY RUNS -->
+        <div id="screen-daily" class="screen-panel">
+          <div style="padding:24px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+              <div>
+                <h3 style="font-size:15px; color:#fff;">Daily 6:00 AM - 8:00 AM Delivery Sync Schedule</h3>
+                <p style="font-size:12px; color:var(--text-muted);">Automated extraction windows with pre-flight Drift Shield verification.</p>
+              </div>
+              <button class="btn btn-cyan" onclick="showToast('⚡ Triggered manual verification for all active client deliveries!')">⚡ Run All Active Deliveries</button>
+            </div>
+            <table class="master-table">
+              <thead>
+                <tr>
+                  <th>Client Enterprise</th>
+                  <th>Delivery Window</th>
+                  <th>Target Registry</th>
+                  <th>Drift Shield Status</th>
+                  <th>Last Extraction</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><b>Apex Commercial Title Group</b></td>
+                  <td>08:00 AM CST (Daily)</td>
+                  <td>Florida Judicial Feed</td>
+                  <td><span class="stage-badge stage-badge-green">PASS (HTTP 200)</span></td>
+                  <td>42 records delivered</td>
+                  <td><button class="btn btn-outline" style="padding:4px 8px; font-size:11px;" onclick="showToast('Retest completed: HTTP 200 OK')">Re-Test</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- SCREEN 5: GOVERNANCE -->
+        <div id="screen-governance" class="screen-panel">
+          <div style="padding:24px; display:flex; flex-direction:column; gap:20px;">
+            <div style="background:rgba(239, 68, 68, 0.08); border:1px solid var(--red); border-radius:10px; padding:20px;">
+              <h3 style="font-size:16px; color:var(--red); margin-bottom:8px;">🚨 System Emergency Circuit Breaker</h3>
+              <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px;">
+                Instantly pauses all autonomous scout probers, containerized scraper jobs, and outreach dispatching if upstream county rate limits or bot protections are triggered.
+              </p>
+              <button class="btn btn-danger" id="killswitch-btn" onclick="toggleEmergencyStop()">ACTIVATE EMERGENCY STOP</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OUTREACH MODAL -->
+  <div id="email-modal" class="modal-overlay">
+    <div class="modal-card">
+      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:12px;">
+        <h3 id="modal-title" style="font-size:16px; color:#fff;">✉️ Outreach Email Composer</h3>
+        <button style="background:transparent; border:none; color:var(--text-muted); font-size:20px; cursor:pointer;" onclick="closeEmailModal()">✕</button>
+      </div>
+      <div>
+        <label style="font-size:11px; color:var(--text-muted); display:block; margin-bottom:4px; font-family:var(--mono);">Recipient Email:</label>
+        <input type="text" id="modal-to" style="width:100%; background:var(--card-alt); border:1px solid var(--border); color:#fff; padding:8px 12px; border-radius:6px; font-size:13px; margin-bottom:12px; outline:none;">
+
+        <label style="font-size:11px; color:var(--text-muted); display:block; margin-bottom:4px; font-family:var(--mono);">Subject Line:</label>
+        <input type="text" id="modal-subject" style="width:100%; background:var(--card-alt); border:1px solid var(--border); color:#fff; padding:8px 12px; border-radius:6px; font-size:13px; margin-bottom:12px; outline:none;">
+
+        <label style="font-size:11px; color:var(--text-muted); display:block; margin-bottom:4px; font-family:var(--mono);">Email Body (with Personalized Link):</label>
+        <textarea id="modal-body" rows="9" style="width:100%; background:var(--card-alt); border:1px solid var(--border); color:#fff; padding:10px 12px; border-radius:6px; font-size:12px; font-family:var(--mono); line-height:1.5; outline:none;"></textarea>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid var(--border); padding-top:12px;">
+        <button class="btn btn-outline" onclick="copyEmailText()">📋 Copy Email Text</button>
+        <button class="btn" onclick="sendAndAdvanceLead()">🚀 Mark As Sent & Advance</button>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <!-- FORBIDDEN GATE -->
+  <div id="admin-forbidden-gate" style="display:none; width: 100%; min-height: 100vh; background: var(--bg); color: #fff; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; font-family: var(--font); z-index: 9999;">
+    <h1 style="font-size:36px; font-weight:800; color:var(--red); margin-bottom:12px;">Access Denied</h1>
+    <p style="font-size:16px; color:var(--text-muted); max-width:480px; margin-bottom:24px; line-height:1.5;">
+      Founder Mission Control is restricted to authorized team members only. Please sign in with a Global Admin account.
+    </p>
+    <div style="display: flex; gap: 12px; align-items: center;">
+      <button class="btn" style="padding:12px 32px; font-size:15px;" onclick="openAdminAuth()">Founder Sign In</button>
+      <div id="clerk-gate-user-btn"></div>
+    </div>
+  </div>
+
+  <!-- TOAST CONTAINER -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script>
+    const adminToken = "mock_user_founder_lead_admin";
+    let allLeads = [];
+    let activeLead = null;
+    let emergencyActive = false;
+
+    async function getAuthHeaders() {{
+      let token = adminToken;
+      if (window.Clerk && window.Clerk.session) {{
+        const sessionToken = await window.Clerk.session.getToken();
+        if (sessionToken) token = sessionToken;
+      }}
+      return {{ "Authorization": "Bearer " + token }};
+    }}
+
+    async function loadAdminData() {{
+      try {{
+        const headers = await getAuthHeaders();
+        const res = await fetch('/api/admin/pipeline', {{ headers }});
+        if (res.ok) {{
+          const data = await res.json();
+          const cols = data.kanban.columns;
+          allLeads = Object.values(cols).flat();
+
+          document.getElementById('leads-val').textContent = allLeads.length;
+          document.getElementById('badge-leads-count').textContent = allLeads.length;
+
+          let paidCount = allLeads.filter(l => l.deposit_paid).length;
+          document.getElementById('deposits-val').textContent = paidCount + ' ($' + (paidCount * 250) + ')';
+
+          let totalMrr = allLeads.reduce((acc, curr) => acc + (curr.mrr || 500), 0);
+          document.getElementById('mrr-val').textContent = "$" + totalMrr.toLocaleString() + " / mo";
+
+          renderTable(allLeads);
+          renderKanban(cols);
+        }}
+      }} catch (e) {{
+        console.error("Pipeline load failed:", e);
+      }}
+    }}
+
+    function renderTable(leads) {{
+      const tbody = document.getElementById('table-tbody');
+      tbody.innerHTML = leads.map(l => {{
+        const initials = l.company_name.split(' ').map(w => w[0]).slice(0, 2).join('');
+        const isPaid = l.deposit_paid;
+        const stageClass = isPaid ? 'stage-badge-green' : (l.state === 'OUTREACH_SENT' ? 'stage-badge-amber' : '');
+        
+        return `
+          <tr data-search="${{l.company_name}} ${{l.jurisdiction}} ${{l.lead_id}}">
+            <td>
+              <div class="company-cell">
+                <div class="company-avatar">${{initials}}</div>
+                <div>
+                  <div class="company-name">${{l.company_name}}</div>
+                  <div class="company-email">${{l.contact_email}}</div>
+                </div>
+              </div>
+            </td>
+            <td>
+              <div style="font-weight:600; color:var(--cyan); font-size:12px;">📍 ${{l.jurisdiction || 'Public County Records'}}</div>
+              <a href="${{l.source_url}}" target="_blank" style="font-size:11px; color:var(--text-muted); text-decoration:none;">${{l.source_url || 'https://registry.gov'}} ↗</a>
+            </td>
+            <td>
+              <div style="font-weight:700; color:var(--green); font-family:var(--mono);">$${{l.mrr}}/mo</div>
+              <div style="font-size:11px; color:var(--text-muted);">${{l.tier_name}}</div>
+            </td>
+            <td>
+              <span class="stage-badge ${{stageClass}}">${{l.state}}</span>
+            </td>
+            <td>
+              <div class="link-group">
+                <a href="${{l.checkout_url}}" target="_blank" class="pill-link pill-link-green">🛒 Open Sandbox / Checkout ↗</a>
+                <button class="pill-link" onclick="copyText('${{window.location.origin + l.checkout_url}}', 'Sandbox / Checkout URL')">📋 Copy URL</button>
+              </div>
+            </td>
+            <td>
+              <a href="${{l.repo_url}}" target="_blank" class="pill-link">📦 Download .zip</a>
+            </td>
+            <td>
+              <button class="pill-link" onclick="openEmailModal('${{l.lead_id}}')">✉️ View Email</button>
+            </td>
+            <td>
+              ${{
+                l.next_target_state
+                  ? `<button class="btn" style="padding:6px 12px; font-size:11px;" onclick="advanceLead('${{l.lead_id}}')">${{l.action_label}} ➔</button>`
+                  : `<span style="color:var(--green); font-size:12px; font-weight:700;">✓ In Production</span>`
+              }}
+            </td>
+          </tr>
+        `;
+      }}).join('');
+    }}
+
+    function renderKanban(cols) {{
+      const viewport = document.getElementById('kanban-viewport');
+      viewport.innerHTML = Object.keys(cols).map(stage => {{
+        const stageLeads = cols[stage];
+        const cards = stageLeads.map(c => `
+          <div class="kanban-card">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+              <b style="color:#fff; font-size:13px;">${{c.company_name}}</b>
+              <span style="color:var(--green); font-family:var(--mono); font-weight:700; font-size:11px;">$${{c.mrr}}/mo</span>
+            </div>
+            <div style="font-size:11px; color:var(--cyan); font-family:var(--mono);">📍 ${{c.jurisdiction || 'Public Records'}}</div>
+            
+            <div class="link-group" style="margin-top:4px;">
+              <a href="${{c.checkout_url}}" target="_blank" class="pill-link pill-link-green" style="font-size:10px;">🛒 Sandbox</a>
+              <button class="pill-link" style="font-size:10px;" onclick="copyText('${{window.location.origin + c.checkout_url}}', 'Checkout Link')">📋 Link</button>
+              <button class="pill-link" style="font-size:10px;" onclick="openEmailModal('${{c.lead_id}}')">✉️ Pitch</button>
+              <a href="${{c.repo_url}}" target="_blank" class="pill-link" style="font-size:10px;">📦 Code</a>
+            </div>
+
+            ${{
+              c.next_target_state
+                ? `<button class="btn" style="width:100%; justify-content:center; padding:6px 10px; font-size:11px; margin-top:4px;" onclick="advanceLead('${{c.lead_id}}')">${{c.action_label}} ➔</button>`
+                : `<div style="font-size:11px; color:var(--green); text-align:center; font-weight:700; margin-top:4px;">✓ Live Feed Active</div>`
+            }}
+          </div>
+        `).join('') || '<div style="font-size:11px; color:var(--text-muted); text-align:center; padding:20px 0;">No active deals in stage</div>';
+
+        return `
+          <div class="kanban-column">
+            <div class="column-header">
+              <span class="column-title">${{stage}}</span>
+              <span class="column-count">${{stageLeads.length}}</span>
+            </div>
+            ${{cards}}
+          </div>
+        `;
+      }}).join('');
+    }}
+
+    function handleGlobalSearch() {{
+      const q = document.getElementById('global-search').value.toLowerCase();
+      document.querySelectorAll('#table-tbody tr').forEach(tr => {{
+        const txt = tr.getAttribute('data-search').toLowerCase();
+        tr.style.display = txt.includes(q) ? '' : 'none';
+      }});
+    }}
+
+    function switchViewMode(mode) {{
+      document.querySelectorAll('.view-tab').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('#screen-table, #screen-kanban').forEach(p => p.classList.remove('active'));
+
+      if (mode === 'table') {{
+        document.getElementById('tab-btn-table').classList.add('active');
+        document.getElementById('screen-table').classList.add('active');
+        document.getElementById('view-title').textContent = "Master Deal Table";
+        document.getElementById('view-subtitle').textContent = "Full-breadth overview of all verified business prospects, sandboxes, and repository assets.";
+      }} else {{
+        document.getElementById('tab-btn-kanban').classList.add('active');
+        document.getElementById('screen-kanban').classList.add('active');
+        document.getElementById('view-title').textContent = "Deal Pipeline Kanban";
+        document.getElementById('view-subtitle').textContent = "Visual linear progression of leads from discovery to production retainer.";
+      }}
+    }}
+
+    function switchTab(tabKey, el) {{
+      document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+      if (el) el.classList.add('active');
+
+      document.querySelectorAll('.screen-panel').forEach(p => p.classList.remove('active'));
+      const target = document.getElementById('screen-' + tabKey);
+      if (target) target.classList.add('active');
+
+      const titles = {{
+        'table': ["Master Deal Table", "Full-breadth overview of all verified business prospects, sandboxes, and repository assets."],
+        'kanban': ["Deal Pipeline Kanban", "Visual linear progression of leads from discovery to production retainer."],
+        'swarm': ["7-Specialist Autonomous Dev Swarm", "Automated code generation and verification agents orchestrating against live public portals."],
+        'daily': ["Daily 6:00 AM Execution Grid", "Automated customer deliveries with 5:30 AM Drift Shield pre-flight checks."],
+        'governance': ["System Governance & Circuit Breakers", "Emergency controls, proxy pools, and rate-limiting safeguards."]
+      }};
+
+      if (titles[tabKey]) {{
+        document.getElementById('view-title').textContent = titles[tabKey][0];
+        document.getElementById('view-subtitle').textContent = titles[tabKey][1];
+      }}
+    }}
+
+    function showToast(msg) {{
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = 'toast';
+      toast.innerHTML = '<span>⚡</span> ' + msg;
+      container.appendChild(toast);
+      setTimeout(() => {{
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 200);
+      }}, 3000);
+    }}
+
+    function copyText(text, label) {{
+      navigator.clipboard.writeText(text);
+      showToast('Copied ' + label + ' to clipboard!');
+    }}
+
+    function openEmailModal(leadId) {{
+      const lead = allLeads.find(l => l.lead_id === leadId);
+      if (!lead) return;
+      activeLead = lead;
+
+      document.getElementById('modal-title').textContent = '✉️ Outreach: ' + lead.company_name;
+      document.getElementById('modal-to').value = lead.contact_email;
+      document.getElementById('modal-subject').value = lead.outreach_subject || ('Automated Data Feed for ' + lead.company_name);
+      document.getElementById('modal-body').value = lead.outreach_body || ('Hi ' + lead.company_name + ' Team,\\n\\nWe built an automated data feed sandbox for you:\\n' + window.location.origin + lead.checkout_url);
+      document.getElementById('email-modal').style.display = 'flex';
+    }}
+
+    function closeEmailModal() {{
+      document.getElementById('email-modal').style.display = 'none';
+    }}
+
+    function copyEmailText() {{
+      const to = document.getElementById('modal-to').value;
+      const sub = document.getElementById('modal-subject').value;
+      const body = document.getElementById('modal-body').value;
+      navigator.clipboard.writeText(`To: ${{to}}\\nSubject: ${{sub}}\\n\\n${{body}}`);
+      showToast('Email draft copied to clipboard!');
+    }}
+
+    async function sendAndAdvanceLead() {{
+      if (!activeLead) return;
+      await advanceLead(activeLead.lead_id);
+      closeEmailModal();
+      showToast('✓ Outreach marked as sent for ' + activeLead.company_name + '!');
+    }}
+
+    async function advanceLead(leadId) {{
+      try {{
+        const headers = await getAuthHeaders();
+        const res = await fetch('/api/admin/leads/' + leadId + '/advance', {{
+          method: 'POST',
+          headers
+        }});
+        if (res.ok) {{
+          showToast('Lead advanced to next pipeline stage!');
+          loadAdminData();
+        }} else {{
+          alert('Advance error: ' + (await res.text()));
+        }}
+      }} catch (e) {{
+        alert('Network error: ' + e);
+      }}
+    }}
+
+    async function triggerScoutDiscovery() {{
+      const btn = document.getElementById('scout-btn');
+      btn.textContent = "🔍 Probing Portals...";
+      try {{
+        const headers = await getAuthHeaders();
+        const res = await fetch('/api/admin/scout/trigger-run', {{
+          method: 'POST',
+          headers
+        }});
+        if (res.ok) {{
+          const data = await res.json();
+          showToast(`🎉 Discovered ${{data.company_name}} in ${{data.jurisdiction}}!`);
+          loadAdminData();
+        }} else {{
+          alert('Scout run error: ' + (await res.text()));
+        }}
+      }} catch (e) {{
+        alert('Network error: ' + e);
+      }} finally {{
+        btn.textContent = "⚡ Discover Next Lead";
+      }}
+    }}
+
+    async function toggleEmergencyStop() {{
+      emergencyActive = !emergencyActive;
+      const btn = document.getElementById('killswitch-btn');
+      if (emergencyActive) {{
+        btn.textContent = "DEACTIVATE EMERGENCY STOP (RESUME SYSTEM)";
+        btn.style.background = "var(--green)";
+        showToast('🚨 EMERGENCY STOP ACTIVATED: System Paused');
+      }} else {{
+        btn.textContent = "ACTIVATE EMERGENCY STOP";
+        btn.style.background = "var(--red)";
+        showToast('🟢 System Resumed: Normal Operations');
+      }}
+    }}
+
+    async function openAdminAuth() {{
+      const backdrop = document.getElementById('admin-clerk-backdrop');
+      const target = document.getElementById('admin-modal-target');
+      if (backdrop) backdrop.style.display = 'flex';
+
+      try {{
+        if (window.Clerk) {{
+          if (!window.Clerk.loaded) {{
+            await window.Clerk.load();
+          }}
+          if (target) {{
+            target.innerHTML = '';
+            window.Clerk.mountSignIn(target);
+          }}
+        }} else {{
+          if (target) target.innerHTML = '<div style="color:#ef4444; padding:20px; font-size:13px;">Clerk SDK loading... please click again in a moment.</div>';
+        }}
+      }} catch(err) {{
+        console.error("Admin Clerk mount error:", err);
+      }}
+    }}
+
+    function closeAdminClerkModal() {{
+      const backdrop = document.getElementById('admin-clerk-backdrop');
+      if (backdrop) backdrop.style.display = 'none';
+    }}
+
+    async function initAdminClerk() {{
+      try {{
+        if (window.Clerk) {{
+          if (!window.Clerk.loaded) {{
+            await window.Clerk.load();
+          }}
+          const authContainer = document.getElementById('clerk-founder-auth');
+          const protectedArea = document.getElementById('admin-protected-area');
+          const forbiddenGate = document.getElementById('admin-forbidden-gate');
+          const gateUserBtn = document.getElementById('clerk-gate-user-btn');
+
+          if (window.Clerk.user) {{
+            const email = (window.Clerk.user.primaryEmailAddress?.emailAddress || "").toLowerCase().trim();
+            const isAdmin = ["pahrmancb@gmail.com", "pharmancb@gmail.com"].includes(email) || email.includes("pahrmancb");
+            
+            if (isAdmin) {{
+              if (protectedArea) protectedArea.style.display = 'flex';
+              if (forbiddenGate) forbiddenGate.style.display = 'none';
+              if (authContainer) {{
+                authContainer.innerHTML = '<div id="clerk-admin-user-btn" style="display:flex; align-items:center; gap:8px;"></div>';
+                window.Clerk.mountUserButton(document.getElementById('clerk-admin-user-btn'));
+              }}
+              await loadAdminData();
+            }} else {{
+              if (protectedArea) protectedArea.style.display = 'none';
+              if (forbiddenGate) forbiddenGate.style.display = 'flex';
+              if (gateUserBtn) {{
+                gateUserBtn.innerHTML = '';
+                window.Clerk.mountUserButton(gateUserBtn);
+              }}
+            }}
+          }} else {{
+            if (protectedArea) protectedArea.style.display = 'none';
+            if (forbiddenGate) forbiddenGate.style.display = 'flex';
+            if (authContainer) {{
+              authContainer.innerHTML = '<button class="btn" style="width:100%; padding:6px; font-size:11px; justify-content:center;" onclick="openAdminAuth()">Founder Sign In</button>';
+            }}
+            if (gateUserBtn) gateUserBtn.innerHTML = '';
+          }}
+        }}
+      }} catch(e) {{
+        console.warn("Clerk admin auth:", e);
+      }}
+    }}
+
+    window.addEventListener('load', () => {{
+      loadAdminData();
+      initAdminClerk();
+    }});
+  </script>
+</body>
+</html>

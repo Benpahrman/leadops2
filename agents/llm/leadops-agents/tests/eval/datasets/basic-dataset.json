@@ -1,0 +1,130 @@
+{
+  "eval_cases": [
+    {
+      "eval_case_id": "scout_probate_research",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Research Cook County Probate filings for prospect 'Summit Real Estate Holdings'. Identify the portal URL, primary jurisdiction, and suggest at least 5 structured fields to extract."
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "Research recorded for Summit Real Estate Holdings:\n- Niche: Probate and Estate Filings\n- Jurisdiction: Cook County, IL\n- Portal: Cook County Circuit Court Clerk Probate Division\n- Portal URL: https://court.cookcountyil.gov/probate\n- Suggested Fields: [\"case_number\", \"filing_date\", \"deceased_name\", \"executor_name\", \"attorney_name\", \"estate_value\"]"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "scout_code_enforcement",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Evaluate public municipal violation records for 'Apex Property Management' in Maricopa County, AZ. Suggest fields and appropriate sync tier."
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "Recorded evidence for Apex Property Management:\n- Jurisdiction: Maricopa County, AZ\n- Portal Name: Phoenix & Maricopa Code Enforcement Portal\n- Recommended Tier: Daily Sync (5x weekly)\n- Suggested Fields: [\"violation_id\", \"parcel_number\", \"issue_date\", \"violation_type\", \"status\", \"inspector_name\"]"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "intake_prefill_confirmation",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Convert the probate research for Summit Real Estate into a customer portal intake assumption form. Ensure all assumptions require confirmation and indicate evidence confidence."
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "Intake Form prepared with 5 reviewable assumptions:\n1. Business Type: Probate and Estate Filings (Confidence: high)\n2. Jurisdiction: Cook County, IL (Confidence: high)\n3. Portal URL: https://court.cookcountyil.gov/probate (Confidence: high)\n4. Recommended Plan: Daily Sync (Confidence: medium)\n5. Suggested Fields: case_number, filing_date, deceased_name, executor_name, estate_value (Confidence: high)\nPrimary action: 'Looks right, continue'."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "qa_gatekeeper_pass",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Evaluate build evidence with 4 passed acceptance checks: 25 rows extracted, field nullability < 2%, WAF clean, schema valid."
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "QA Gatekeeper Evaluation:\n- Score: 100.0%\n- Result: PASSED (Threshold >= 95.0%)\n- Next Phase: ESCROW_READY\n- Next Action: Publish 25-row escrow preview for customer review."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "qa_gatekeeper_replan",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Evaluate build evidence where 1 of 4 checks failed (only 12 of 25 preview rows returned due to pagination error)."
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "QA Gatekeeper Evaluation:\n- Score: 75.0%\n- Result: FAILED (Threshold >= 95.0%)\n- Feedback: ['Pagination selector did not yield required 25 preview rows']\n- Next Phase: REPLAN\n- Next Action: Return actionable feedback to Planner for next build iteration."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "eval_case_id": "deposit_provisioning_guard",
+      "prompt": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Attempt to create a cloud provisioning plan for lead 'lead-001' which is currently in SOW_GENERATED state without a verified PayPal deposit."
+          }
+        ]
+      },
+      "reference": {
+        "response": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "Provisioning blocked: Verified deposit payment from PayPal webhook is required before creating cloud provisioning plans or starting builder workflows."
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
