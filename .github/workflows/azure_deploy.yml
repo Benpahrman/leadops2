@@ -1,0 +1,82 @@
+name: LeadOps Azure CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP || 'rg-omnileadfeeder-production' }}
+  ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER || 'cromnilead1110.azurecr.io' }}
+  ACR_NAME: ${{ secrets.ACR_NAME || 'cromnilead1110' }}
+
+jobs:
+  test-and-lint:
+    name: Run Test Suite & Quality Gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Python Dependencies & Run Tests
+        run: |
+          pip install -r requirements.txt
+          pytest -q tests/test_storage.py tests/test_api.py tests/test_observability.py
+
+  build-and-deploy:
+    name: Build Containers & Deploy to Azure
+    needs: test-and-lint
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || (secrets.AZURE_CLIENT_ID != '' || secrets.AZURE_CREDENTIALS != '') }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Azure CLI Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to Azure Container Registry
+        run: |
+          az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Build & Push API Image
+        run: |
+          docker build -t ${{ env.ACR_LOGIN_SERVER }}/leadops-api:${{ github.sha }} -t ${{ env.ACR_LOGIN_SERVER }}/leadops-api:latest -f Dockerfile .
+          docker push ${{ env.ACR_LOGIN_SERVER }}/leadops-api:${{ github.sha }}
+          docker push ${{ env.ACR_LOGIN_SERVER }}/leadops-api:latest
+
+      - name: Build & Push Swarm Worker Image
+        run: |
+          docker build -t ${{ env.ACR_LOGIN_SERVER }}/leadops-worker:${{ github.sha }} -t ${{ env.ACR_LOGIN_SERVER }}/leadops-worker:latest -f Dockerfile.worker .
+          docker push ${{ env.ACR_LOGIN_SERVER }}/leadops-worker:${{ github.sha }}
+          docker push ${{ env.ACR_LOGIN_SERVER }}/leadops-worker:latest
+
+      - name: Update Azure Container Apps Revisions
+        run: |
+          az containerapp update \
+            --name aca-leadops-api-production \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --image ${{ env.ACR_LOGIN_SERVER }}/leadops-api:${{ github.sha }}
+          
+          az containerapp update \
+            --name aca-leadops-worker-production \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --image ${{ env.ACR_LOGIN_SERVER }}/leadops-worker:${{ github.sha }}

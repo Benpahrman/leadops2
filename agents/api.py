@@ -1,9 +1,13 @@
 """LeadOps API application factory."""
 
 import os
+from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
+from . import __version__
 from .admin_ops import AdminMissionControlService
 from .auth import ClerkAuthService
 from .dashboard import CustomerDashboardService
@@ -12,12 +16,24 @@ from .logging_config import get_logger
 from .middleware import EndpointRateLimiter
 from .portal import PortalService
 from .scout_pipeline import ScoutPortalPipeline
-from .storage import SqliteStorageBackend, StorageBackend
+from .storage import SqliteStorageBackend, StorageBackend, create_storage_backend
+from .websocket import progress_manager
 
 from .routes import portal, dashboard, auth, admin, scout, payments, system, websocket
 from .startup import bootstrap_demo_lead
 
 logger = get_logger("api")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """FastAPI application lifespan manager for clean startup and shutdown."""
+    yield
+    # Gracefully close all active WebSockets on server shutdown
+    try:
+        await progress_manager.close_all()
+    except Exception as e:
+        logger.warning(f"WebSocket shutdown notice: {e}")
 
 
 def create_app(
@@ -28,10 +44,17 @@ def create_app(
     api_token: str | None = None,
 ) -> FastAPI:
     """Create configured FastAPI app with security middleware and routes."""
-    app = FastAPI(title="LeadOps Customer Portal & Integration API", version="1.0.0")
-
-    # Security CORS — restrict to known origins (override with LEADOPS_CORS_ORIGINS comma-separated list)
-    env = os.environ.get("ENV", "production").lower()
+    env = os.environ.get("ENV", "development").lower()
+    enable_docs = env != "production" or os.environ.get("ENABLE_DOCS", "false").lower() == "true"
+    
+    app = FastAPI(
+        title="LeadOps Customer Portal & Integration API",
+        version=__version__,
+        lifespan=lifespan,
+        docs_url="/docs" if enable_docs else None,
+        redoc_url="/redoc" if enable_docs else None,
+        openapi_url="/openapi.json" if enable_docs else None,
+    )
     cors_origins_raw = os.environ.get("LEADOPS_CORS_ORIGINS")
     if not cors_origins_raw:
         if env == "production":
@@ -57,7 +80,7 @@ def create_app(
     app.add_middleware(EndpointRateLimiter)
 
     # Initialize services
-    storage_backend = storage or SqliteStorageBackend()
+    storage_backend = storage or create_storage_backend()
     portal_service = portal_svc or PortalService(storage=storage_backend)
     dashboard_service = dashboard_svc or CustomerDashboardService(storage=storage_backend)
     admin_service = admin_ops or AdminMissionControlService(storage=storage_backend)
@@ -90,6 +113,11 @@ def create_app(
     app.include_router(payments.router)
     app.include_router(system.router)
     app.include_router(websocket.router)
+
+    # Mount static assets (shared CSS, favicon, client scripts)
+    static_dir = Path(__file__).parent / "static"
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     return app
 

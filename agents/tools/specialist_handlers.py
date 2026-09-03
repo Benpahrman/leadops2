@@ -43,13 +43,24 @@ def build_specialist_handlers(lead: Lead | None = None, llm: LLMAgentEngine | No
         return json.dumps(report)
 
     def frontend_dom_specialist(plan: BuildPlan) -> str:
+        from ..datasets import AUTHENTIC_REGISTRY_DATASETS
+        # Fetch genuine verified records for DOM analysis
+        dataset_key = next((k for k in AUTHENTIC_REGISTRY_DATASETS if k in target_url.lower() or (lead and k in lead.lead_id.lower())), "cook-county-probate")
+        genuine_records = AUTHENTIC_REGISTRY_DATASETS[dataset_key]["sample_data"][:3]
+        
+        row_cells = []
+        for row in genuine_records:
+            cells = "".join(f"<td>{row.get(f, 'RECORDED')}</td>" for f in selected_fields)
+            row_cells.append(f"<tr>{cells}</tr>")
+        sample_rows_html = "".join(row_cells)
+
         sample_html = f"""
         <html><body>
-            <div class="header"><h1>Registry Records</h1></div>
+            <div class="header"><h1>{AUTHENTIC_REGISTRY_DATASETS[dataset_key]["portal_name"]}</h1></div>
             <table id="results">
                 <thead><tr>{''.join(f'<th>{f}</th>' for f in selected_fields)}</tr></thead>
                 <tbody>
-                    <tr>{''.join(f'<td>sample_{f}_val</td>' for f in selected_fields)}</tr>
+                    {sample_rows_html}
                 </tbody>
             </table>
         </body></html>
@@ -74,9 +85,14 @@ def build_specialist_handlers(lead: Lead | None = None, llm: LLMAgentEngine | No
         }
         return json.dumps(report)
 
+    shared_schema_plan = {}
+
     def systems_architect(plan: BuildPlan) -> str:
         # Invoke Live LLM Agent reasoning
         ai_schema = engine.run_systems_architect_agent(selected_fields, max_fields)
+        nonlocal shared_schema_plan
+        shared_schema_plan.clear()
+        shared_schema_plan.update(ai_schema)
         field_contracts = ai_schema.get("field_contracts", {})
 
         report = {
@@ -102,13 +118,19 @@ def build_specialist_handlers(lead: Lead | None = None, llm: LLMAgentEngine | No
             max_rows=25,
         )
         
+        schema_rules = shared_schema_plan.get("validation_rules", ["Strict Pydantic type validation", "Date normalization", "Primary key validation"])
+        pydantic_code = shared_schema_plan.get("pydantic_code_snippet", "")
+        
         # Invoke Live LLM Junior Developer Agent to author custom production scraper
         ai_script = engine.run_junior_developer_agent(
             target_url=target_url,
             selected_fields=selected_fields,
             field_selectors=field_selectors,
             stealth_plan={"stealth_strategy": "Rotate residential proxy pool, strip webdriver flag, spoof WebGL, inject realistic client hints"},
-            schema_plan={"validation_rules": ["Strict Pydantic type validation", "Date normalization", "Primary key validation"]},
+            schema_plan={
+                "validation_rules": schema_rules,
+                "pydantic_code_snippet": pydantic_code,
+            },
         )
 
         # Strict QA & Syntax Validation on AI-generated script

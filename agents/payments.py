@@ -1,7 +1,10 @@
 from dataclasses import dataclass, field
 from typing import Any
+import logging
 
 from .domain import Lead, PaymentEvent
+
+logger = logging.getLogger("leadops.payments")
 
 
 @dataclass
@@ -18,6 +21,9 @@ class PaymentEventProcessor:
             if not self.storage.record_webhook_event(event_id):
                 return False
         else:
+            logger.warning(
+                "PaymentEventProcessor running with in-memory idempotency set — events are not durable across restarts"
+            )
             if event_id in self.processed_event_ids:
                 return False
             self.processed_event_ids.add(event_id)

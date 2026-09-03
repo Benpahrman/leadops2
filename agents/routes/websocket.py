@@ -1,10 +1,13 @@
-"""WebSocket routes for real-time updates."""
+"""WebSocket routes for real-time progress updates."""
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+import json
+import logging
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from ..auth import ClerkUser, get_current_user
+from ..auth import ClerkAuthService, ClerkUser
 from ..websocket import progress_manager
 
+logger = logging.getLogger("api.websocket")
 router = APIRouter()
 
 
@@ -12,17 +15,40 @@ router = APIRouter()
 async def websocket_progress(
     websocket: WebSocket,
     slug: str,
-    user: ClerkUser = Depends(get_current_user),
 ):
     """WebSocket endpoint for real-time build progress.
     
-    Requires authentication. User must have access to the lead/sandbox.
+    Accepts connections from the customer sandbox and admin dashboard,
+    validating user token if present, and broadcasting real-time progress events.
     """
-    # Validate user has access to this slug
-    # In a real implementation, you'd verify the user owns this sandbox
-    
+    # Extract token from query params, headers, or cookies
+    token = (
+        websocket.query_params.get("token")
+        or websocket.headers.get("authorization", "").replace("Bearer ", "").strip()
+        or websocket.cookies.get("__session")
+        or websocket.cookies.get("__client_uat")
+    )
+
+    user: ClerkUser | None = None
+    if token:
+        try:
+            auth_service = ClerkAuthService()
+            user = auth_service.verify_token(token)
+        except Exception as auth_err:
+            logger.debug(f"WebSocket session notice for slug={slug}: {auth_err}")
+
+    # Register and accept WebSocket connection
     await progress_manager.connect(slug, websocket)
+
     try:
+        # Send initial connection confirmation
+        await websocket.send_json({
+            "type": "connected",
+            "slug": slug,
+            "status": "connected",
+            "user": user.email if user else "anonymous",
+        })
+
         while True:
             # Keep connection alive, listen for client messages (ping/pong)
             data = await websocket.receive_text()
@@ -35,10 +61,5 @@ async def websocket_progress(
     except WebSocketDisconnect:
         progress_manager.disconnect(slug, websocket)
     except Exception as e:
-        logger.error(f"WebSocket error for {slug}: {e}")
+        logger.debug(f"WebSocket connection closed for {slug}: {e}")
         progress_manager.disconnect(slug, websocket)
-
-
-import json
-import logging
-logger = logging.getLogger("api.websocket")

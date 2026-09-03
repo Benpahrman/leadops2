@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": {
+      "value": "production"
+    },
+    "location": {
+      "value": "eastus"
+    },
+    "postgresAdminUser": {
+      "value": "leadopsadmin"
+    },
+    "postgresAdminPassword": {
+      "value": "ChangeThisPassword123!Safe"
+    },
+    "postgresSku": {
+      "value": "Standard_B1ms"
+    },
+    "acrLoginServer": {
+      "value": "crleadops.azurecr.io"
+    },
+    "imageTag": {
+      "value": "latest"
+    },
+    "leadopsApiToken": {
+      "value": "change-to-production-api-token"
+    },
+    "paypalClientId": {
+      "value": ""
+    },
+    "paypalClientSecret": {
+      "value": ""
+    },
+    "clerkSecretKey": {
+      "value": ""
+    },
+    "clerkPublishableKey": {
+      "value": ""
+    },
+    "llmApiKey": {
+      "value": ""
+    },
+    "repositoryUrl": {
+      "value": ""
+    }
+  }
+}

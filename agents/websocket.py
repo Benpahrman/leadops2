@@ -70,6 +70,23 @@ class ProgressManager:
             "error": error,
         })
 
+    async def close_all(self, code: int = 1001, reason: str = "Server shutting down"):
+        """Gracefully close all active WebSocket connections on server shutdown."""
+        async with self._lock:
+            all_conns = []
+            for slug, conns in list(self.connections.items()):
+                for ws in list(conns):
+                    all_conns.append(ws)
+            self.connections.clear()
+
+        for ws in all_conns:
+            try:
+                await ws.close(code=code, reason=reason)
+            except Exception as exc:
+                logger.debug(f"Error during graceful WS close: {exc}")
+        if all_conns:
+            logger.info(f"✓ [WEBSOCKET SHUTDOWN] Gracefully closed {len(all_conns)} active WebSocket connection(s).")
+
 
 # Global progress manager instance
 progress_manager = ProgressManager()

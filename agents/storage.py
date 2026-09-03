@@ -51,6 +51,8 @@ class StorageBackend(Protocol):
 
     def list_email_templates(self) -> list[Any]: ...
 
+    def backup_db(self, target_path: str | None = None) -> str: ...
+
 
 class InMemoryStorageBackend:
     """In-memory storage backend for isolated unit testing."""
@@ -59,6 +61,9 @@ class InMemoryStorageBackend:
         self.leads: dict[str, Lead] = {}
         self.sandboxes: dict[str, Any] = {}
         self.webhook_events: set[str] = set()
+        self.tickets: dict[str, Any] = {}
+        self.cancellation_requests: dict[str, Any] = {}
+        self.email_templates: dict[str, Any] = {}
 
     def save_lead(self, lead: Lead) -> None:
         self.leads[lead.lead_id] = lead
@@ -88,57 +93,39 @@ class InMemoryStorageBackend:
     def has_webhook_event(self, event_id: str) -> bool:
         return event_id in self.webhook_events
 
-    # Ticket operations
     def save_ticket(self, ticket: Any) -> None:
-        if not hasattr(self, 'tickets'):
-            self.tickets = {}
         self.tickets[ticket.ticket_id] = ticket
 
     def get_ticket(self, ticket_id: str) -> Any | None:
-        if not hasattr(self, 'tickets'):
-            return None
         return self.tickets.get(ticket_id)
 
     def list_tickets(self, lead_id: str | None = None) -> list[Any]:
-        if not hasattr(self, 'tickets'):
-            return []
         if lead_id:
             return [t for t in self.tickets.values() if t.lead_id == lead_id]
         return list(self.tickets.values())
 
-    # Cancellation operations
     def save_cancellation_request(self, request: Any) -> None:
-        if not hasattr(self, 'cancellation_requests'):
-            self.cancellation_requests = {}
         self.cancellation_requests[request.request_id] = request
 
     def get_cancellation_request(self, request_id: str) -> Any | None:
-        if not hasattr(self, 'cancellation_requests'):
-            return None
         return self.cancellation_requests.get(request_id)
 
     def list_cancellation_requests(self, lead_id: str | None = None) -> list[Any]:
-        if not hasattr(self, 'cancellation_requests'):
-            return []
         if lead_id:
             return [r for r in self.cancellation_requests.values() if r.lead_id == lead_id]
         return list(self.cancellation_requests.values())
 
-    # Email template operations
     def save_email_template(self, template: Any) -> None:
-        if not hasattr(self, 'email_templates'):
-            self.email_templates = {}
         self.email_templates[template.template_id] = template
 
     def get_email_template(self, template_id: str) -> Any | None:
-        if not hasattr(self, 'email_templates'):
-            return None
         return self.email_templates.get(template_id)
 
     def list_email_templates(self) -> list[Any]:
-        if not hasattr(self, 'email_templates'):
-            return []
         return list(self.email_templates.values())
+
+    def backup_db(self, target_path: str | None = None) -> str:
+        return target_path or "in_memory_backup.db"
 
 
 class SqliteStorageBackend:
@@ -148,6 +135,7 @@ class SqliteStorageBackend:
         self.db_path = db_path
         self._local = threading.local()
         self._init_db()
+        self._init_new_tables()
 
     def _get_connection(self) -> sqlite3.Connection:
         if not hasattr(self._local, 'conn'):
@@ -193,6 +181,19 @@ class SqliteStorageBackend:
                     cursor.execute(f"ALTER TABLE leads ADD COLUMN {col} TEXT DEFAULT ''")
                 except sqlite3.OperationalError:
                     pass
+            # Automation workflow columns
+            automation_text_cols = ["niche", "last_login_at", "created_at", "referred_by", "claimed_by", "paused_until"]
+            automation_int_cols = ["delivery_count", "upsell_sent", "referral_sent", "winback_stage", "heartbeat_count", "is_paused"]
+            for col in automation_text_cols:
+                try:
+                    cursor.execute(f"ALTER TABLE leads ADD COLUMN {col} TEXT DEFAULT ''")
+                except sqlite3.OperationalError:
+                    pass
+            for col in automation_int_cols:
+                try:
+                    cursor.execute(f"ALTER TABLE leads ADD COLUMN {col} INTEGER DEFAULT 0")
+                except sqlite3.OperationalError:
+                    pass
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS sandboxes (
@@ -227,8 +228,10 @@ class SqliteStorageBackend:
                     preview_rows, deposit_paid, final_paid, subscription_active,
                     buyout_paid, audit_log, company_name, contact_email,
                     source_url, jurisdiction, slug, outreach_subject,
-                    outreach_body, repo_url, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    outreach_body, repo_url, niche, delivery_count,
+                    last_login_at, created_at, upsell_sent, referral_sent,
+                    winback_stage, heartbeat_count, referred_by, claimed_by, is_paused, paused_until, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(lead_id) DO UPDATE SET
                     tier_key=excluded.tier_key,
                     state=excluded.state,
@@ -248,6 +251,18 @@ class SqliteStorageBackend:
                     outreach_subject=excluded.outreach_subject,
                     outreach_body=excluded.outreach_body,
                     repo_url=excluded.repo_url,
+                    niche=excluded.niche,
+                    delivery_count=excluded.delivery_count,
+                    last_login_at=excluded.last_login_at,
+                    created_at=excluded.created_at,
+                    upsell_sent=excluded.upsell_sent,
+                    referral_sent=excluded.referral_sent,
+                    winback_stage=excluded.winback_stage,
+                    heartbeat_count=excluded.heartbeat_count,
+                    referred_by=excluded.referred_by,
+                    claimed_by=excluded.claimed_by,
+                    is_paused=excluded.is_paused,
+                    paused_until=excluded.paused_until,
                     updated_at=excluded.updated_at
                 """,
                 (
@@ -270,6 +285,18 @@ class SqliteStorageBackend:
                     getattr(lead, "outreach_subject", "") or "",
                     getattr(lead, "outreach_body", "") or "",
                     getattr(lead, "repo_url", "") or "",
+                    getattr(lead, "niche", "") or "",
+                    getattr(lead, "delivery_count", 0),
+                    getattr(lead, "last_login_at", "") or "",
+                    getattr(lead, "created_at", "") or "",
+                    1 if getattr(lead, "upsell_sent", False) else 0,
+                    1 if getattr(lead, "referral_sent", False) else 0,
+                    getattr(lead, "winback_stage", 0),
+                    getattr(lead, "heartbeat_count", 0),
+                    getattr(lead, "referred_by", "") or "",
+                    getattr(lead, "claimed_by", "") or "",
+                    1 if getattr(lead, "is_paused", False) else 0,
+                    getattr(lead, "paused_until", "") or "",
                     datetime.now(timezone.utc).isoformat(),
                 ),
             )
@@ -463,7 +490,6 @@ class SqliteStorageBackend:
 
     # Ticket operations
     def save_ticket(self, ticket: Any) -> None:
-        self._init_new_tables()
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -505,7 +531,6 @@ class SqliteStorageBackend:
             conn.commit()
 
     def get_ticket(self, ticket_id: str) -> Any | None:
-        self._init_new_tables()
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM tickets WHERE ticket_id = ?", (ticket_id,))
@@ -515,7 +540,6 @@ class SqliteStorageBackend:
             return self._row_to_ticket(row)
 
     def list_tickets(self, lead_id: str | None = None) -> list[Any]:
-        self._init_new_tables()
         with self._get_connection() as conn:
             cursor = conn.cursor()
             if lead_id:
@@ -527,7 +551,6 @@ class SqliteStorageBackend:
 
     # Cancellation operations
     def save_cancellation_request(self, request: Any) -> None:
-        self._init_new_tables()
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -562,7 +585,6 @@ class SqliteStorageBackend:
             conn.commit()
 
     def get_cancellation_request(self, request_id: str) -> Any | None:
-        self._init_new_tables()
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM cancellation_requests WHERE request_id = ?", (request_id,))
@@ -572,7 +594,6 @@ class SqliteStorageBackend:
             return self._row_to_cancellation_request(row)
 
     def list_cancellation_requests(self, lead_id: str | None = None) -> list[Any]:
-        self._init_new_tables()
         with self._get_connection() as conn:
             cursor = conn.cursor()
             if lead_id:
@@ -584,7 +605,6 @@ class SqliteStorageBackend:
 
     # Email template operations
     def save_email_template(self, template: Any) -> None:
-        self._init_new_tables()
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -619,7 +639,6 @@ class SqliteStorageBackend:
             conn.commit()
 
     def get_email_template(self, template_id: str) -> Any | None:
-        self._init_new_tables()
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM email_templates WHERE template_id = ?", (template_id,))
@@ -629,7 +648,6 @@ class SqliteStorageBackend:
             return self._row_to_email_template(row)
 
     def list_email_templates(self) -> list[Any]:
-        self._init_new_tables()
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM email_templates ORDER BY created_at DESC")
@@ -719,4 +737,560 @@ class SqliteStorageBackend:
             outreach_subject=get_col("outreach_subject", ""),
             outreach_body=get_col("outreach_body", ""),
             repo_url=get_col("repo_url", ""),
+            niche=get_col("niche", ""),
+            delivery_count=int(get_col("delivery_count", 0)),
+            last_login_at=get_col("last_login_at", ""),
+            created_at=get_col("created_at", ""),
+            upsell_sent=bool(get_col("upsell_sent", 0)),
+            referral_sent=bool(get_col("referral_sent", 0)),
+            winback_stage=int(get_col("winback_stage", 0)),
+            heartbeat_count=int(get_col("heartbeat_count", 0)),
+            referred_by=get_col("referred_by", ""),
+            claimed_by=get_col("claimed_by", ""),
+            is_paused=bool(get_col("is_paused", 0)),
+            paused_until=get_col("paused_until", ""),
         )
+
+    def backup_db(self, target_path: str | None = None) -> str:
+        """Create a consistent online SQLite backup snapshot using the native backup API."""
+        import os
+        from datetime import datetime, timezone
+        if not target_path:
+            backup_dir = os.path.join(os.path.dirname(self.db_path) or ".", "backups")
+            os.makedirs(backup_dir, exist_ok=True)
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            target_path = os.path.join(backup_dir, f"leadops_backup_{timestamp}.db")
+
+        src_conn = self._get_connection()
+        dest_conn = sqlite3.connect(target_path)
+        try:
+            with dest_conn:
+                src_conn.backup(dest_conn)
+        finally:
+            dest_conn.close()
+        return target_path
+
+
+class PostgresStorageBackend:
+    """Production-grade PostgreSQL storage backend for Azure Database for PostgreSQL (Flexible Server)."""
+
+    def __init__(self, database_url: str) -> None:
+        from sqlalchemy import create_engine
+        normalized_url = database_url
+        if normalized_url.startswith("postgres://"):
+            normalized_url = normalized_url.replace("postgres://", "postgresql://", 1)
+        self.database_url = normalized_url
+        self.engine = create_engine(
+            self.database_url,
+            pool_size=10,
+            max_overflow=20,
+            pool_pre_ping=True,
+            pool_recycle=1800,
+        )
+        self._init_db()
+
+    def _init_db(self) -> None:
+        from sqlalchemy import text
+        with self.engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS leads (
+                    lead_id VARCHAR(255) PRIMARY KEY,
+                    tier_key VARCHAR(50) NOT NULL,
+                    state VARCHAR(50) NOT NULL,
+                    selected_fields TEXT NOT NULL,
+                    qa_score DOUBLE PRECISION,
+                    preview_rows INTEGER NOT NULL DEFAULT 0,
+                    deposit_paid INTEGER NOT NULL DEFAULT 0,
+                    final_paid INTEGER NOT NULL DEFAULT 0,
+                    subscription_active INTEGER NOT NULL DEFAULT 0,
+                    buyout_paid INTEGER NOT NULL DEFAULT 0,
+                    audit_log TEXT NOT NULL,
+                    company_name VARCHAR(255) DEFAULT '',
+                    contact_email VARCHAR(255) DEFAULT '',
+                    source_url TEXT DEFAULT '',
+                    jurisdiction VARCHAR(255) DEFAULT '',
+                    slug VARCHAR(255) DEFAULT '',
+                    outreach_subject TEXT DEFAULT '',
+                    outreach_body TEXT DEFAULT '',
+                    repo_url VARCHAR(500) DEFAULT '',
+                    niche VARCHAR(255) DEFAULT '',
+                    delivery_count INTEGER DEFAULT 0,
+                    last_login_at VARCHAR(100) DEFAULT '',
+                    created_at VARCHAR(100) DEFAULT '',
+                    upsell_sent INTEGER DEFAULT 0,
+                    referral_sent INTEGER DEFAULT 0,
+                    winback_stage INTEGER DEFAULT 0,
+                    heartbeat_count INTEGER DEFAULT 0,
+                    referred_by VARCHAR(255) DEFAULT '',
+                    claimed_by VARCHAR(255) DEFAULT '',
+                    is_paused INTEGER DEFAULT 0,
+                    paused_until VARCHAR(100) DEFAULT '',
+                    updated_at VARCHAR(100) NOT NULL
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS sandboxes (
+                    slug VARCHAR(255) PRIMARY KEY,
+                    lead_id VARCHAR(255) NOT NULL,
+                    rows TEXT NOT NULL,
+                    source_url TEXT NOT NULL,
+                    events TEXT NOT NULL,
+                    progress TEXT NOT NULL,
+                    updated_at VARCHAR(100) NOT NULL,
+                    FOREIGN KEY (lead_id) REFERENCES leads (lead_id) ON DELETE CASCADE
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS webhook_idempotency (
+                    event_id VARCHAR(255) PRIMARY KEY,
+                    received_at VARCHAR(100) NOT NULL
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS tickets (
+                    ticket_id VARCHAR(255) PRIMARY KEY,
+                    lead_id VARCHAR(255) NOT NULL,
+                    ticket_type VARCHAR(50) NOT NULL DEFAULT 'general',
+                    status VARCHAR(50) NOT NULL DEFAULT 'open',
+                    priority VARCHAR(50) NOT NULL DEFAULT 'medium',
+                    title VARCHAR(255) NOT NULL,
+                    description TEXT DEFAULT '',
+                    assignee VARCHAR(255),
+                    sla_deadline VARCHAR(100),
+                    sla_breached INTEGER NOT NULL DEFAULT 0,
+                    created_at VARCHAR(100) NOT NULL,
+                    updated_at VARCHAR(100) NOT NULL,
+                    resolved_at VARCHAR(100),
+                    FOREIGN KEY (lead_id) REFERENCES leads (lead_id) ON DELETE CASCADE
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS cancellation_requests (
+                    request_id VARCHAR(255) PRIMARY KEY,
+                    lead_id VARCHAR(255) NOT NULL,
+                    user_email VARCHAR(255) NOT NULL,
+                    reason TEXT NOT NULL,
+                    status VARCHAR(50) NOT NULL DEFAULT 'pending',
+                    refund_amount DOUBLE PRECISION,
+                    processed_by VARCHAR(255),
+                    created_at VARCHAR(100) NOT NULL,
+                    updated_at VARCHAR(100) NOT NULL,
+                    processed_at VARCHAR(100),
+                    FOREIGN KEY (lead_id) REFERENCES leads (lead_id) ON DELETE CASCADE
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS email_templates (
+                    template_id VARCHAR(255) PRIMARY KEY,
+                    name VARCHAR(255) NOT NULL,
+                    subject_a TEXT NOT NULL,
+                    subject_b TEXT NOT NULL,
+                    body_text TEXT NOT NULL,
+                    body_html TEXT NOT NULL,
+                    variant VARCHAR(10) NOT NULL DEFAULT 'A',
+                    active INTEGER NOT NULL DEFAULT 1,
+                    created_at VARCHAR(100) NOT NULL,
+                    updated_at VARCHAR(100) NOT NULL
+                )
+            """))
+
+    def save_lead(self, lead: Lead) -> None:
+        from sqlalchemy import text
+        stmt = text("""
+            INSERT INTO leads (
+                lead_id, tier_key, state, selected_fields, qa_score,
+                preview_rows, deposit_paid, final_paid, subscription_active,
+                buyout_paid, audit_log, company_name, contact_email,
+                source_url, jurisdiction, slug, outreach_subject,
+                outreach_body, repo_url, niche, delivery_count,
+                last_login_at, created_at, upsell_sent, referral_sent,
+                winback_stage, heartbeat_count, referred_by, claimed_by, is_paused, paused_until, updated_at
+            ) VALUES (
+                :lead_id, :tier_key, :state, :selected_fields, :qa_score,
+                :preview_rows, :deposit_paid, :final_paid, :subscription_active,
+                :buyout_paid, :audit_log, :company_name, :contact_email,
+                :source_url, :jurisdiction, :slug, :outreach_subject,
+                :outreach_body, :repo_url, :niche, :delivery_count,
+                :last_login_at, :created_at, :upsell_sent, :referral_sent,
+                :winback_stage, :heartbeat_count, :referred_by, :claimed_by, :is_paused, :paused_until, :updated_at
+            )
+            ON CONFLICT (lead_id) DO UPDATE SET
+                tier_key = EXCLUDED.tier_key,
+                state = EXCLUDED.state,
+                selected_fields = EXCLUDED.selected_fields,
+                qa_score = EXCLUDED.qa_score,
+                preview_rows = EXCLUDED.preview_rows,
+                deposit_paid = EXCLUDED.deposit_paid,
+                final_paid = EXCLUDED.final_paid,
+                subscription_active = EXCLUDED.subscription_active,
+                buyout_paid = EXCLUDED.buyout_paid,
+                audit_log = EXCLUDED.audit_log,
+                company_name = EXCLUDED.company_name,
+                contact_email = EXCLUDED.contact_email,
+                source_url = EXCLUDED.source_url,
+                jurisdiction = EXCLUDED.jurisdiction,
+                slug = EXCLUDED.slug,
+                outreach_subject = EXCLUDED.outreach_subject,
+                outreach_body = EXCLUDED.outreach_body,
+                repo_url = EXCLUDED.repo_url,
+                niche = EXCLUDED.niche,
+                delivery_count = EXCLUDED.delivery_count,
+                last_login_at = EXCLUDED.last_login_at,
+                created_at = EXCLUDED.created_at,
+                upsell_sent = EXCLUDED.upsell_sent,
+                referral_sent = EXCLUDED.referral_sent,
+                winback_stage = EXCLUDED.winback_stage,
+                heartbeat_count = EXCLUDED.heartbeat_count,
+                referred_by = EXCLUDED.referred_by,
+                claimed_by = EXCLUDED.claimed_by,
+                is_paused = EXCLUDED.is_paused,
+                paused_until = EXCLUDED.paused_until,
+                updated_at = EXCLUDED.updated_at
+        """)
+        params = {
+            "lead_id": lead.lead_id,
+            "tier_key": lead.tier_key,
+            "state": lead.state.value,
+            "selected_fields": json.dumps(lead.selected_fields),
+            "qa_score": lead.qa_score,
+            "preview_rows": lead.preview_rows,
+            "deposit_paid": 1 if lead.deposit_paid else 0,
+            "final_paid": 1 if lead.final_paid else 0,
+            "subscription_active": 1 if lead.subscription_active else 0,
+            "buyout_paid": 1 if lead.buyout_paid else 0,
+            "audit_log": json.dumps(lead.audit_log),
+            "company_name": getattr(lead, "company_name", "") or "",
+            "contact_email": getattr(lead, "contact_email", "") or "",
+            "source_url": getattr(lead, "source_url", "") or "",
+            "jurisdiction": getattr(lead, "jurisdiction", "") or "",
+            "slug": getattr(lead, "slug", "") or "",
+            "outreach_subject": getattr(lead, "outreach_subject", "") or "",
+            "outreach_body": getattr(lead, "outreach_body", "") or "",
+            "repo_url": getattr(lead, "repo_url", "") or "",
+            "niche": getattr(lead, "niche", "") or "",
+            "delivery_count": getattr(lead, "delivery_count", 0),
+            "last_login_at": getattr(lead, "last_login_at", "") or "",
+            "created_at": getattr(lead, "created_at", "") or "",
+            "upsell_sent": 1 if getattr(lead, "upsell_sent", False) else 0,
+            "referral_sent": 1 if getattr(lead, "referral_sent", False) else 0,
+            "winback_stage": getattr(lead, "winback_stage", 0),
+            "heartbeat_count": getattr(lead, "heartbeat_count", 0),
+            "referred_by": getattr(lead, "referred_by", "") or "",
+            "claimed_by": getattr(lead, "claimed_by", "") or "",
+            "is_paused": 1 if getattr(lead, "is_paused", False) else 0,
+            "paused_until": getattr(lead, "paused_until", "") or "",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        with self.engine.begin() as conn:
+            conn.execute(stmt, params)
+
+    def get_lead(self, lead_id: str) -> Lead | None:
+        from sqlalchemy import text
+        with self.engine.connect() as conn:
+            result = conn.execute(text("SELECT * FROM leads WHERE lead_id = :lead_id"), {"lead_id": lead_id})
+            row = result.mappings().fetchone()
+            if not row:
+                return None
+            return SqliteStorageBackend._row_to_lead(row)
+
+    def list_leads(self) -> list[Lead]:
+        from sqlalchemy import text
+        with self.engine.connect() as conn:
+            result = conn.execute(text("SELECT * FROM leads ORDER BY updated_at DESC"))
+            rows = result.mappings().fetchall()
+            return [SqliteStorageBackend._row_to_lead(r) for r in rows]
+
+    def save_sandbox(self, sandbox: Any) -> None:
+        from sqlalchemy import text
+        self.save_lead(sandbox.lead)
+        progress_data = [
+            {
+                "role": event.role,
+                "status": event.status.value,
+                "public_message": event.public_message,
+            }
+            for event in sandbox.progress.events
+        ]
+        stmt = text("""
+            INSERT INTO sandboxes (
+                slug, lead_id, rows, source_url, events, progress, updated_at
+            ) VALUES (
+                :slug, :lead_id, :rows, :source_url, :events, :progress, :updated_at
+            )
+            ON CONFLICT (slug) DO UPDATE SET
+                lead_id = EXCLUDED.lead_id,
+                rows = EXCLUDED.rows,
+                source_url = EXCLUDED.source_url,
+                events = EXCLUDED.events,
+                progress = EXCLUDED.progress,
+                updated_at = EXCLUDED.updated_at
+        """)
+        params = {
+            "slug": sandbox.slug,
+            "lead_id": sandbox.lead.lead_id,
+            "rows": json.dumps(sandbox.rows),
+            "source_url": sandbox.source_url,
+            "events": json.dumps(sandbox.events),
+            "progress": json.dumps(progress_data),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        with self.engine.begin() as conn:
+            conn.execute(stmt, params)
+
+    def get_sandbox(self, slug: str) -> Any | None:
+        from sqlalchemy import text
+        from .portal import Sandbox
+
+        with self.engine.connect() as conn:
+            result = conn.execute(text("SELECT * FROM sandboxes WHERE slug = :slug"), {"slug": slug})
+            row = result.mappings().fetchone()
+            if not row:
+                return None
+            lead = self.get_lead(row["lead_id"])
+            if not lead:
+                return None
+
+            feed = ProgressFeed()
+            raw_progress = json.loads(row["progress"])
+            for p in raw_progress:
+                feed.publish(
+                    role=p["role"],
+                    status=ProgressStatus(p["status"]),
+                    public_message=p["public_message"],
+                )
+
+            return Sandbox(
+                slug=row["slug"],
+                lead=lead,
+                rows=json.loads(row["rows"]),
+                source_url=row["source_url"],
+                events=json.loads(row["events"]),
+                progress=feed,
+            )
+
+    def list_sandboxes(self) -> list[Any]:
+        from sqlalchemy import text
+        with self.engine.connect() as conn:
+            result = conn.execute(text("SELECT slug FROM sandboxes ORDER BY updated_at DESC"))
+            rows = result.mappings().fetchall()
+            sandboxes = []
+            for r in rows:
+                sb = self.get_sandbox(r["slug"])
+                if sb:
+                    sandboxes.append(sb)
+            return sandboxes
+
+    def record_webhook_event(self, event_id: str) -> bool:
+        from sqlalchemy import text
+        if not event_id:
+            return False
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(
+                    text("INSERT INTO webhook_idempotency (event_id, received_at) VALUES (:event_id, :received_at)"),
+                    {"event_id": event_id, "received_at": datetime.now(timezone.utc).isoformat()},
+                )
+                return True
+        except Exception:
+            return False
+
+    def has_webhook_event(self, event_id: str) -> bool:
+        from sqlalchemy import text
+        with self.engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT 1 FROM webhook_idempotency WHERE event_id = :event_id"),
+                {"event_id": event_id},
+            )
+            return result.fetchone() is not None
+
+    def save_ticket(self, ticket: Any) -> None:
+        from sqlalchemy import text
+        stmt = text("""
+            INSERT INTO tickets (
+                ticket_id, lead_id, ticket_type, status, priority,
+                title, description, assignee, sla_deadline,
+                sla_breached, created_at, updated_at, resolved_at
+            ) VALUES (
+                :ticket_id, :lead_id, :ticket_type, :status, :priority,
+                :title, :description, :assignee, :sla_deadline,
+                :sla_breached, :created_at, :updated_at, :resolved_at
+            )
+            ON CONFLICT (ticket_id) DO UPDATE SET
+                lead_id = EXCLUDED.lead_id,
+                ticket_type = EXCLUDED.ticket_type,
+                status = EXCLUDED.status,
+                priority = EXCLUDED.priority,
+                title = EXCLUDED.title,
+                description = EXCLUDED.description,
+                assignee = EXCLUDED.assignee,
+                sla_deadline = EXCLUDED.sla_deadline,
+                sla_breached = EXCLUDED.sla_breached,
+                updated_at = EXCLUDED.updated_at,
+                resolved_at = EXCLUDED.resolved_at
+        """)
+        params = {
+            "ticket_id": ticket.ticket_id,
+            "lead_id": ticket.lead_id,
+            "ticket_type": ticket.ticket_type.value if hasattr(ticket.ticket_type, "value") else str(ticket.ticket_type),
+            "status": ticket.status.value if hasattr(ticket.status, "value") else str(ticket.status),
+            "priority": ticket.priority.value if hasattr(ticket.priority, "value") else str(ticket.priority),
+            "title": ticket.title,
+            "description": ticket.description,
+            "assignee": ticket.assignee,
+            "sla_deadline": ticket.sla_deadline.isoformat() if ticket.sla_deadline else None,
+            "sla_breached": 1 if ticket.sla_breached else 0,
+            "created_at": ticket.created_at.isoformat() if hasattr(ticket.created_at, "isoformat") else str(ticket.created_at),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "resolved_at": ticket.resolved_at.isoformat() if ticket.resolved_at and hasattr(ticket.resolved_at, "isoformat") else None,
+        }
+        with self.engine.begin() as conn:
+            conn.execute(stmt, params)
+
+    def get_ticket(self, ticket_id: str) -> Any | None:
+        from sqlalchemy import text
+        with self.engine.connect() as conn:
+            result = conn.execute(text("SELECT * FROM tickets WHERE ticket_id = :ticket_id"), {"ticket_id": ticket_id})
+            row = result.mappings().fetchone()
+            if not row:
+                return None
+            return SqliteStorageBackend._row_to_ticket(row)
+
+    def list_tickets(self, lead_id: str | None = None) -> list[Any]:
+        from sqlalchemy import text
+        with self.engine.connect() as conn:
+            if lead_id:
+                result = conn.execute(
+                    text("SELECT * FROM tickets WHERE lead_id = :lead_id ORDER BY created_at DESC"),
+                    {"lead_id": lead_id},
+                )
+            else:
+                result = conn.execute(text("SELECT * FROM tickets ORDER BY created_at DESC"))
+            rows = result.mappings().fetchall()
+            return [SqliteStorageBackend._row_to_ticket(r) for r in rows]
+
+    def save_cancellation_request(self, request: Any) -> None:
+        from sqlalchemy import text
+        stmt = text("""
+            INSERT INTO cancellation_requests (
+                request_id, lead_id, user_email, reason, status,
+                refund_amount, processed_by, created_at, updated_at, processed_at
+            ) VALUES (
+                :request_id, :lead_id, :user_email, :reason, :status,
+                :refund_amount, :processed_by, :created_at, :updated_at, :processed_at
+            )
+            ON CONFLICT (request_id) DO UPDATE SET
+                lead_id = EXCLUDED.lead_id,
+                user_email = EXCLUDED.user_email,
+                reason = EXCLUDED.reason,
+                status = EXCLUDED.status,
+                refund_amount = EXCLUDED.refund_amount,
+                processed_by = EXCLUDED.processed_by,
+                updated_at = EXCLUDED.updated_at,
+                processed_at = EXCLUDED.processed_at
+        """)
+        params = {
+            "request_id": request.request_id,
+            "lead_id": request.lead_id,
+            "user_email": request.user_email,
+            "reason": request.reason,
+            "status": request.status.value if hasattr(request.status, "value") else str(request.status),
+            "refund_amount": request.refund_amount,
+            "processed_by": request.processed_by,
+            "created_at": request.created_at.isoformat() if hasattr(request.created_at, "isoformat") else str(request.created_at),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "processed_at": request.processed_at.isoformat() if request.processed_at and hasattr(request.processed_at, "isoformat") else None,
+        }
+        with self.engine.begin() as conn:
+            conn.execute(stmt, params)
+
+    def get_cancellation_request(self, request_id: str) -> Any | None:
+        from sqlalchemy import text
+        with self.engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT * FROM cancellation_requests WHERE request_id = :request_id"),
+                {"request_id": request_id},
+            )
+            row = result.mappings().fetchone()
+            if not row:
+                return None
+            return SqliteStorageBackend._row_to_cancellation_request(row)
+
+    def list_cancellation_requests(self, lead_id: str | None = None) -> list[Any]:
+        from sqlalchemy import text
+        with self.engine.connect() as conn:
+            if lead_id:
+                result = conn.execute(
+                    text("SELECT * FROM cancellation_requests WHERE lead_id = :lead_id ORDER BY created_at DESC"),
+                    {"lead_id": lead_id},
+                )
+            else:
+                result = conn.execute(text("SELECT * FROM cancellation_requests ORDER BY created_at DESC"))
+            rows = result.mappings().fetchall()
+            return [SqliteStorageBackend._row_to_cancellation_request(r) for r in rows]
+
+    def save_email_template(self, template: Any) -> None:
+        from sqlalchemy import text
+        stmt = text("""
+            INSERT INTO email_templates (
+                template_id, name, subject_a, subject_b, body_text,
+                body_html, variant, active, created_at, updated_at
+            ) VALUES (
+                :template_id, :name, :subject_a, :subject_b, :body_text,
+                :body_html, :variant, :active, :created_at, :updated_at
+            )
+            ON CONFLICT (template_id) DO UPDATE SET
+                name = EXCLUDED.name,
+                subject_a = EXCLUDED.subject_a,
+                subject_b = EXCLUDED.subject_b,
+                body_text = EXCLUDED.body_text,
+                body_html = EXCLUDED.body_html,
+                variant = EXCLUDED.variant,
+                active = EXCLUDED.active,
+                updated_at = EXCLUDED.updated_at
+        """)
+        params = {
+            "template_id": template.template_id,
+            "name": template.name,
+            "subject_a": template.subject_a,
+            "subject_b": template.subject_b,
+            "body_text": template.body_text,
+            "body_html": template.body_html,
+            "variant": template.variant.value if hasattr(template.variant, "value") else str(template.variant),
+            "active": 1 if template.active else 0,
+            "created_at": template.created_at.isoformat() if hasattr(template.created_at, "isoformat") else str(template.created_at),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        with self.engine.begin() as conn:
+            conn.execute(stmt, params)
+
+    def get_email_template(self, template_id: str) -> Any | None:
+        from sqlalchemy import text
+        with self.engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT * FROM email_templates WHERE template_id = :template_id"),
+                {"template_id": template_id},
+            )
+            row = result.mappings().fetchone()
+            if not row:
+                return None
+            return SqliteStorageBackend._row_to_email_template(row)
+
+    def list_email_templates(self) -> list[Any]:
+        from sqlalchemy import text
+        with self.engine.connect() as conn:
+            result = conn.execute(text("SELECT * FROM email_templates ORDER BY created_at DESC"))
+            rows = result.mappings().fetchall()
+            return [SqliteStorageBackend._row_to_email_template(r) for r in rows]
+
+    def backup_db(self, target_path: str | None = None) -> str:
+        return target_path or f"azure_pg_backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.sql"
+
+
+def create_storage_backend(database_url: str | None = None) -> StorageBackend:
+    """Factory creating PostgresStorageBackend when DATABASE_URL is set, else SqliteStorageBackend."""
+    import os
+    db_url = database_url or os.environ.get("DATABASE_URL")
+    if db_url and (db_url.startswith("postgres://") or db_url.startswith("postgresql://")):
+        return PostgresStorageBackend(database_url=db_url)
+    return SqliteStorageBackend()
+

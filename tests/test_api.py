@@ -1,10 +1,19 @@
 import pytest
+import hmac
+import hashlib
+import os
 from fastapi.testclient import TestClient
 
 from agents.api import create_app
 from agents.domain import Lead, State
 from agents.portal import PortalService
 from agents.storage import InMemoryStorageBackend
+
+
+def generate_test_csrf_token(user_id: str) -> str:
+    """Generate test CSRF token matching the HMAC implementation."""
+    secret = os.environ.get("CLERK_SECRET_KEY", "dev-secret-change-in-production").encode()[:32]
+    return hmac.new(secret, user_id.encode(), hashlib.sha256).hexdigest()[:32]
 
 
 @pytest.fixture
@@ -31,13 +40,16 @@ def test_health_check(client):
 def test_get_portal_html(client):
     res = client.get("/p/test-company-test-lead-1")
     assert res.status_code == 200
-    assert "LeadOps Live Sandbox" in res.text
+    assert ("OmniLeadFeeder Live Sandbox" in res.text or "LeadOps Live Sandbox" in res.text)
     assert "test-company-test-lead-1" in res.text
 
 
 def test_sandbox_api_flow(client):
     slug = "test-company-test-lead-1"
-    csrf_headers = {"X-CSRF-Token": "csrf-dev_admin"}
+    # Mock token "mock_user_founder_lead_admin" parses to user_id="user_founder"
+    auth_headers = {"Authorization": "Bearer mock_user_founder_lead_admin"}
+    csrf_token = generate_test_csrf_token("user_founder")
+    csrf_headers = {**auth_headers, "X-CSRF-Token": csrf_token}
     
     # 1. Fetch sandbox
     res = client.get(f"/api/sandbox/{slug}")
@@ -107,7 +119,7 @@ def test_dashboard_api_routes(client):
     # 1. View dashboard HTML
     res = client.get("/dashboard/test-lead-1")
     assert res.status_code == 200
-    assert "LeadOps Customer Dashboard" in res.text
+    assert ("OmniLeadFeeder Customer Dashboard" in res.text or "LeadOps Customer Dashboard" in res.text)
 
     # 2. Get dashboard state
     res = client.get("/api/dashboard/test-lead-1", headers=headers)
@@ -208,4 +220,201 @@ def test_portal_email_restriction(client):
     # 3. Non-admin user querying their own email should bypass 403 check (returning 200 or 404 depending on existence)
     res = client.get("/api/portal/my-lead?email=client_client1@example.com", headers=user_headers)
     assert res.status_code in {200, 404}
+
+
+def test_get_landing_page(client):
+    res = client.get("/")
+    assert res.status_code == 200
+    assert "Turn Slow, Manual County Portals Into" in res.text
+    assert "Weekly Sync" in res.text
+    assert "Daily Sync" in res.text
+    assert "Full Code Buyout" in res.text
+    assert "Escrow Protected Deposits" in res.text
+
+
+def test_search_sandboxes(client):
+    res = client.get("/api/sandboxes/search?q=test")
+    assert res.status_code == 200
+    data = res.json()
+    assert "results" in data
+    assert len(data["results"]) >= 1
+    assert data["results"][0]["slug"] == "test-company-test-lead-1"
+
+
+def test_static_assets_serving(client):
+    css_res = client.get("/static/main.css")
+    assert css_res.status_code == 200
+    assert "--bg:" in css_res.text
+    assert ".skip-link" in css_res.text
+
+    favicon_res = client.get("/static/favicon.svg")
+    assert favicon_res.status_code == 200
+    assert "<svg" in favicon_res.text
+
+
+def test_pay_final_with_subscription(client):
+    slug = "test-company-test-lead-1"
+    # Transition sandbox lead to ESCROW_PREVIEW
+    portal = client.app.state.portal_service
+    sandbox = portal.get_sandbox(slug)
+    sandbox.lead.deposit_paid = True
+    sandbox.lead.qa_score = 100.0
+    sandbox.lead.preview_rows = 25
+    sandbox.lead.state = State.ESCROW_PREVIEW
+
+    res = client.post(f"/api/sandbox/{slug}/pay-final")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert data["state"] == "DELIVERED"
+    assert data["subscription_active"] is True
+    assert data["subscription_info"] is not None
+    assert data["subscription_info"]["tier"] == "Weekly Sync"
+
+
+def test_sandbox_select_fields(client):
+    slug = "test-company-test-lead-1"
+    csrf_token = generate_test_csrf_token("user_founder")
+    headers = {"Authorization": "Bearer mock_user_founder_lead_admin", "X-CSRF-Token": csrf_token}
+    res = client.post(
+        f"/api/sandbox/{slug}/fields",
+        headers=headers,
+        json={"fields": ["case_number", "decedent_name", "est_value", "filing_date"]}
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data["selected_fields"]) == 4
+    assert "est_value" in data["selected_fields"]
+
+
+def test_admin_lifecycle_email_and_triage(client):
+    headers = {"Authorization": "Bearer mock_user_founder_lead_admin"}
+    lead_id = "test-lead-1"
+
+    # Send lifecycle email
+    res = client.post(
+        f"/api/admin/leads/{lead_id}/send-lifecycle-email",
+        headers=headers,
+        json={
+            "template_name": "deposit_confirmation",
+            "custom_subject": "Test Milestone Subject",
+            "custom_body": "Custom Body Text"
+        }
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert data["template"] == "deposit_confirmation"
+    assert data["sent"] is not None
+
+    # Swarm progress endpoint
+    prog_res = client.get(f"/api/admin/leads/{lead_id}/swarm-progress", headers=headers)
+    assert prog_res.status_code == 200
+    prog_data = prog_res.json()
+    assert prog_data["lead_id"] == lead_id
+
+    # Daily trigger endpoint
+    sync_res = client.post(f"/api/admin/leads/{lead_id}/daily-trigger", headers=headers)
+    assert sync_res.status_code == 200
+    sync_data = sync_res.json()
+    assert sync_data["ok"] is True
+    assert sync_data["rows_delivered"] >= 1
+
+
+def test_client_artifacts_and_audit_trail(client, tmp_path):
+    headers = {"Authorization": "Bearer mock_user_founder_lead_admin"}
+    lead_id = "test-lead-audit-1"
+
+    from agents.client_artifacts import ClientArtifactStore
+    store = ClientArtifactStore(base_dir=tmp_path / "build_artifacts")
+    store.save_artifact(
+        lead_id=lead_id,
+        stage="01_SCOUT_DISCOVERY",
+        agent_name="Market Prospector",
+        filename="01_scout_intelligence.json",
+        content={"company": "Audit Legal Co"},
+        description="Scout test artifact"
+    )
+
+    artifacts = store.list_client_artifacts(lead_id)
+    assert len(artifacts) >= 1
+    assert "01_scout_intelligence.json" in artifacts[0]["filename"]
+    assert artifacts[0]["stage"] == "01_SCOUT_DISCOVERY"
+
+    trail = store.get_audit_trail(lead_id)
+    assert len(trail) >= 1
+    assert trail[0]["agent"] == "Market Prospector"
+
+    # Test modular codebase scaffolding
+    client_dir = store.scaffold_modular_codebase(
+        lead_id=lead_id,
+        company_name="Audit Legal Co",
+        source_url="https://example.gov/filings",
+        niche="Probate & Estate Filings",
+        selected_fields=["case_number", "filing_date", "estate_name", "executor"],
+    )
+    assert (client_dir / "ai-log-trace").exists()
+    assert (client_dir / "src" / "models" / "schema.py").exists()
+    assert (client_dir / "src" / "stealth" / "proxy" / "rotator.py").exists()
+    assert (client_dir / "src" / "stealth" / "captchas" / "solver.py").exists()
+    assert (client_dir / "src" / "stealth" / "evasion.py").exists()
+    assert (client_dir / "src" / "utils" / "date_helpers.py").exists()
+    assert (client_dir / "src" / "utils" / "http_client.py").exists()
+    assert (client_dir / "src" / "export" / "json_exporter.py").exists()
+    assert (client_dir / "src" / "export" / "csv_exporter.py").exists()
+    assert (client_dir / "src" / "export" / "webhook_poster.py").exists()
+    assert (client_dir / "src" / "scraper" / "portal_scraper.py").exists()
+    assert (client_dir / "src" / "tests" / "test_extractor.py").exists()
+    assert (client_dir / "entry.py").exists()
+    assert (client_dir / "requirements.txt").exists()
+    assert (client_dir / "README.md").exists()
+    assert (client_dir / "post_mortem.json").exists()
+    assert (client_dir / "memory.json").exists()
+    assert (client_dir / "research_notes.md").exists()
+
+    # Test admin endpoints
+    res = client.get(f"/api/admin/leads/{lead_id}/artifacts", headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+
+    trail_res = client.get(f"/api/admin/leads/{lead_id}/audit-trail", headers=headers)
+    assert trail_res.status_code == 200
+    trail_data = trail_res.json()
+    assert trail_data["ok"] is True
+
+
+def test_invoice_endpoint(client):
+    res = client.get("/api/dashboard/test-lead-1/invoice")
+    assert res.status_code == 200
+    assert "LEADOPS TECHNOLOGIES" in res.text
+    assert "OFFICIAL RECEIPT / INVOICE" in res.text
+
+
+def test_pause_resume_endpoints(client):
+    auth_headers = {"Authorization": "Bearer mock_user_founder_lead_admin"}
+    
+    # Pause feed
+    pause_res = client.post("/api/dashboard/test-lead-1/pause", json={"days": 30}, headers=auth_headers)
+    assert pause_res.status_code == 200
+    assert pause_res.json()["is_paused"] is True
+
+    # Resume feed
+    resume_res = client.post("/api/dashboard/test-lead-1/resume", headers=auth_headers)
+    assert resume_res.status_code == 200
+    assert resume_res.json()["is_paused"] is False
+
+
+def test_suggest_columns_endpoint(client):
+    slug = "test-company-test-lead-1"
+    res = client.post(f"/api/sandbox/{slug}/suggest-columns")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert len(data["suggestions"]) > 0
+
+
+
+
+
 

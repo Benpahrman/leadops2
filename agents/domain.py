@@ -20,6 +20,7 @@ class State(str, Enum):
     DELIVERED = "DELIVERED"
     WARRANTY_ACTIVE = "WARRANTY_ACTIVE"
     WARRANTY_EXPIRED = "WARRANTY_EXPIRED"
+    WARRANTY_RENEWAL = "WARRANTY_RENEWAL"
     ARCHIVED = "ARCHIVED"
 
 
@@ -55,7 +56,7 @@ ALLOWED_TRANSITIONS = {
     State.PITCH_PENDING_APPROVAL: {State.OUTREACH_SENT, State.ARCHIVED},
     State.OUTREACH_SENT: {State.CONVERSATIONAL_INTAKE, State.ARCHIVED},
     State.CONVERSATIONAL_INTAKE: {State.SOW_GENERATED, State.ARCHIVED},
-    State.SOW_GENERATED: {State.DEPOSIT_PAID, State.ARCHIVED}, # sow generations fin e we're going to get them to sign that when they paay the deposit 
+    State.SOW_GENERATED: {State.DEPOSIT_PAID, State.ARCHIVED},
     State.DEPOSIT_PAID: {State.DEV_BUILDING, State.ARCHIVED},
     State.DEV_BUILDING: {State.ESCROW_PREVIEW, State.BLOCKED_NEEDS_REVIEW, State.ARCHIVED},
     State.BLOCKED_NEEDS_REVIEW: {State.DEV_BUILDING, State.REVIEW, State.ARCHIVED},
@@ -63,7 +64,8 @@ ALLOWED_TRANSITIONS = {
     State.FINAL_PAID: {State.DELIVERED, State.ARCHIVED},
     State.DELIVERED: {State.WARRANTY_ACTIVE, State.ARCHIVED},
     State.WARRANTY_ACTIVE: {State.WARRANTY_EXPIRED, State.ARCHIVED},
-    State.WARRANTY_EXPIRED: {State.ARCHIVED},
+    State.WARRANTY_EXPIRED: {State.WARRANTY_RENEWAL, State.ARCHIVED},
+    State.WARRANTY_RENEWAL: {State.WARRANTY_ACTIVE, State.ARCHIVED},
     State.ARCHIVED: set(),
 }
 
@@ -86,13 +88,35 @@ class Lead:
     buyout_paid: bool = False
     audit_log: list[dict[str, str]] = field(default_factory=list)
     company_name: str = ""
+    contact_name: str = ""
+    contact_role: str = ""
     contact_email: str = ""
+    contact_phone: str = ""
+    decision_maker_linkedin: str = ""
+    target_portal_name: str = ""
+    estimated_monthly_records: int = 500
     source_url: str = ""
     jurisdiction: str = ""
     slug: str = ""
     outreach_subject: str = ""
     outreach_body: str = ""
     repo_url: str = ""
+    niche: str = ""
+    delivery_count: int = 0
+    last_login_at: str = ""
+    created_at: str = ""
+    upsell_sent: bool = False
+    referral_sent: bool = False
+    winback_stage: int = 0  # 0=not started, 1/2/3=email sent, 4=completed
+    heartbeat_count: int = 0
+    referred_by: str = ""
+    claimed_by: str = ""
+    is_paused: bool = False
+    paused_until: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.created_at:
+            self.created_at = datetime.now(timezone.utc).isoformat()
 
     @property
     def tier(self) -> Tier:
@@ -136,10 +160,9 @@ class Lead:
                 raise InvalidTransition("Subscription starts after delivery")
             self.subscription_active = True
         elif event == PaymentEvent.BUYOUT_PAID:
-            if self.tier_key != "buyout":
-                raise InvalidTransition("Buyout payment requires the buyout offer")
             self.buyout_paid = True
-            self.transition(State.FINAL_PAID, event.value)
+            if self.state == State.ESCROW_PREVIEW:
+                self.transition(State.FINAL_PAID, event.value)
 
     def select_fields(self, fields: list[str]) -> None:
         if not fields or len(fields) > self.tier.max_fields:

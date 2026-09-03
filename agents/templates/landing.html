@@ -1,0 +1,1230 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OmniLeadFeeder | Autonomous Public Records Data Feeds & Escrow Extraction</title>
+  <meta name="description" content="Turn slow, manual county portals into automated daily data streams. Powered by 7-agent autonomous dev swarms, 95% QA gatekeeper verification, and 50/50 escrow protection.">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/main.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script async crossorigin="anonymous" data-clerk-publishable-key="{clerk_pk}" src="https://finer-toucan-9692.clerk.accounts.dev/npm/@clerk/clerk-js@5/dist/clerk.browser.js" type="text/javascript"></script>
+  <style>
+    :root {
+      --bg: #070d18;
+      --bg-alt: #0a1324;
+      --card: #0f172a;
+      --card-alt: #162238;
+      --card-hover: #1c2c47;
+      --border: #1e2e4a;
+      --border-light: #2c4266;
+      --text: #f0f6fc;
+      --text-muted: #8ca0be;
+      --green: #10b981;
+      --green-glow: rgba(16, 185, 129, 0.18);
+      --cyan: #38bdf8;
+      --cyan-glow: rgba(56, 189, 248, 0.18);
+      --purple: #a855f7;
+      --purple-glow: rgba(168, 85, 247, 0.18);
+      --yellow: #f59e0b;
+      --red: #ef4444;
+      --font: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* BACKGROUND GLOW ACCENTS */
+    .glow-bg {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100%;
+      max-width: 1400px;
+      height: 600px;
+      background: radial-gradient(circle at 50% 10%, rgba(56, 189, 248, 0.12) 0%, rgba(16, 185, 129, 0.06) 40%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* HEADER */
+    header.landing-header {
+      background: rgba(10, 19, 36, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 32px;
+      height: 70px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .brand-wrap {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+    }
+
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, #10b981, #38bdf8);
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      font-weight: 800;
+      color: #041410;
+      box-shadow: 0 0 16px rgba(16, 185, 129, 0.4);
+    }
+
+    .brand-title {
+      font-size: 18px;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: -0.3px;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+    }
+
+    .nav-link {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 600;
+      transition: color 0.15s;
+    }
+
+    .nav-link:hover {
+      color: #fff;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* BUTTONS */
+    .btn {
+      background: var(--green);
+      color: #041410;
+      border: 0;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-weight: 800;
+      font-size: 14px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      text-decoration: none;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.25);
+    }
+
+    .btn:hover {
+      background: #00ea96;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+    }
+
+    .btn-secondary {
+      background: var(--card-alt);
+      border: 1px solid var(--border-light);
+      color: #fff;
+      box-shadow: none;
+    }
+
+    .btn-secondary:hover {
+      background: var(--card-hover);
+      border-color: var(--cyan);
+      transform: translateY(-2px);
+    }
+
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--border-light);
+      color: var(--text);
+      box-shadow: none;
+    }
+
+    .btn-outline:hover {
+      background: var(--card-alt);
+      border-color: var(--cyan);
+      color: #fff;
+    }
+
+    .btn-lg {
+      padding: 14px 28px;
+      font-size: 16px;
+      border-radius: 10px;
+    }
+
+    /* CONTAINER */
+    .container {
+      max-width: 1240px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 0 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* HERO SECTION */
+    .hero {
+      padding: 80px 0 60px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+    }
+
+    .badge-pill {
+      background: var(--card-alt);
+      border: 1px solid var(--border-light);
+      padding: 6px 14px;
+      border-radius: 30px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--cyan);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+
+    .badge-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--green);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--green);
+    }
+
+    .hero-title {
+      font-size: 52px;
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -1.5px;
+      color: #fff;
+      max-width: 960px;
+    }
+
+    .hero-title span.highlight {
+      background: linear-gradient(135deg, #10b981, #38bdf8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-subtitle {
+      font-size: 18px;
+      color: var(--text-muted);
+      max-width: 720px;
+      line-height: 1.6;
+    }
+
+    .hero-cta-group {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    /* INTERACTIVE SANDBOX SEARCH BAR */
+    .search-box-wrap {
+      width: 100%;
+      max-width: 760px;
+      margin: 20px auto 0;
+      background: var(--card);
+      border: 1px solid var(--border-light);
+      border-radius: 14px;
+      padding: 12px;
+      box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+      position: relative;
+    }
+
+    .search-input-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .search-input-icon {
+      font-size: 18px;
+      color: var(--cyan);
+      padding-left: 8px;
+    }
+
+    .search-input {
+      flex: 1;
+      background: transparent;
+      border: 0;
+      color: #fff;
+      font-size: 16px;
+      font-family: var(--font);
+      outline: none;
+    }
+
+    .search-input::placeholder {
+      color: #5d7599;
+    }
+
+    .quick-tags-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-top: 12px;
+      margin-top: 10px;
+      border-top: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+
+    .quick-tag-label {
+      font-size: 11px;
+      font-weight: 700;
+      font-family: var(--mono);
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    .quick-chip {
+      background: var(--card-alt);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .quick-chip:hover {
+      background: var(--card-hover);
+      border-color: var(--cyan);
+      color: #fff;
+      transform: translateY(-1px);
+    }
+
+    /* SEARCH RESULTS DROPDOWN */
+    .search-dropdown {
+      display: none;
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      right: 0;
+      background: #0d1629;
+      border: 1px solid var(--border-light);
+      border-radius: 12px;
+      max-height: 320px;
+      overflow-y: auto;
+      z-index: 50;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.7);
+      text-align: left;
+    }
+
+    .search-result-item {
+      padding: 12px 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      text-decoration: none;
+      color: var(--text);
+      transition: background 0.15s;
+    }
+
+    .search-result-item:hover {
+      background: var(--card-hover);
+    }
+
+    .search-result-item:last-child {
+      border-bottom: 0;
+    }
+
+    /* STATS STRIP */
+    .stats-strip {
+      padding: 40px 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      background: rgba(10, 19, 36, 0.4);
+      margin: 40px 0;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 24px;
+      text-align: center;
+    }
+
+    .stat-number {
+      font-size: 36px;
+      font-weight: 800;
+      font-family: var(--mono);
+      color: #fff;
+      letter-spacing: -1px;
+    }
+
+    .stat-number.green { color: var(--green); }
+    .stat-number.cyan { color: var(--cyan); }
+    .stat-number.yellow { color: var(--yellow); }
+
+    .stat-label {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      font-weight: 600;
+    }
+
+    /* HOW IT WORKS / ESCROW LIFECYCLE */
+    .section-title-wrap {
+      text-align: center;
+      max-width: 680px;
+      margin: 0 auto 50px;
+    }
+
+    .section-tag {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--cyan);
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+
+    .section-title {
+      font-size: 36px;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: -0.5px;
+    }
+
+    .section-desc {
+      font-size: 16px;
+      color: var(--text-muted);
+      margin-top: 10px;
+    }
+
+    .process-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+      margin-bottom: 60px;
+    }
+
+    .process-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      position: relative;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+
+    .process-card:hover {
+      transform: translateY(-4px);
+      border-color: var(--border-light);
+    }
+
+    .process-step-num {
+      width: 32px;
+      height: 32px;
+      background: var(--card-alt);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--cyan);
+    }
+
+    .process-card-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .process-card-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* PRICING SECTION */
+    .pricing-section {
+      padding: 60px 0 80px;
+    }
+
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+      align-items: stretch;
+    }
+
+    .pricing-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 28px 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 20px;
+      position: relative;
+      transition: all 0.2s;
+    }
+
+    .pricing-card:hover {
+      border-color: var(--cyan);
+      box-shadow: 0 12px 30px rgba(0,0,0,0.4);
+    }
+
+    .pricing-card.popular {
+      background: #0d1930;
+      border: 2px solid var(--green);
+      box-shadow: 0 0 24px var(--green-glow);
+    }
+
+    .popular-tag {
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--green);
+      color: #041410;
+      font-size: 11px;
+      font-weight: 800;
+      padding: 3px 12px;
+      border-radius: 20px;
+      font-family: var(--mono);
+      text-transform: uppercase;
+    }
+
+    .tier-name {
+      font-size: 18px;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .tier-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      min-height: 38px;
+    }
+
+    .tier-price-row {
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+      margin: 12px 0 8px;
+    }
+
+    .tier-price {
+      font-size: 38px;
+      font-weight: 800;
+      font-family: var(--mono);
+      color: #fff;
+    }
+
+    .tier-cadence {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .tier-features {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      font-size: 13px;
+      color: #c9d6e4;
+      border-top: 1px solid var(--border);
+      padding-top: 16px;
+      margin-bottom: 8px;
+    }
+
+    .tier-features li {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tier-features li span.check {
+      color: var(--green);
+      font-weight: 800;
+    }
+
+    /* TRUST GRID */
+    .trust-section {
+      padding: 60px 0;
+      background: rgba(10, 19, 36, 0.4);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .trust-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+
+    .trust-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .trust-icon {
+      font-size: 28px;
+      margin-bottom: 4px;
+    }
+
+    .trust-card-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .trust-card-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* FAQ ACCORDION */
+    .faq-section {
+      padding: 80px 0;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .faq-item {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+
+    .faq-question {
+      padding: 18px 22px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 15px;
+      color: #fff;
+      user-select: none;
+    }
+
+    .faq-question:hover {
+      background: var(--card-alt);
+    }
+
+    .faq-answer {
+      display: none;
+      padding: 0 22px 18px;
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.6;
+      border-top: 1px solid var(--border);
+      padding-top: 14px;
+    }
+
+    .faq-item.open .faq-answer {
+      display: block;
+    }
+
+    .faq-item.open .faq-icon {
+      transform: rotate(45deg);
+    }
+
+    .faq-icon {
+      font-size: 18px;
+      color: var(--cyan);
+      transition: transform 0.2s;
+    }
+
+    /* FOOTER */
+    footer.landing-footer {
+      background: #050a14;
+      border-top: 1px solid var(--border);
+      padding: 40px 0;
+      margin-top: auto;
+    }
+
+    .footer-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+
+    .footer-text {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 20px;
+    }
+
+    .footer-link {
+      font-size: 13px;
+      color: var(--text-muted);
+      text-decoration: none;
+    }
+
+    .footer-link:hover {
+      color: #fff;
+    }
+
+    /* CLERK MODAL BACKDROP */
+    #clerk-modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(4, 8, 16, 0.88);
+      backdrop-filter: blur(8px);
+      z-index: 99999;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    /* RESPONSIVE BREAKPOINTS */
+    @media (max-width: 1080px) {
+      .pricing-grid { grid-template-columns: repeat(2, 1fr); }
+      .process-grid { grid-template-columns: repeat(2, 1fr); }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 768px) {
+      .hero-title { font-size: 36px; }
+      .pricing-grid { grid-template-columns: 1fr; }
+      .process-grid { grid-template-columns: 1fr; }
+      .trust-grid { grid-template-columns: 1fr; }
+      .stats-grid { grid-template-columns: 1fr; }
+      .nav-links { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <!-- ACCESSIBILITY SKIP LINK -->
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+
+  <div class="glow-bg"></div>
+
+  <!-- HEADER -->
+  <header class="landing-header">
+    <a href="/" class="brand-wrap">
+      <div class="brand-icon">⚡</div>
+      <div class="brand-title">OMNILEADFEEDER</div>
+    </a>
+
+    <nav class="nav-links">
+      <a href="#how-it-works" class="nav-link">How It Works</a>
+      <a href="#pricing" class="nav-link">Pricing & Tiers</a>
+      <a href="#guarantee" class="nav-link">Escrow Guarantee</a>
+      <a href="#faq" class="nav-link">FAQ</a>
+      <a href="/about/alex" class="nav-link">About Operator</a>
+    </nav>
+
+    <div class="header-actions">
+      <div id="clerk-auth-buttons" style="display:flex; align-items:center; gap:8px;">
+        <button class="btn btn-outline" style="padding:7px 14px; font-size:12px;" onclick="openClerkAuth('signin')">Sign In</button>
+        <button class="btn btn-secondary" style="padding:7px 14px; font-size:12px; border-color:var(--cyan);" onclick="openClerkAuth('signup')">Sign Up</button>
+      </div>
+      <a href="/dashboard" class="btn" style="padding:8px 16px; font-size:12px;">Client Portal ➔</a>
+    </div>
+  </header>
+
+  <!-- CLERK MODAL OVERLAY -->
+  <div id="clerk-modal-backdrop">
+    <div style="position:relative; max-width:480px; width:100%; display:flex; justify-content:center;">
+      <button onclick="closeClerkModal()" style="position:absolute; top:-16px; right:-12px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:50%; width:32px; height:32px; font-size:16px; cursor:pointer; z-index:100000; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 12px rgba(0,0,0,0.5);">✕</button>
+      <div id="clerk-mount-target" style="min-height:300px; display:flex; align-items:center; justify-content:center;">
+        <div style="color:var(--cyan); font-family:var(--mono); font-size:13px;">⚡ Loading secure Clerk authentication...</div>
+      </div>
+    </div>
+  </div>
+
+  <main id="main-content" role="main">
+    <!-- HERO SECTION -->
+    <section class="hero container">
+      <div class="badge-pill">
+        <span class="badge-dot"></span>
+        <span>AUTONOMOUS AGENT DEV SWARM & ESCROW DELIVERY</span>
+      </div>
+
+      <h1 class="hero-title">
+        Turn Slow, Manual County Portals Into <span class="highlight">Automated Daily Data Streams</span>
+      </h1>
+
+      <p class="hero-subtitle">
+        Never manually search probate, foreclosure, or court registries again. We build, QA-verify, and deliver fresh county public filings straight to your Google Sheet or Webhook by 8:00 AM every business day.
+      </p>
+
+      <!-- INTERACTIVE SANDBOX SEARCH -->
+      <div class="search-box-wrap">
+        <div class="search-input-row">
+          <span class="search-input-icon">🔍</span>
+          <input type="text" id="county-search-input" class="search-input" placeholder="Search your county or company (e.g. Cook County, Harris County, Probate, Title)..." oninput="handleSearch(this.value)" autocomplete="off">
+          <button class="btn" onclick="launchSearchTarget()">Open Sandbox ➔</button>
+        </div>
+
+        <div class="search-dropdown" id="search-dropdown"></div>
+
+        <div class="quick-tags-row">
+          <span class="quick-tag-label">Sample Feeds:</span>
+          <a href="/p/cook-county-probate" class="quick-chip">🏛️ Cook County Probate</a>
+          <a href="/p/harris-foreclosure" class="quick-chip">🏠 Harris Foreclosures</a>
+          <a href="/p/maricopa-tax-liens" class="quick-chip">📑 Maricopa Tax Liens</a>
+          <a href="/p/fulton-probate" class="quick-chip">⚖️ Fulton County Records</a>
+        </div>
+      </div>
+
+      <div class="hero-cta-group">
+        <a href="#pricing" class="btn btn-lg">Explore Pricing & Guarantee ➔</a>
+        <a href="/about/alex" class="btn btn-secondary btn-lg">Meet Ben & Engineering Team</a>
+      </div>
+    </section>
+
+    <!-- STATS STRIP -->
+    <section class="stats-strip">
+      <div class="container stats-grid">
+        <div>
+          <div class="stat-number green">≥ 95.0%</div>
+          <div class="stat-label">Independent QA Accuracy Gate</div>
+        </div>
+        <div>
+          <div class="stat-number cyan">6:00 – 8:00 AM</div>
+          <div class="stat-label">Daily Automated Delivery Window</div>
+        </div>
+        <div>
+          <div class="stat-number yellow">4-Hour SLA</div>
+          <div class="stat-label">Selector Repair & Drift Shield</div>
+        </div>
+        <div>
+          <div class="stat-number">50 / 50</div>
+          <div class="stat-label">Escrow Milestone Protection</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- HOW IT WORKS -->
+    <section class="container" id="how-it-works" style="padding: 60px 0;">
+      <div class="section-title-wrap">
+        <div class="section-tag">How It Works</div>
+        <h2 class="section-title">The 4-Step Zero-Risk Escrow Journey</h2>
+        <p class="section-desc">From tailored live sandbox to fully scheduled daily production feeds—protected every step of the way.</p>
+      </div>
+
+      <div class="process-grid">
+        <div class="process-card">
+          <div class="process-step-num">01</div>
+          <h3 class="process-card-title">Inspect Live Sandbox</h3>
+          <p class="process-card-desc">Review 25 real records extracted from your target county portal. Export CSV, toggle schema fields, and calculate monthly ROI.</p>
+        </div>
+
+        <div class="process-card">
+          <div class="process-step-num">02</div>
+          <h3 class="process-card-title">50% Milestone Deposit</h3>
+          <p class="process-card-desc">Lock your $250 setup deposit into PayPal escrow. Our 7-Agent Autonomous Dev Swarm immediately builds your custom extractor.</p>
+        </div>
+
+        <div class="process-card">
+          <div class="process-step-num">03</div>
+          <h3 class="process-card-title">95% QA Gatekeeper</h3>
+          <p class="process-card-desc">An independent QA agent extracts and validates 25 live rows. Escrow preview unlocks only when accuracy reaches ≥ 95%.</p>
+        </div>
+
+        <div class="process-card">
+          <div class="process-step-num">04</div>
+          <h3 class="process-card-title">Final Balance & Delivery</h3>
+          <p class="process-card-desc">Approve the preview and pay the final 50% milestone. Your scheduled daily Google Sheets or Webhook feed is instantly live.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- PRICING & TIERS -->
+    <section class="pricing-section container" id="pricing">
+      <div class="section-title-wrap">
+        <div class="section-tag">Predictable Flat Pricing</div>
+        <h2 class="section-title">Vendor-Neutral Service Contracts</h2>
+        <p class="section-desc">Choose the delivery cadence and extraction complexity that matches your operations. Cancel anytime.</p>
+      </div>
+
+      <div class="pricing-grid">
+        <!-- TIER 1: WEEKLY SYNC -->
+        <div class="pricing-card">
+          <div>
+            <div class="tier-name">Weekly Sync</div>
+            <div class="tier-desc">Ideal for low-velocity probate or weekly lien filings.</div>
+            <div class="tier-price-row">
+              <span class="tier-price">$250</span>
+              <span class="tier-cadence">/ month</span>
+            </div>
+            <ul class="tier-features">
+              <li><span class="check">✓</span> 1x Weekly Delivery (Monday)</li>
+              <li><span class="check">✓</span> Up to 15 schema fields</li>
+              <li><span class="check">✓</span> Google Sheets / Webhook</li>
+              <li><span class="check">✓</span> 50% Setup Deposit ($250)</li>
+              <li><span class="check">✓</span> Drift Shield monitoring</li>
+            </ul>
+          </div>
+          <button class="btn btn-secondary" onclick="openTargetTier('weekly')">Select Weekly ➔</button>
+        </div>
+
+        <!-- TIER 2: DAILY SYNC (POPULAR) -->
+        <div class="pricing-card popular">
+          <div class="popular-tag">MOST POPULAR</div>
+          <div>
+            <div class="tier-name" style="color:var(--green)">Daily Sync</div>
+            <div class="tier-desc">For active dealmakers needing fresh leads every morning.</div>
+            <div class="tier-price-row">
+              <span class="tier-price">$500</span>
+              <span class="tier-cadence">/ month</span>
+            </div>
+            <ul class="tier-features">
+              <li><span class="check">✓</span> 5x Weekly (M-F by 8:00 AM)</li>
+              <li><span class="check">✓</span> Up to 15 schema fields</li>
+              <li><span class="check">✓</span> Google Sheets & Webhook stream</li>
+              <li><span class="check">✓</span> 4-Hour Selector Repair SLA</li>
+              <li><span class="check">✓</span> 50% Setup Deposit ($250)</li>
+            </ul>
+          </div>
+          <button class="btn" onclick="openTargetTier('daily')">Get Daily Feed ➔</button>
+        </div>
+
+        <!-- TIER 3: AI / HEAVY EXTRACTION -->
+        <div class="pricing-card">
+          <div>
+            <div class="tier-name">AI / Heavy Extraction</div>
+            <div class="tier-desc">For complex docket PDF parsing, OCR, and multi-portal cross-ref.</div>
+            <div class="tier-price-row">
+              <span class="tier-price">$850</span>
+              <span class="tier-cadence">/ month</span>
+            </div>
+            <ul class="tier-features">
+              <li><span class="check">✓</span> Daily Delivery + OCR extraction</li>
+              <li><span class="check">✓</span> Up to 25 schema fields</li>
+              <li><span class="check">✓</span> PDF docket & deed attachment parsing</li>
+              <li><span class="check">✓</span> Dedicated residential proxy pool</li>
+              <li><span class="check">✓</span> 50% Setup Deposit ($250)</li>
+            </ul>
+          </div>
+          <button class="btn btn-secondary" onclick="openTargetTier('ai')">Select AI Tier ➔</button>
+        </div>
+
+        <!-- TIER 4: PERPETUAL BUYOUT -->
+        <div class="pricing-card">
+          <div>
+            <div class="tier-name">Full Code Buyout</div>
+            <div class="tier-desc">Own the entire source code, Dockerfile, and cron orchestration.</div>
+            <div class="tier-price-row">
+              <span class="tier-price">$1,500</span>
+              <span class="tier-cadence">one-time</span>
+            </div>
+            <ul class="tier-features">
+              <li><span class="check">✓</span> Full Python / Playwright repo (.zip)</li>
+              <li><span class="check">✓</span> Dockerfile + standalone CLI</li>
+              <li><span class="check">✓</span> Up to 25 schema fields</li>
+              <li><span class="check">✓</span> Zero recurring subscriptions</li>
+              <li><span class="check">✓</span> Complete client ownership</li>
+            </ul>
+          </div>
+          <button class="btn btn-secondary" onclick="openTargetTier('buyout')">Buy Source Code ➔</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- TRUST & DE-RISKING -->
+    <section class="trust-section" id="guarantee">
+      <div class="container">
+        <div class="section-title-wrap">
+          <div class="section-tag">Zero Financial Risk</div>
+          <h2 class="section-title">Built on Trust & Verification</h2>
+          <p class="section-desc">We never ask you to pay full price for unverified software.</p>
+        </div>
+
+        <div class="trust-grid">
+          <div class="trust-card">
+            <div class="trust-icon">🛡️</div>
+            <h3 class="trust-card-title">Escrow Protected Deposits</h3>
+            <p class="trust-card-desc">Your 50% setup deposit ($250) is held securely. If our independent QA Gatekeeper does not verify at least 95% accuracy on 25 live rows, your deposit is 100% refunded.</p>
+          </div>
+
+          <div class="trust-card">
+            <div class="trust-icon">🤖</div>
+            <h3 class="trust-card-title">Autonomous Dev Swarm</h3>
+            <p class="trust-card-desc">7 specialized AI agents (DOM Architect, Stealth Engineer, Pipeline Coder, QA Gatekeeper) build resilient extractors with residential proxy failovers.</p>
+          </div>
+
+          <div class="trust-card">
+            <div class="trust-icon">🔄</div>
+            <h3 class="trust-card-title">Proactive Drift Shield</h3>
+            <p class="trust-card-desc">County portal redesigns and header casing shifts are caught and self-healed by our monitoring worker before your morning delivery window.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ SECTION -->
+    <section class="faq-section container" id="faq">
+      <div class="section-title-wrap">
+        <div class="section-tag">Common Questions</div>
+        <h2 class="section-title">Frequently Asked Questions</h2>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-question" onclick="toggleFaq(this)">
+          <span>How do I know the data is real?</span>
+          <span class="faq-icon">+</span>
+        </div>
+        <div class="faq-answer">
+          Every sandbox provides 25 live, unmasked records extracted directly from the official public county registry. You can inspect case numbers, filing dates, and parties, and export the CSV to cross-verify against the official portal.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-question" onclick="toggleFaq(this)">
+          <span>What happens if a county portal updates or changes?</span>
+          <span class="faq-icon">+</span>
+        </div>
+        <div class="faq-answer">
+          Our automated Retainer Monitor worker tests selector health before each morning delivery. Minor changes are auto-repaired in under 30 minutes; major structural redesigns are covered by our 4-Hour Selector Repair SLA at zero extra cost to active subscribers.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-question" onclick="toggleFaq(this)">
+          <span>Can I cancel my subscription at any time?</span>
+          <span class="faq-icon">+</span>
+        </div>
+        <div class="faq-answer">
+          Yes. There are no annual lock-in contracts. You can cancel your monthly subscription at any time with 1 click directly in your customer dashboard or via PayPal.
+        </div>
+      </div>
+
+      <div class="faq-item">
+        <div class="faq-question" onclick="toggleFaq(this)">
+          <span>Can we own the extractor code outright?</span>
+          <span class="faq-icon">+</span>
+        </div>
+        <div class="faq-answer">
+          Yes! We offer a Perpetual Code Buyout for a flat $1,500. You receive the complete self-contained Python / Playwright code repository (.zip), Dockerfile, and cron runners to host independently on your own servers.
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- FOOTER -->
+  <footer class="landing-footer">
+    <div class="container footer-content">
+      <div class="brand-wrap">
+        <div class="brand-icon" style="width:28px; height:28px; font-size:14px;">⚡</div>
+        <span class="brand-title" style="font-size:15px;">OMNILEADFEEDER</span>
+      </div>
+
+      <div class="footer-text">
+        © 2026 OmniLeadFeeder Automation Engineering • Verified Public Records Intelligence
+      </div>
+
+      <div class="footer-links">
+        <a href="/about/alex" class="footer-link">Operator Bio</a>
+        <a href="/terms" class="footer-link">Terms of Service & SLA</a>
+        <a href="/privacy" class="footer-link">Privacy Policy</a>
+        <a href="/dashboard" class="footer-link">Client Console</a>
+        <a href="/admin" class="footer-link">Founder Mission Control</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    let clerkInstance = null;
+    let selectedTier = 'daily';
+
+    async function getClerk() {
+      if (clerkInstance && clerkInstance.loaded) return clerkInstance;
+      if (window.Clerk) {
+        if (typeof window.Clerk === 'function') {
+          clerkInstance = new window.Clerk('{clerk_pk}');
+        } else {
+          clerkInstance = window.Clerk;
+        }
+        await clerkInstance.load();
+        return clerkInstance;
+      }
+      return null;
+    }
+
+    async function initLandingClerk() {
+      try {
+        const clerk = await getClerk();
+        if (clerk && clerk.user) {
+          const authBtnWrap = document.getElementById('clerk-auth-buttons');
+          if (authBtnWrap) {
+            authBtnWrap.innerHTML = `
+              <div id="landing-user-btn" style="display:flex; align-items:center;"></div>
+              <a href="/dashboard" class="btn btn-outline" style="padding:7px 14px; font-size:12px; border-color:var(--green); color:var(--green);">My Dashboard ➔</a>
+            `;
+            clerk.mountUserButton(document.getElementById('landing-user-btn'));
+          }
+        }
+      } catch (e) {
+        console.warn("Clerk landing init notice:", e);
+      }
+    }
+
+    async function openClerkAuth(mode = 'signin') {
+      const modal = document.getElementById('clerk-modal-backdrop');
+      const mount = document.getElementById('clerk-mount-target');
+      modal.style.display = 'flex';
+      mount.innerHTML = '';
+      
+      const clerk = await getClerk();
+      if (clerk) {
+        const currentOrigin = window.location.origin;
+        const redirectUrl = currentOrigin + '/dashboard';
+        if (mode === 'signup') {
+          clerk.mountSignUp(mount, {
+            fallbackRedirectUrl: redirectUrl,
+            forceRedirectUrl: redirectUrl,
+            signInUrl: currentOrigin,
+          });
+        } else {
+          clerk.mountSignIn(mount, {
+            fallbackRedirectUrl: redirectUrl,
+            forceRedirectUrl: redirectUrl,
+            signUpUrl: currentOrigin,
+          });
+        }
+      }
+    }
+
+    function closeClerkModal() {
+      document.getElementById('clerk-modal-backdrop').style.display = 'none';
+    }
+
+    function toggleFaq(el) {
+      const item = el.parentElement;
+      item.classList.toggle('open');
+    }
+
+    let searchTimeout = null;
+    async function handleSearch(val) {
+      clearTimeout(searchTimeout);
+      const dropdown = document.getElementById('search-dropdown');
+      if (!val || val.trim().length < 2) {
+        dropdown.style.display = 'none';
+        return;
+      }
+
+      searchTimeout = setTimeout(async () => {
+        try {
+          const res = await fetch('/api/sandboxes/search?q=' + encodeURIComponent(val));
+          if (res.ok) {
+            const data = await res.json();
+            if (data.results && data.results.length > 0) {
+              dropdown.innerHTML = data.results.map(r => `
+                <a href="/p/${r.slug}?tier=${selectedTier}" class="search-result-item">
+                  <div>
+                    <div style="font-weight:700; color:#fff;">${r.company_name}</div>
+                    <div style="font-size:11px; color:var(--text-muted);">${r.jurisdiction} • ${r.tier_name}</div>
+                  </div>
+                  <span style="font-size:12px; color:var(--cyan); font-family:var(--mono);">Preview Feed ➔</span>
+                </a>
+              `).join('');
+              dropdown.style.display = 'block';
+            } else {
+              dropdown.innerHTML = `
+                <div style="padding:14px; text-align:center; color:var(--text-muted); font-size:13px;">
+                  No existing sandbox found for "<b>${val}</b>". 
+                  <a href="/p/prospect-intelligence-feed?tier=${selectedTier}" style="color:var(--green); font-weight:700; margin-left:6px;">Create New Sandbox ➔</a>
+                </div>
+              `;
+              dropdown.style.display = 'block';
+            }
+          }
+        } catch (e) {
+          console.error("Search error:", e);
+        }
+      }, 200);
+    }
+
+    function launchSearchTarget() {
+      const val = document.getElementById('county-search-input').value.trim();
+      if (!val) {
+        window.location.href = '/p/cook-county-probate?tier=' + selectedTier;
+        return;
+      }
+      const slug = val.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      window.location.href = '/p/' + (slug || 'prospect-intelligence-feed') + '?tier=' + selectedTier;
+    }
+
+    function openTargetTier(tierKey) {
+      selectedTier = tierKey;
+      const val = document.getElementById('county-search-input')?.value.trim();
+      const slug = val ? val.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : 'cook-county-probate';
+      window.location.href = '/p/' + (slug || 'cook-county-probate') + '?tier=' + tierKey;
+    }
+
+    document.addEventListener('click', (e) => {
+      const searchWrap = document.querySelector('.search-box-wrap');
+      if (searchWrap && !searchWrap.contains(e.target)) {
+        document.getElementById('search-dropdown').style.display = 'none';
+      }
+    });
+
+    window.addEventListener('load', () => {
+      initLandingClerk();
+    });
+  </script>
+</body>
+</html>

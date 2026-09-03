@@ -134,3 +134,7 @@ def prune_dom(html: str) -> dict[str, Any]:
             "text_length": len(clean_text),
         },
     }
+
+
+# Alias for AI tool calling
+prune_dom_tree = prune_dom

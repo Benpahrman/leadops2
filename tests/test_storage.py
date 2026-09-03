@@ -63,3 +63,23 @@ def test_sqlite_storage_webhook_idempotency(tmp_path):
     storage_reloaded = SqliteStorageBackend(db_path=db_path)
     processor_reloaded = PaymentEventProcessor(storage=storage_reloaded)
     assert processor_reloaded.apply(lead, "evt-100", PaymentEvent.DEPOSIT_PAID) is False
+
+
+def test_sqlite_storage_backup_db(tmp_path):
+    db_path = str(tmp_path / "original.db")
+    backup_path = str(tmp_path / "backup.db")
+    storage = SqliteStorageBackend(db_path=db_path)
+    
+    lead = Lead("lead-backup-test", "daily", company_name="Backup Test Inc")
+    storage.save_lead(lead)
+    
+    # Trigger online backup
+    result_path = storage.backup_db(target_path=backup_path)
+    assert result_path == backup_path
+    
+    # Verify backup database contains the data
+    backup_storage = SqliteStorageBackend(db_path=backup_path)
+    loaded = backup_storage.get_lead("lead-backup-test")
+    assert loaded is not None
+    assert loaded.company_name == "Backup Test Inc"
+

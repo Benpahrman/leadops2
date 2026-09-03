@@ -3,8 +3,10 @@
 import csv
 import io
 import logging
+import os
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
 from .domain import Lead, State
@@ -181,7 +183,19 @@ class PortalService:
         self._record(slug, "fields.selected")
         if self.storage:
             self.storage.save_sandbox(sandbox)
-    
+        try:
+            from .client_artifacts import artifact_store
+            artifact_store.save_artifact(
+                lead_id=sandbox.lead.lead_id,
+                stage="02_INTAKE_SCOPE",
+                agent_name="Schema Architect",
+                filename="02_selected_fields.json",
+                content={"selected_fields": fields, "total_fields": len(fields), "slug": slug},
+                description="Custom client schema fields configured in sandbox"
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to record selected fields artifact: {exc}")
+
     def approve_scope(self, slug: str) -> None:
         """Record the customer's core scope approval before checkout."""
         sandbox = self.get_sandbox(slug)
@@ -191,6 +205,27 @@ class PortalService:
         self._record(slug, "scope.approved")
         if self.storage:
             self.storage.save_sandbox(sandbox)
+        try:
+            from .client_artifacts import artifact_store
+            artifact_store.save_artifact(
+                lead_id=sandbox.lead.lead_id,
+                stage="02_INTAKE_SCOPE",
+                agent_name="SOW Contract Generator",
+                filename="02_intake_sow.json",
+                content={
+                    "company_name": sandbox.lead.company_name,
+                    "lead_id": sandbox.lead.lead_id,
+                    "tier": sandbox.lead.tier.name,
+                    "tier_price_cents": sandbox.lead.tier.price_cents,
+                    "setup_deposit_cents": sandbox.lead.tier.price_cents // 2,
+                    "final_balance_cents": sandbox.lead.tier.price_cents // 2,
+                    "selected_fields": sandbox.lead.selected_fields,
+                    "approved_at": sandbox.lead.updated_at or str(sandbox.lead.created_at),
+                },
+                description="Approved Statement of Work & Milestone Escrow Terms"
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to record SOW approval artifact: {exc}")
 
     def export_csv(self, slug: str) -> str:
         sandbox = self.get_sandbox(slug)
@@ -217,7 +252,6 @@ class PortalService:
 
     def request_final_checkout(self, slug: str) -> dict[str, object]:
         """Generate checkout payload for the second (final) 50% milestone payment and recurring subscription initialization."""
-        import os
         sandbox = self.get_sandbox(slug)
         if sandbox.lead.state != State.ESCROW_PREVIEW:
             raise ValueError("Final payment requires a completed build in ESCROW_PREVIEW state")
@@ -248,7 +282,6 @@ class PortalService:
     ) -> dict[str, object]:
         """Create a support ticket with SLA tracking."""
         import uuid
-        from datetime import datetime, timedelta
         from ..models import Ticket, TicketType, TicketStatus, TicketPriority
         
         sandbox = self.get_sandbox(slug)
@@ -263,10 +296,10 @@ class PortalService:
             title=title,
             description=description,
             assignee=assignee,
-            sla_deadline=datetime.utcnow() + timedelta(hours=sla_hours),
+            sla_deadline=datetime.now(timezone.utc) + timedelta(hours=sla_hours),
             sla_breached=0,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
         
         if self.storage:
@@ -293,7 +326,6 @@ class PortalService:
     ) -> dict[str, object]:
         """Create a cancellation request for self-serve cancellation."""
         import uuid
-        from datetime import datetime
         from ..models import CancellationRequest, CancellationStatus
         
         sandbox = self.get_sandbox(slug)
@@ -312,8 +344,8 @@ class PortalService:
             user_email=user_email,
             reason=reason,
             status=CancellationStatus.PENDING,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
         
         if self.storage:
@@ -329,7 +361,6 @@ class PortalService:
             "status": request.status.value,
             "created_at": request.created_at.isoformat(),
         }
-
 
     def _record(self, slug: str, event: str) -> None:
         self._sandboxes[slug].events.append({"event": event})

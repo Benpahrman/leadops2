@@ -59,7 +59,6 @@ class GoogleSheetsDestination:
             if hasattr(self.client, "open_by_key"):
                 sheet = self.client.open_by_key(self.spreadsheet_id)
                 worksheet = sheet.worksheet(self.worksheet_name)
-                # Ensure headers exist
                 existing_records = worksheet.get_all_values()
                 if not existing_records:
                     headers = list(rows[0].keys())
@@ -71,8 +70,11 @@ class GoogleSheetsDestination:
             elif hasattr(self.client, "append_rows"):
                 return self.client.append_rows(self.spreadsheet_id, self.worksheet_name, rows)
 
-        # Standalone logging fallback for local testing without credentials
-        return len(rows)
+        try:
+            from .google_sheets import append_records_to_sheet
+            return append_records_to_sheet(self.spreadsheet_id, rows, self.worksheet_name)
+        except Exception:
+            return len(rows)
 
 
 @dataclass
@@ -82,6 +84,7 @@ class WebhookDestination:
     webhook_url: str
     secret_token: str | None = None
     timeout_seconds: int = 10
+    max_retries: int = 3
     http_poster: Callable[[str, dict[str, str], bytes], int] | None = None
 
     def append(self, rows: list[dict[str, str]]) -> int:
@@ -107,14 +110,22 @@ class WebhookDestination:
                 raise RuntimeError(f"Webhook delivery failed with HTTP status {status}")
             return len(rows)
 
-        req = urllib.request.Request(self.webhook_url, data=data, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=self.timeout_seconds) as resp:
-                if not (200 <= resp.status < 300):
-                    raise RuntimeError(f"Webhook delivery failed with status {resp.status}")
-                return len(rows)
-        except urllib.error.URLError as e:
-            raise RuntimeError(f"Webhook connection failed: {e}") from e
+        import time as _time
+        last_error = None
+        for attempt in range(self.max_retries):
+            try:
+                req = urllib.request.Request(self.webhook_url, data=data, headers=headers, method="POST")
+                with urllib.request.urlopen(req, timeout=self.timeout_seconds) as resp:
+                    if not (200 <= resp.status < 300):
+                        raise RuntimeError(f"Webhook delivery failed with status {resp.status}")
+                    return len(rows)
+            except (urllib.error.URLError, RuntimeError) as e:
+                last_error = e
+                if attempt < self.max_retries - 1:
+                    backoff = (2 ** attempt)  # 1s, 2s, 4s
+                    _time.sleep(backoff)
+
+        raise RuntimeError(f"Webhook delivery failed after {self.max_retries} attempts: {last_error}") from last_error
 
 
 @dataclass

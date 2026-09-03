@@ -56,9 +56,14 @@ def test_pitcher_dispatch_lifecycle_and_mock_client():
         slug="acme-legal-lead-outreach-1",
     )
 
-    # Dispatch requires human approver
-    with pytest.raises(ValueError, match="Human approval is required"):
-        pitcher.approve_and_dispatch(lead, "sarah@acme.com", "Sarah", pitch, human_approver="")
+    # Dispatch requires human approver in strict approval mode
+    import os
+    os.environ["LEADOPS_REQUIRE_HUMAN_APPROVAL"] = "true"
+    try:
+        with pytest.raises(ValueError, match="Human approval is required"):
+            pitcher.approve_and_dispatch(lead, "sarah@acme.com", "Sarah", pitch, human_approver="")
+    finally:
+        os.environ.pop("LEADOPS_REQUIRE_HUMAN_APPROVAL", None)
 
     # Successful dispatch moves lead state: PROSPECTING -> REVIEW -> PITCH_PENDING_APPROVAL -> OUTREACH_SENT
     log = pitcher.approve_and_dispatch(lead, "sarah@acme.com", "Sarah", pitch, human_approver="Operator Dan")

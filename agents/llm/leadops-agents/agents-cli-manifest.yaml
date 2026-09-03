@@ -1,0 +1,14 @@
+name: "leadops-agents"
+acli_version: "1.4.1"
+agent_directory: "workers"
+region: "us-east1"
+base_template: "adk"
+generated_at: "2026-08-27T07:08:08.149232+00:00"
+language: "python"
+create_params:
+  deployment_target: "none"
+  session_type: "in_memory"
+  cicd_runner: "skip"
+  is_a2a: true
+  agent_gateway: False
+  agent_guidance_filename: "GEMINI.md"

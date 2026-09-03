@@ -69,7 +69,7 @@ class TestPaymentFlows:
         await page.goto(f"/p/{slug}")
         
         # Get state indicator
-        state_element = page.locator('text="State:").first, page.locator('[data-testid="lead-state"]').first
+        state_element = page.locator('text="State:"').first, page.locator('[data-testid="lead-state"]').first
         state_text = ""
         for el in state_element:
             if await el.count() > 0:
@@ -85,7 +85,7 @@ class TestPaymentFlows:
                 
                 # Verify state advanced
                 await page.goto(f"/p/{slug}")
-                new_state = await page.locator('text="State:").first.text_content()
+                new_state = await page.locator('text="State:"').first.text_content()
                 assert "DEV_BUILDING" in new_state or "DEPOSIT_PAID" in new_state
 
     async def test_paypal_webhook_simulation(self, page, base_url):
