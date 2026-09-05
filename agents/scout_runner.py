@@ -720,8 +720,8 @@ class ScoutAutomationSupervisor:
     portal: PortalService
     llm_engine: LLMAgentEngine = field(default_factory=LLMAgentEngine)
     target_per_cycle: int = 3
-    min_rest_seconds: int = 900
-    max_rest_seconds: int = 1800
+    min_rest_seconds: int = 600
+    max_rest_seconds: int = 600
     enabled: bool = True
     is_running: bool = False
     _task: asyncio.Task | None = None
