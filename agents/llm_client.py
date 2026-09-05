@@ -10,7 +10,10 @@ logger = get_logger("llm_agent")
 DISALLOWED_BUYER_DOMAINS = {
     ".gov", ".mil", ".fed.us", ".state.us", "austintexas.gov", "hctx.net", "state.tx.us",
     "cookcountyclerkofcourt.org", "cookcountycourt.com", "occompt.com", "tmb.state.tx.us",
-    "sam.gov", "usps.gov", "irs.gov", "court.gov"
+    "sam.gov", "usps.gov", "irs.gov", "court.gov",
+    "dictionary.cambridge.org", "merriam-webster.com", "wikipedia.org", "wiktionary.org",
+    "investopedia.com", "thefreedictionary.com", "britannica.com", "collinsdictionary.com",
+    "dictionary.com"
 }
 
 DISALLOWED_BUYER_KEYWORDS = {
@@ -19,7 +22,8 @@ DISALLOWED_BUYER_KEYWORDS = {
     "district court", "circuit court", "municipal court", "probate court", "clerk of court",
     "county clerk", "district clerk", "tax assessor", "sheriff", "police department", "fire department",
     "secretary of state", "open data", "public records office", "government", "municipality",
-    "school district", "isd", "university of"
+    "school district", "isd", "university of",
+    "definition", "meaning of", "synonyms of", "pronunciation of"
 }
 
 
@@ -670,6 +674,7 @@ class LLMAgentEngine:
         website: str,
         niche: str,
         sample_records: list[dict[str, Any]],
+        contact_data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """AI Research & Lead Enrichment Agent: Enriches corporate intelligence and verifies/cleans sample data."""
         from .tools.web_search import search_company_intelligence
@@ -677,11 +682,10 @@ class LLMAgentEngine:
 
         logger.info(f"🔬 [AI RESEARCH AGENT] Enriching corporate data & verifying sample records for {company_name}")
         
-        # 1. Enrich corporate contacts via web tools
-        contact_data = {}
-        if website:
-            contact_data = extract_contact_info_from_url(website)
-        intel = search_company_intelligence(company_name, domain_hint=website)
+        # 1. Enrich corporate contacts via web tools (reuse scraped contacts if already available)
+        if contact_data is None:
+            contact_data = extract_contact_info_from_url(website) if website else {}
+        intel = search_company_intelligence(company_name, domain_hint=website) if not website else {"search_hits": []}
 
         # 2. Quality-check sample data
         cleaned_records = []

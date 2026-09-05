@@ -183,17 +183,29 @@ def render_sub_60_word_pitch(
             logger.warning(f"AI pitcher generation failed: {exc}. Using canonical challenger template fallback.")
 
     # 2. Canonical Challenger & Urgency template (strictly under 60 words)
+    display_company = " ".join(company_name.split()[:4])
     body_text = (
         f"Hi {contact_name},\n\n"
         f"In {niche}, speed-to-lead is critical. Waiting on manual {portal_name} searches means losing deals to faster competitors.\n\n"
-        f"We automated this for {company_name} and pulled {sample_count} live records.\n\n"
+        f"We automated this for {display_company} and pulled {sample_count} live records.\n\n"
         f"Review your sandbox feed:\n{sandbox_url}\n\n"
         f"Worth a 2-minute look to stream daily?\n\n"
         f"Best,\nAlex | LeadOps"
     )
     
+    words = body_text.split()
+    if len(words) >= 60:
+        # Emergency condense to guarantee sub-60 compliance
+        body_text = (
+            f"Hi {contact_name},\n\n"
+            f"In {niche}, speed-to-lead is critical. Manual searches on {portal_name} lose deals to faster competitors.\n\n"
+            f"We automated this for {display_company} with {sample_count} live records.\n\n"
+            f"Review sandbox: {sandbox_url}\n\n"
+            f"Worth a 2-minute look?\n\n"
+            f"Best,\nAlex | LeadOps"
+        )
     word_count = len(body_text.split())
-    if word_count > 60:
+    if word_count >= 60:
         raise ValueError(f"Pitch copy exceeded 60 words: {word_count} words")
 
     body_html = (

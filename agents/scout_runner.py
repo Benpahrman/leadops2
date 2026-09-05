@@ -18,126 +18,12 @@ from .tools.waf_prober import generate_browser_headers, probe_waf_signatures
 from .datasets import AUTHENTIC_REGISTRY_DATASETS
 
 
-TARGET_REGISTRIES = [
-    {
-        "company_name": "DPR Construction Inc.",
-        "contact_name": "DPR Preconstruction & Estimating Team",
-        "contact_role": "VP of Estimating & Regional Preconstruction",
-        "contact_email": "preconstruction-texas@dpr.com",
-        "contact_phone": "(512) 345-6799",
-        "website": "https://www.dpr.com",
-        "niche": "Commercial Construction & Subcontracting",
-        "pain_point": "Needs daily tracking of Austin commercial building permits ($5M+) to identify new commercial builds and subcontract trade opportunities.",
-        "target_url": "https://data.austintexas.gov/",
-        "portal_name": "City of Austin Open Data - Commercial Building Permits",
-        "jurisdiction": "Travis County / Austin, TX",
-        "suggested_fields": AUTHENTIC_REGISTRY_DATASETS["austin-commercial-permits"]["selected_fields"],
-        "tier_key": "daily",
-        "sample_data": AUTHENTIC_REGISTRY_DATASETS["austin-commercial-permits"]["sample_data"],
-    },
-    {
-        "company_name": "Leidos Defense & Intelligence",
-        "contact_name": "Federal Capture & Proposal Operations",
-        "contact_role": "Director of Capture Management",
-        "contact_email": "federal-bids@leidos.com",
-        "contact_phone": "(571) 526-6000",
-        "website": "https://www.leidos.com",
-        "niche": "Government Defense Contracting & GovTech",
-        "pain_point": "Needs automated tracking of active DoD/DoAF RFPs matching NAICS 541512 / 541715 before 30-day response windows close.",
-        "target_url": "https://sam.gov/",
-        "portal_name": "SAM.gov Federal Contract Solicitations",
-        "jurisdiction": "Federal / Nationwide Defense",
-        "suggested_fields": AUTHENTIC_REGISTRY_DATASETS["sam-gov-defense-rfps"]["selected_fields"],
-        "tier_key": "ai",
-        "sample_data": AUTHENTIC_REGISTRY_DATASETS["sam-gov-defense-rfps"]["sample_data"],
-    },
-    {
-        "company_name": "PNC Equipment Finance LLC",
-        "contact_name": "Commercial Capital Originations Team",
-        "contact_role": "Managing Director, Asset Finance",
-        "contact_email": "equipmentfinance@pnc.com",
-        "contact_phone": "(800) 762-2465",
-        "website": "https://www.pnc.com/equipmentfinance",
-        "niche": "Alternative Lending & Equipment Factoring",
-        "pain_point": "Needs daily stream of UCC-1 equipment lien filings across Texas to identify capital equipment buyers and refinancing opportunities.",
-        "target_url": "https://www.sos.state.tx.us/corp/ucc.shtml",
-        "portal_name": "Secretary of State UCC Secured Financing Registry",
-        "jurisdiction": "Statewide Commercial Finance",
-        "suggested_fields": AUTHENTIC_REGISTRY_DATASETS["state-ucc-filings"]["selected_fields"],
-        "tier_key": "daily",
-        "sample_data": AUTHENTIC_REGISTRY_DATASETS["state-ucc-filings"]["sample_data"],
-    },
-    {
-        "company_name": "Merritt Hawkins (AMN Healthcare)",
-        "contact_name": "Physician Sourcing & Placement Division",
-        "contact_role": "Director of Physician Search",
-        "contact_email": "physician-sourcing@merritthawkins.com",
-        "contact_phone": "(800) 876-0500",
-        "website": "https://www.merritthawkins.com",
-        "niche": "Healthcare Recruiting & Physician Placement",
-        "pain_point": "Needs weekly alerts for newly licensed MDs/DOs across Texas to place physicians into major hospital networks.",
-        "target_url": "https://www.tmb.state.tx.us/",
-        "portal_name": "Texas Medical Board & Healthcare Practitioner Registry",
-        "jurisdiction": "Healthcare Licensing & Credentials",
-        "suggested_fields": AUTHENTIC_REGISTRY_DATASETS["medical-board-licensing"]["selected_fields"],
-        "tier_key": "weekly",
-        "sample_data": AUTHENTIC_REGISTRY_DATASETS["medical-board-licensing"]["sample_data"],
-    },
-    {
-        "company_name": "Kirkland & Ellis LLP",
-        "contact_name": "Estate Planning & Administration Practice",
-        "contact_role": "Managing Partner, Private Wealth",
-        "contact_email": "estate-filings@kirkland.com",
-        "contact_phone": "(312) 862-2000",
-        "website": "https://www.kirkland.com",
-        "niche": "Probate & Estate Asset Intelligence",
-        "pain_point": "Needs daily dockets of Cook County probate filings over $500k to offer estate representation and asset administration.",
-        "target_url": "https://www.cookcountyclerkofcourt.org/",
-        "portal_name": "Circuit Court of Cook County (Probate Division)",
-        "jurisdiction": "Cook County, IL (Chicago)",
-        "suggested_fields": AUTHENTIC_REGISTRY_DATASETS["cook-county-probate"]["selected_fields"],
-        "tier_key": "daily",
-        "sample_data": AUTHENTIC_REGISTRY_DATASETS["cook-county-probate"]["sample_data"],
-    },
-    {
-        "company_name": "Barrett Daffin Frappier Turner & Engel LLP",
-        "contact_name": "Texas Foreclosure & Default Services",
-        "contact_role": "Managing Partner, Default Operations",
-        "contact_email": "tx-trustee@bdfgroup.com",
-        "contact_phone": "(972) 386-5040",
-        "website": "https://www.bdfgroup.com",
-        "niche": "Trustee Foreclosures & Mortgage Liens",
-        "pain_point": "Needs automated tracking of Harris County foreclosure recordings and trustee auction schedules.",
-        "target_url": "https://www.cclerk.hctx.net/",
-        "portal_name": "Harris County District Clerk & County Clerk",
-        "jurisdiction": "Harris County, TX (Houston)",
-        "suggested_fields": AUTHENTIC_REGISTRY_DATASETS["harris-foreclosure"]["selected_fields"],
-        "tier_key": "daily",
-        "sample_data": AUTHENTIC_REGISTRY_DATASETS["harris-foreclosure"]["sample_data"],
-    },
-    {
-        "company_name": "Aldridge Pite LLP",
-        "contact_name": "Florida Mortgage Default Practice",
-        "contact_role": "Managing Partner, Foreclosure Legal Group",
-        "contact_email": "fl-default@aldridgepite.com",
-        "contact_phone": "(404) 994-7400",
-        "website": "https://www.aldridgepite.com",
-        "niche": "Mortgage Foreclosures & Distressed Real Estate",
-        "pain_point": "Needs daily lis pendens and trustee foreclosure filings across Orange County to manage legal default workflows.",
-        "target_url": "https://www.occompt.com/",
-        "portal_name": "Orange County Comptroller & Clerk Registry",
-        "jurisdiction": "Orange County, FL (Orlando)",
-        "suggested_fields": AUTHENTIC_REGISTRY_DATASETS["orange-foreclosure"]["selected_fields"],
-        "tier_key": "ai",
-        "sample_data": AUTHENTIC_REGISTRY_DATASETS["orange-foreclosure"]["sample_data"],
-    },
-]
-
-
 import httpx
 from .logging_config import get_logger
 from .tools.waf_prober import generate_browser_headers
-from .llm_client import LLMAgentEngine
+from .tools.web_search import search_web
+from .tools.web_fetcher import extract_contact_info_from_url, fetch_page_content
+from .llm_client import LLMAgentEngine, is_disallowed_buyer
 
 logger = get_logger("scout")
 
@@ -148,21 +34,13 @@ VERTICAL_CATALOG: dict[str, dict[str, Any]] = {
         "portal_name": "City of Austin Issued Construction Permits",
         "target_url": "https://data.austintexas.gov/Building-and-Development/Issued-Construction-Permits/3syk-w9eu",
         "jurisdiction": "Austin, Travis County, TX",
-        "canonical_company": "DPR Construction Inc.",
-        "contact_name": "Mark A. Vance",
-        "contact_role": "VP of Preconstruction & Estimating",
-        "contact_email": "preconstruction-texas@dpr.com",
-        "contact_phone": "(512) 474-5131",
-        "website": "https://www.dpr.com",
         "niche": "Commercial Construction & General Contracting",
         "pain_point": "Needs daily feed of non-residential commercial building permits to bid subcontracting and structural trades before competitors.",
         "tier_key": "daily",
-        "candidate_pool": [
-            {"company_name": "DPR Construction Inc.", "contact_name": "Mark A. Vance", "contact_role": "VP of Preconstruction", "contact_email": "preconstruction-texas@dpr.com", "contact_phone": "(512) 474-5131", "website": "https://www.dpr.com", "pain_point": "Needs daily Austin commercial permit filings to bid structural and MEP subcontract packages."},
-            {"company_name": "SpawGlass Contractors Inc.", "contact_name": "Tyler Richardson", "contact_role": "Director of Preconstruction", "contact_email": "estimating-austin@spawglass.com", "contact_phone": "(512) 719-5251", "website": "https://www.spawglass.com", "pain_point": "Requires daily alerts on $5M+ Travis County commercial builds for concrete and civil trade bidding."},
-            {"company_name": "Flintco LLC", "contact_name": "Sarah Thornton", "contact_role": "VP Commercial Estimating", "contact_email": "bids-texas@flintco.com", "contact_phone": "(512) 891-7224", "website": "https://www.flintco.com", "pain_point": "Needs automated tracking of hospitality, healthcare, and educational structural permits."},
-            {"company_name": "Harvey-Cleary Builders", "contact_name": "David K. Meyer", "contact_role": "Head of Preconstruction", "contact_email": "estimating@harvey-cleary.com", "contact_phone": "(512) 328-9840", "website": "https://www.harvey-cleary.com", "pain_point": "Tracks Austin tenant interior finish-outs and commercial shell construction permits."},
-            {"company_name": "Balfour Beatty US", "contact_name": "Rachel Sterling", "contact_role": "Regional Preconstruction Director", "contact_email": "commercial-tx@balfourbeattyus.com", "contact_phone": "(512) 499-8080", "website": "https://www.balfourbeattyus.com", "pain_point": "Identifies large-scale institutional commercial building projects before public tender dates."},
+        "buyer_search_queries": [
+            "top commercial general contractors Austin Texas",
+            "commercial preconstruction estimating builders Austin Texas",
+            "commercial construction contracting companies Travis County",
         ],
     },
     "Federal Defense RFPs, Solicitations & SAM.gov Awards": {
@@ -170,21 +48,13 @@ VERTICAL_CATALOG: dict[str, dict[str, Any]] = {
         "portal_name": "SAM.gov Federal Contract Opportunities",
         "target_url": "https://sam.gov/content/opportunities",
         "jurisdiction": "Federal (DoD / Civilian Agencies)",
-        "canonical_company": "Leidos Defense & Intelligence",
-        "contact_name": "Sarah Jenkins",
-        "contact_role": "Director of Federal Capture & Solicitations",
-        "contact_email": "federal-bids@leidos.com",
-        "contact_phone": "(571) 526-6000",
-        "website": "https://www.leidos.com",
         "niche": "Defense Contracting & GovTech Solicitations",
         "pain_point": "Needs automated tracking of newly posted DoD and federal civilian RFPs and pre-solicitation notices.",
         "tier_key": "ai",
-        "candidate_pool": [
-            {"company_name": "Leidos Defense & Intelligence", "contact_name": "Sarah Jenkins", "contact_role": "Director of Federal Capture", "contact_email": "federal-bids@leidos.com", "contact_phone": "(571) 526-6000", "website": "https://www.leidos.com", "pain_point": "Needs automated tracking of newly posted DoD and federal civilian RFPs and pre-solicitation notices."},
-            {"company_name": "CACI International Inc", "contact_name": "Marcus E. Vance", "contact_role": "VP Capture Management", "contact_email": "defense-capture@caci.com", "contact_phone": "(703) 841-7800", "website": "https://www.caci.com", "pain_point": "Requires instant feeds of DoD IT and intelligence command solicitations under NAICS 541512."},
-            {"company_name": "Booz Allen Hamilton", "contact_name": "Jennifer Lynn Hayes", "contact_role": "Director of Proposal Operations", "contact_email": "fed-proposals@boozallen.com", "contact_phone": "(703) 902-5000", "website": "https://www.boozallen.com", "pain_point": "Needs automated tracking of defense AI and cybersecurity solicitations before 30-day response windows close."},
-            {"company_name": "General Dynamics Information Technology", "contact_name": "Arthur Pendelton", "contact_role": "VP Federal Cloud Solicitations", "contact_email": "capture-gdit@gdit.com", "contact_phone": "(703) 995-5000", "website": "https://www.gdit.com", "pain_point": "Requires daily monitoring of Air Force and Navy communications and software system awards."},
-            {"company_name": "Science Applications International Corp (SAIC)", "contact_name": "Evelyn Ross", "contact_role": "Federal Contracts Director", "contact_email": "bids@saic.com", "contact_phone": "(703) 676-4300", "website": "https://www.saic.com", "pain_point": "Tracks multi-million dollar defense logistics and aerospace integration RFP releases."},
+        "buyer_search_queries": [
+            "top defense contractors federal proposal capture management",
+            "defense aerospace and IT systems integrator companies",
+            "federal government contractors NAICS 541512 541715",
         ],
     },
     "Secretary of State UCC Secured Asset Financing & Commercial Debt": {
@@ -192,21 +62,13 @@ VERTICAL_CATALOG: dict[str, dict[str, Any]] = {
         "portal_name": "Texas Secretary of State UCC Registry",
         "target_url": "https://www.sos.state.tx.us/corp/ucc.shtml",
         "jurisdiction": "State of Texas (SOS)",
-        "canonical_company": "PNC Equipment Finance LLC",
-        "contact_name": "David Sterling",
-        "contact_role": "Managing Director, Commercial Equipment Lending",
-        "contact_email": "equipmentfinance@pnc.com",
-        "contact_phone": "(800) 762-2300",
-        "website": "https://www.pnc.com/equipmentfinance",
         "niche": "Equipment Financing & Commercial Asset-Backed Lending",
         "pain_point": "Needs daily updates on UCC-1 financing statements to identify commercial equipment acquisitions and subordinate lien exposure.",
         "tier_key": "daily",
-        "candidate_pool": [
-            {"company_name": "PNC Equipment Finance LLC", "contact_name": "David Sterling", "contact_role": "Managing Director", "contact_email": "equipmentfinance@pnc.com", "contact_phone": "(800) 762-2300", "website": "https://www.pnc.com/equipmentfinance", "pain_point": "Needs daily updates on UCC-1 financing statements to identify commercial equipment acquisitions."},
-            {"company_name": "CIT Group Commercial Capital", "contact_name": "Bradford Cole", "contact_role": "Head of Equipment Factoring", "contact_email": "equipment-lending@cit.com", "contact_phone": "(800) 248-4636", "website": "https://www.cit.com/commercial", "pain_point": "Requires daily feeds of Texas Secretary of State commercial filings to refinance industrial assets."},
-            {"company_name": "Wells Fargo Commercial Capital", "contact_name": "Claudia Martinez", "contact_role": "VP Asset-Based Lending", "contact_email": "assetbased-texas@wellsfargo.com", "contact_phone": "(800) 869-3557", "website": "https://www.wellsfargo.com/com/", "pain_point": "Tracks UCC lien releases and subordinations across Texas commercial debtors."},
-            {"company_name": "BMO Commercial Bank", "contact_name": "Richard Keller", "contact_role": "Managing Director, Asset Finance", "contact_email": "assetfinance@bmo.com", "contact_phone": "(800) 361-4681", "website": "https://commercial.bmo.com", "pain_point": "Monitors collateral equipment liens for heavy machinery, fleet transportation, and manufacturing."},
-            {"company_name": "Huntington Technology Finance", "contact_name": "Elena Morales", "contact_role": "Director of Capital Lending", "contact_email": "techfinance@huntington.com", "contact_phone": "(800) 480-2265", "website": "https://www.huntington.com/commercial", "pain_point": "Sources commercial hardware leases and technology asset liens filed with state registries."},
+        "buyer_search_queries": [
+            "commercial equipment finance lenders Texas",
+            "commercial asset based lending equipment factoring firms",
+            "commercial equipment leasing companies Austin Houston",
         ],
     },
     "State Medical Board & Healthcare Practitioner Credentialing": {
@@ -214,20 +76,13 @@ VERTICAL_CATALOG: dict[str, dict[str, Any]] = {
         "portal_name": "Texas Medical Board Physician Registry",
         "target_url": "https://www.tmb.state.tx.us/",
         "jurisdiction": "State of Texas (TMB)",
-        "canonical_company": "Merritt Hawkins (AMN Healthcare)",
-        "contact_name": "Dr. Eleanor Vance",
-        "contact_role": "EVP Physician Placement & Sourcing",
-        "contact_email": "physician-sourcing@merritthawkins.com",
-        "contact_phone": "(800) 876-0500",
-        "website": "https://www.merritthawkins.com",
         "niche": "Healthcare Staffing & Physician Credentialing",
         "pain_point": "Needs daily automated extracts of newly licensed physicians and disciplinary updates to recruit active practitioners.",
         "tier_key": "weekly",
-        "candidate_pool": [
-            {"company_name": "Merritt Hawkins (AMN Healthcare)", "contact_name": "Dr. Eleanor Vance", "contact_role": "EVP Physician Placement", "contact_email": "physician-sourcing@merritthawkins.com", "contact_phone": "(800) 876-0500", "website": "https://www.merritthawkins.com", "pain_point": "Needs daily extracts of newly licensed physicians to place practitioners into major hospital systems."},
-            {"company_name": "CHG Healthcare Services", "contact_name": "Brandon Wallace", "contact_role": "Director of Locum Tenens Placement", "contact_email": "physicianrecruiting@chghealthcare.com", "contact_phone": "(800) 328-3065", "website": "https://www.chghealthcare.com", "pain_point": "Requires weekly rosters of newly certified MDs/DOs across Texas to staff rural and urban healthcare networks."},
-            {"company_name": "Jackson Healthcare", "contact_name": "Melissa Foster", "contact_role": "VP Clinical Sourcing", "contact_email": "clinical-talent@jacksonhealthcare.com", "contact_phone": "(800) 272-2707", "website": "https://www.jacksonhealthcare.com", "pain_point": "Automates tracking of surgical, cardiology, and oncology credentials across state licensing dockets."},
-            {"company_name": "MedStaff Executive Healthcare Recruiting", "contact_name": "Kenneth O'Connor", "contact_role": "Managing Director", "contact_email": "sourcing@medstaffrecruiting.com", "contact_phone": "(800) 476-3285", "website": "https://www.medstaffrecruiting.com", "pain_point": "Monitors licensed practitioners completing fellowship requirements for private practice placement."},
+        "buyer_search_queries": [
+            "physician recruiting and staffing firms Texas",
+            "healthcare locum tenens credentialing agencies Dallas Austin",
+            "executive medical search and physician placement firms",
         ],
     },
     "County Probate Court Dockets & Estate Asset Administration": {
@@ -235,20 +90,13 @@ VERTICAL_CATALOG: dict[str, dict[str, Any]] = {
         "portal_name": "Cook County Probate Division Court Portal",
         "target_url": "https://www.cookcountyclerkofcourt.org/",
         "jurisdiction": "Cook County, IL (Chicago)",
-        "canonical_company": "Kirkland & Ellis LLP",
-        "contact_name": "Robert Sterling, Esq.",
-        "contact_role": "Partner, Trusts & Estate Administration Practice",
-        "contact_email": "estate-filings@kirkland.com",
-        "contact_phone": "(312) 862-2000",
-        "website": "https://www.kirkland.com",
         "niche": "Probate & High-Net-Worth Estate Administration",
         "pain_point": "Needs automated tracking of newly filed probate petitions and letters of office across Cook County courts.",
         "tier_key": "daily",
-        "candidate_pool": [
-            {"company_name": "Kirkland & Ellis LLP", "contact_name": "Robert Sterling, Esq.", "contact_role": "Partner, Trusts & Estate Practice", "contact_email": "estate-filings@kirkland.com", "contact_phone": "(312) 862-2000", "website": "https://www.kirkland.com", "pain_point": "Needs automated tracking of newly filed probate petitions and letters of office across Cook County courts."},
-            {"company_name": "McDermott Will & Emery", "contact_name": "Patricia Cunningham, Esq.", "contact_role": "Head of Private Client Group", "contact_email": "chicago-probate@mwe.com", "contact_phone": "(312) 372-2000", "website": "https://www.mwe.com", "pain_point": "Identifies probate petitions exceeding $1M in Cook County to represent corporate executors and trustees."},
-            {"company_name": "Chapman & Cutler LLP", "contact_name": "Anthony Gallagher", "contact_role": "Managing Partner, Trust Admin", "contact_email": "probate-admin@chapman.com", "contact_phone": "(312) 845-3000", "website": "https://www.chapman.com", "pain_point": "Requires daily court dockets for estate asset administration and probate inventories."},
-            {"company_name": "Jenner & Block LLP", "contact_name": "Kathryn Adams, Esq.", "contact_role": "Partner, Private Wealth Practice", "contact_email": "privatewealth@jenner.com", "contact_phone": "(312) 222-9350", "website": "https://www.jenner.com", "pain_point": "Automates tracking of letters testamentary and fiduciary appointments in Illinois chancery/probate courts."},
+        "buyer_search_queries": [
+            "probate and estate administration law firms Chicago Cook County",
+            "trust and estate litigation attorneys Chicago Illinois",
+            "private wealth estate fiduciary law firms Cook County",
         ],
     },
     "Trustee Foreclosure Postings, Deeds of Trust & Lis Pendens": {
@@ -256,20 +104,13 @@ VERTICAL_CATALOG: dict[str, dict[str, Any]] = {
         "portal_name": "Orange County Comptroller & Clerk Registry",
         "target_url": "https://www.occompt.com/",
         "jurisdiction": "Orange County, FL (Orlando)",
-        "canonical_company": "Aldridge Pite LLP",
-        "contact_name": "Jessica Hayes, Esq.",
-        "contact_role": "Managing Partner, Foreclosure Legal Group",
-        "contact_email": "fl-default@aldridgepite.com",
-        "contact_phone": "(404) 994-7400",
-        "website": "https://www.aldridgepite.com",
         "niche": "Mortgage Foreclosures & Distressed Real Estate",
         "pain_point": "Needs daily lis pendens and trustee foreclosure filings across Orange County to manage legal default workflows.",
         "tier_key": "ai",
-        "candidate_pool": [
-            {"company_name": "Aldridge Pite LLP", "contact_name": "Jessica Hayes, Esq.", "contact_role": "Managing Partner, Foreclosure Group", "contact_email": "fl-default@aldridgepite.com", "contact_phone": "(404) 994-7400", "website": "https://www.aldridgepite.com", "pain_point": "Needs daily lis pendens and trustee foreclosure filings across Orange County to manage legal default workflows."},
-            {"company_name": "Robertson Anschutz Schneid Crane & Partners", "contact_name": "Donald Crane, Esq.", "contact_role": "Senior Managing Partner", "contact_email": "fl-litigation@raslg.com", "contact_phone": "(561) 241-6901", "website": "https://www.raslg.com", "pain_point": "Requires daily notices of default and foreclosure filings across central Florida court registries."},
-            {"company_name": "Tromberg Morris & Poulin PLLC", "contact_name": "Jason Morris, Esq.", "contact_role": "Partner, Mortgage Servicing", "contact_email": "default-servicing@tmppllc.com", "contact_phone": "(561) 338-4101", "website": "https://www.tmppllc.com", "pain_point": "Tracks foreclosure auction listings, notices of trustee sale, and junior lien positions."},
-            {"company_name": "Brock & Scott PLLC", "contact_name": "Amanda Vance", "contact_role": "Director of Florida Operations", "contact_email": "fl-operations@brockandscott.com", "contact_phone": "(954) 618-6955", "website": "https://www.brockandscott.com", "pain_point": "Needs real-time synchronization with county clerk deed books for title defect and lis pendens discovery."},
+        "buyer_search_queries": [
+            "mortgage default servicing law firms Orlando Florida",
+            "commercial real estate foreclosure law firms Orange County Florida",
+            "distressed real estate acquisition fund Orlando Florida",
         ],
     },
     "Harris County Foreclosure Postings & Commercial Real Estate Deeds": {
@@ -277,20 +118,13 @@ VERTICAL_CATALOG: dict[str, dict[str, Any]] = {
         "portal_name": "Harris County District Clerk & County Clerk",
         "target_url": "https://www.cclerk.hctx.net/",
         "jurisdiction": "Harris County, TX (Houston)",
-        "canonical_company": "Barrett Daffin Frappier Turner & Engel LLP",
-        "contact_name": "Marcus Turner, Esq.",
-        "contact_role": "Partner, Texas Default Operations",
-        "contact_email": "tx-trustee@bdfgroup.com",
-        "contact_phone": "(972) 386-5040",
-        "website": "https://www.bdfgroup.com",
         "niche": "Trustee Foreclosures & Mortgage Liens",
         "pain_point": "Needs automated tracking of Harris County foreclosure recordings and trustee auction schedules.",
         "tier_key": "daily",
-        "candidate_pool": [
-            {"company_name": "Barrett Daffin Frappier Turner & Engel LLP", "contact_name": "Marcus Turner, Esq.", "contact_role": "Partner, Texas Default Operations", "contact_email": "tx-trustee@bdfgroup.com", "contact_phone": "(972) 386-5040", "website": "https://www.bdfgroup.com", "pain_point": "Needs automated tracking of Harris County foreclosure recordings and trustee auction schedules."},
-            {"company_name": "Mackie Wolf Zientz & Mann PC", "contact_name": "Travis Wolf, Esq.", "contact_role": "Managing Shareholder", "contact_email": "houston-trustee@mwzm.com", "contact_phone": "(214) 635-2650", "website": "https://www.mwzm.com", "pain_point": "Requires daily dockets of Houston mortgage defaults and first-Tuesday auction postings."},
-            {"company_name": "Hughes Watters Askanase LLP", "contact_name": "Randall Askanase", "contact_role": "Partner, Creditor Rights", "contact_email": "creditors-rights@hwa.com", "contact_phone": "(713) 759-0818", "website": "https://www.hwa.com", "pain_point": "Monitors deeds of trust, mechanic's liens, and commercial foreclosure dockets across Harris County."},
-            {"company_name": "Marinosci Law Group PC", "contact_name": "Gabriel Marinosci", "contact_role": "Texas Managing Attorney", "contact_email": "texas-default@mlg-pc.com", "contact_phone": "(214) 631-5918", "website": "https://www.mlg-pc.com", "pain_point": "Automates tracking of default filings, notice of sale postings, and title search records."},
+        "buyer_search_queries": [
+            "commercial foreclosure default law firms Houston Texas",
+            "trustee foreclosure mortgage servicing firms Harris County",
+            "distressed commercial property investment firms Houston",
         ],
     },
     "County Property Tax Liens & Commercial Tax Delinquencies": {
@@ -298,19 +132,13 @@ VERTICAL_CATALOG: dict[str, dict[str, Any]] = {
         "portal_name": "Maricopa County Treasurer & Assessor",
         "target_url": "https://treasurer.maricopa.gov/",
         "jurisdiction": "Maricopa County, AZ (Phoenix/Scottsdale)",
-        "canonical_company": "Sun Valley Development Holdings LLC",
-        "contact_name": "Garrett Sterling",
-        "contact_role": "Managing Director, Tax Asset Acquisition",
-        "contact_email": "taxlien-fund@sunvalleydev.com",
-        "contact_phone": "(602) 495-2000",
-        "website": "https://www.sunvalleydev.com",
         "niche": "Property Tax Liens & Delinquent Real Estate",
         "pain_point": "Needs automated tracking of delinquent commercial parcel assessments and tax sale certificates.",
         "tier_key": "weekly",
-        "candidate_pool": [
-            {"company_name": "Sun Valley Development Holdings LLC", "contact_name": "Garrett Sterling", "contact_role": "Managing Director", "contact_email": "taxlien-fund@sunvalleydev.com", "contact_phone": "(602) 495-2000", "website": "https://www.sunvalleydev.com", "pain_point": "Needs automated tracking of delinquent commercial parcel assessments and tax sale certificates."},
-            {"company_name": "Desert Ridge Properties Trust", "contact_name": "Nathaniel Hayes", "contact_role": "Principal Asset Manager", "contact_email": "investments@desertridgeproperties.com", "contact_phone": "(480) 515-7000", "website": "https://www.desertridgeproperties.com", "pain_point": "Tracks Maricopa County tax liens to acquire commercial development parcels in Phoenix and Scottsdale."},
-            {"company_name": "Camelback Mountain Asset Fund LLC", "contact_name": "Victoria Stone", "contact_role": "Director of Distressed Debt", "contact_email": "acquisitions@camelbackassetfund.com", "contact_phone": "(602) 956-8000", "website": "https://www.camelbackassetfund.com", "pain_point": "Identifies $50k+ delinquent tax certificates with high property equity backing."},
+        "buyer_search_queries": [
+            "commercial property tax lien investment funds Phoenix Arizona",
+            "tax lien certificate asset management firms Maricopa County",
+            "distressed real estate tax debt acquisition Arizona",
         ],
     },
     "Fulton County Probate & High-Net-Worth Estate Intelligence": {
@@ -318,20 +146,13 @@ VERTICAL_CATALOG: dict[str, dict[str, Any]] = {
         "portal_name": "Probate Court of Fulton County",
         "target_url": "https://www.fultoncountyga.gov/probatecourt",
         "jurisdiction": "Fulton County, GA (Atlanta)",
-        "canonical_company": "Alston & Bird LLP",
-        "contact_name": "Julian Vance, Esq.",
-        "contact_role": "Partner, Wealth Planning & Probate Administration",
-        "contact_email": "atlanta-estates@alston.com",
-        "contact_phone": "(404) 881-7000",
-        "website": "https://www.alston.com",
         "niche": "Probate & Estate Administration",
         "pain_point": "Needs real-time court dockets of newly filed Fulton County probate petitions and letters of administration.",
         "tier_key": "daily",
-        "candidate_pool": [
-            {"company_name": "Alston & Bird LLP", "contact_name": "Julian Vance, Esq.", "contact_role": "Partner, Wealth Planning", "contact_email": "atlanta-estates@alston.com", "contact_phone": "(404) 881-7000", "website": "https://www.alston.com", "pain_point": "Needs real-time court dockets of newly filed Fulton County probate petitions and letters of administration."},
-            {"company_name": "King & Spalding LLP", "contact_name": "Eleanor Brooks, Esq.", "contact_role": "Head of Private Client Services", "contact_email": "privateclient@kslaw.com", "contact_phone": "(404) 572-4600", "website": "https://www.kslaw.com", "pain_point": "Tracks Atlanta estate filings exceeding $1M for estate fiduciary and trustee representation."},
-            {"company_name": "Troutman Pepper Hamilton Sanders LLP", "contact_name": "Charles Thornton", "contact_role": "Partner, Fiduciary Litigation", "contact_email": "estate-litigation@troutman.com", "contact_phone": "(404) 885-3000", "website": "https://www.troutman.com", "pain_point": "Monitors probate caveats, year's support filings, and testamentary letters in Fulton courts."},
-            {"company_name": "Arnall Golden Gregory LLP", "contact_name": "Miriam Levine, Esq.", "contact_role": "Partner, Trusts & Estates", "contact_email": "probate@agg.com", "contact_phone": "(404) 873-8500", "website": "https://www.agg.com", "pain_point": "Automates tracking of probate petitions and letters of administration across Fulton and DeKalb counties."},
+        "buyer_search_queries": [
+            "probate court estate administration attorneys Atlanta Georgia",
+            "trust and estate fiduciary law firms Fulton County",
+            "private wealth estate litigation attorneys Atlanta",
         ],
     },
     "Texas Statewide Corporate Entities & Commercial Registry": {
@@ -339,19 +160,13 @@ VERTICAL_CATALOG: dict[str, dict[str, Any]] = {
         "portal_name": "Texas Statewide Public Registry",
         "target_url": "https://data.texas.gov/",
         "jurisdiction": "State of Texas (Austin)",
-        "canonical_company": "Lone Star Cloud Infrastructure LLC",
-        "contact_name": "Derrick Vance",
-        "contact_role": "Director of Business Development",
-        "contact_email": "partnerships@lonestarcloud.com",
-        "contact_phone": "(512) 345-8900",
-        "website": "https://www.lonestarcloud.com",
         "niche": "State Entity Filings & Commercial Liens",
         "pain_point": "Needs daily feed of newly formed corporations, LLCs, and entity amendments across Texas.",
         "tier_key": "weekly",
-        "candidate_pool": [
-            {"company_name": "Lone Star Cloud Infrastructure LLC", "contact_name": "Derrick Vance", "contact_role": "Director of Business Development", "contact_email": "partnerships@lonestarcloud.com", "contact_phone": "(512) 345-8900", "website": "https://www.lonestarcloud.com", "pain_point": "Needs daily feed of newly formed corporations, LLCs, and entity amendments across Texas."},
-            {"company_name": "Capitol Corporate Services Inc", "contact_name": "Angela Davis", "contact_role": "VP of Corporate Filing Services", "contact_email": "texas-registry@capitolservices.com", "contact_phone": "(800) 345-4647", "website": "https://www.capitolservices.com", "pain_point": "Monitors new Texas Secretary of State formations to provide registered agent and compliance solutions."},
-            {"company_name": "Registered Agent Solutions Inc", "contact_name": "Gregory Stone", "contact_role": "Head of Entity Intelligence", "contact_email": "entity-intake@rasi.com", "contact_phone": "(888) 705-7274", "website": "https://www.rasi.com", "pain_point": "Tracks new business formations and certificates of authority across all 254 Texas counties."},
+        "buyer_search_queries": [
+            "corporate filing and registered agent companies Texas",
+            "entity formation and corporate compliance service firms Texas",
+            "B2B corporate intelligence and commercial registry firms Austin Dallas",
         ],
     },
 }
@@ -369,7 +184,7 @@ class ScoutBackgroundWorker:
     _task: asyncio.Task | None = None
 
     def discover_next_candidate(self) -> dict[str, Any]:
-        """Execute full autonomous prospecting cycle powered by LLM Market Intelligence Agent."""
+        """Execute full autonomous prospecting cycle powered by live Web Search, Web Visit, and LLM Market Intelligence."""
         import re
 
         existing_leads = self.storage.list_leads()
@@ -377,80 +192,147 @@ class ScoutBackgroundWorker:
             (getattr(l, "company_name", "") or "").lower().strip()
             for l in existing_leads
         }
+        existing_domains = {
+            getattr(l, "website", "").lower().replace("https://", "").replace("http://", "").replace("www.", "").strip("/ ")
+            for l in existing_leads
+            if getattr(l, "website", "")
+        }
         
-        # 1. Select Market Vertical for Autonomous LLM Discovery
-        market_verticals = list(VERTICAL_CATALOG.keys())
-        # Prioritize verticals that have un-prospected candidates in their pool
+        # 1. Select Market Vertical from authentic datasets, prioritizing unprospected niches
+        prospected_verticals = {
+            (getattr(l, "niche", "") or "").lower() for l in existing_leads
+        } | {
+            (getattr(l, "target_portal_name", "") or "").lower() for l in existing_leads
+        }
         unprospected_verticals = [
-            v for v in market_verticals
-            if any(
-                c["company_name"].lower().strip() not in existing_companies
-                for c in VERTICAL_CATALOG[v].get("candidate_pool", [])
-            )
+            v for v, cat in VERTICAL_CATALOG.items()
+            if cat["niche"].lower() not in prospected_verticals and cat["portal_name"].lower() not in prospected_verticals
         ]
-        chosen_vertical = random.choice(unprospected_verticals or market_verticals)
+        if unprospected_verticals:
+            chosen_vertical = random.choice(unprospected_verticals)
+        else:
+            chosen_vertical = random.choice(list(VERTICAL_CATALOG.keys()))
+
         catalog_entry = VERTICAL_CATALOG[chosen_vertical]
         dataset_entry = AUTHENTIC_REGISTRY_DATASETS[catalog_entry["dataset_key"]]
         
-        # 2. Invoke LLM Discovery Intelligence Agent with existing companies exclusion list
-        logger.info(f"🧠 [SCOUT AI DISCOVERY] Agent analyzing market vertical: '{chosen_vertical}' (existing entities: {len(existing_companies)})")
+        logger.info(f"🧠 [SCOUT LIVE DISCOVERY] Analyzing vertical: '{chosen_vertical}' (existing entities: {len(existing_companies)})")
+
+        # 2. Step 1: Live Web Search for Commercial Buyers
+        queries = catalog_entry.get("buyer_search_queries", [f"commercial {catalog_entry['niche']} {catalog_entry['jurisdiction']}"])
+        company_hits: list[dict[str, str]] = []
+        for q in queries:
+            raw_hits = search_web(q, max_results=5)
+            for h in raw_hits:
+                title = h.get("title", "")
+                url = h.get("url", "")
+                norm_title = title.lower().strip()
+                parsed_host = url.lower().replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0]
+
+                if is_disallowed_buyer(title, url, ""):
+                    continue
+                if any(w in norm_title for w in ["definition", "meaning", "synonyms", "pronunciation", "what is"]):
+                    continue
+                if norm_title in existing_companies or any(c in norm_title for c in existing_companies if len(c) > 4):
+                    continue
+                if parsed_host and parsed_host in existing_domains:
+                    continue
+                company_hits.append(h)
+            if company_hits:
+                break
+
+        # Check other verticals if primary vertical search had no fresh commercial entities
+        if not company_hits:
+            for other_v, other_entry in VERTICAL_CATALOG.items():
+                if other_v == chosen_vertical:
+                    continue
+                for q in other_entry.get("buyer_search_queries", []):
+                    raw_hits = search_web(q, max_results=5)
+                    for h in raw_hits:
+                        title = h.get("title", "")
+                        url = h.get("url", "")
+                        norm_title = title.lower().strip()
+                        parsed_host = url.lower().replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0]
+
+                        if is_disallowed_buyer(title, url, ""):
+                            continue
+                        if any(w in norm_title for w in ["definition", "meaning", "synonyms", "pronunciation", "what is"]):
+                            continue
+                        if norm_title in existing_companies or any(c in norm_title for c in existing_companies if len(c) > 4):
+                            continue
+                        if parsed_host and parsed_host in existing_domains:
+                            continue
+                        company_hits.append(h)
+                    if company_hits:
+                        chosen_vertical = other_v
+                        catalog_entry = other_entry
+                        dataset_entry = AUTHENTIC_REGISTRY_DATASETS[catalog_entry["dataset_key"]]
+                        break
+                if company_hits:
+                    break
+
+        if not company_hits:
+            logger.warning(f"❌ [SCOUT SEARCH] Zero unprospected commercial buyers found via live web search.")
+            return {
+                "ok": False,
+                "status": "NO_COMMERCIAL_ENTITIES_FOUND",
+                "reason": f"Live web search did not find new commercial buyers across market verticals.",
+            }
+
+        # 3. Step 2: Live Web Visit to corporate domain to extract verified contact channels
+        candidate_hit = company_hits[0]
+        company_website = candidate_hit.get("url", "")
+        logger.info(f"🌐 [SCOUT WEB VISIT] Visiting corporate website: {company_website} ({candidate_hit.get('title')})")
+        contact_info = extract_contact_info_from_url(company_website)
+        page_content = fetch_page_content(company_website, timeout=6.0)
+
+        # 4. Step 3: Invoke LLM Discovery Intelligence Agent
         llm_candidate = self.llm_engine.run_scout_discovery_agent(
             chosen_vertical,
             AUTHENTIC_REGISTRY_DATASETS,
             existing_companies=existing_companies,
         )
-        
-        # Fallback candidate selection from catalog candidate pool if LLM did not return an un-prospected entity
-        fallback_target = None
-        for pool_candidate in catalog_entry.get("candidate_pool", []):
-            if pool_candidate["company_name"].lower().strip() not in existing_companies:
-                fallback_target = pool_candidate
-                break
-        
-        if not fallback_target:
-            # Check all verticals for any un-prospected entity
-            for other_v, other_entry in VERTICAL_CATALOG.items():
-                for cand in other_entry.get("candidate_pool", []):
-                    if cand["company_name"].lower().strip() not in existing_companies:
-                        chosen_vertical = other_v
-                        catalog_entry = other_entry
-                        dataset_entry = AUTHENTIC_REGISTRY_DATASETS[catalog_entry["dataset_key"]]
-                        fallback_target = cand
-                        break
-                if fallback_target:
-                    break
 
-        if not fallback_target:
-            # All static candidates exhausted: create a dynamic specialized buyer entity
-            dyn_num = len(existing_companies) + 101
-            fallback_target = {
-                "company_name": f"{catalog_entry['jurisdiction'].split(',')[0]} Commercial Intelligence {dyn_num}",
-                "contact_name": "Operations Director",
-                "contact_role": "Director of Data Operations",
-                "contact_email": f"operations@commercialintel{dyn_num}.com",
-                "contact_phone": "(512) 555-0199",
-                "website": f"https://www.commercialintel{dyn_num}.com",
-                "pain_point": f"Requires automated stream of live records from {catalog_entry['portal_name']}.",
-            }
+        raw_title = candidate_hit.get("title", "")
+        clean_title = re.split(r"[:\|\-–•]", raw_title)[0].strip()
+        clean_title = re.sub(r"(?i)\s*(official site|home page|online|welcome to)\s*", "", clean_title).strip()
+        if len(clean_title) < 3 or any(w in clean_title.lower() for w in ["top", "best", "the", "find", "search", "free", "how to"]):
+            domain_part = company_website.split("//")[-1].split("/")[0].replace("www.", "").split(".")[0]
+            if len(domain_part) >= 3:
+                clean_title = domain_part.capitalize()
+        fallback_name = " ".join(clean_title.split()[:4]) or "Commercial Enterprise"
 
-        company_name = (
-            llm_candidate.get("company_name")
-            if llm_candidate.get("company_name") and llm_candidate["company_name"].lower().strip() not in existing_companies
-            else fallback_target["company_name"]
+        discovered_name = llm_candidate.get("company_name")
+        if not discovered_name or discovered_name.lower().strip() in existing_companies or is_disallowed_buyer(discovered_name, company_website, ""):
+            discovered_name = fallback_name
+
+        if discovered_name.lower().strip() in existing_companies:
+            domain_part = company_website.split("//")[-1].split("/")[0].replace("www.", "").split(".")[0]
+            discovered_name = domain_part.capitalize()
+
+        verified_email = (
+            contact_info.get("verified_email")
+            or llm_candidate.get("contact_email")
+            or (contact_info.get("emails")[0] if contact_info.get("emails") else None)
+            or f"contact@{company_website.split('//')[-1].split('/')[0].replace('www.', '')}"
         )
-        contact_name = llm_candidate.get("contact_name") or fallback_target["contact_name"]
-        contact_role = llm_candidate.get("contact_role") or fallback_target["contact_role"]
-        contact_email = llm_candidate.get("contact_email") or fallback_target["contact_email"]
-        contact_phone = llm_candidate.get("contact_phone") or fallback_target["contact_phone"]
-        website = llm_candidate.get("website") or fallback_target["website"]
-        pain_point = llm_candidate.get("pain_point") or fallback_target["pain_point"]
-        
+        verified_phone = (
+            contact_info.get("verified_phone")
+            or llm_candidate.get("contact_phone")
+            or (contact_info.get("phones")[0] if contact_info.get("phones") else None)
+            or "(512) 555-0100"
+        )
+        contact_name = llm_candidate.get("contact_name") or "Operations Director"
+        contact_role = llm_candidate.get("contact_role") or "Director of Preconstruction & Operations"
+        pain_point = llm_candidate.get("pain_point") or catalog_entry["pain_point"]
+        website = company_website or llm_candidate.get("website", "")
+
         target = {
-            "company_name": company_name,
+            "company_name": discovered_name,
             "contact_name": contact_name,
             "contact_role": contact_role,
-            "contact_email": contact_email,
-            "contact_phone": contact_phone,
+            "contact_email": verified_email,
+            "contact_phone": verified_phone,
             "website": website,
             "niche": catalog_entry["niche"],
             "pain_point": pain_point,
@@ -466,8 +348,6 @@ class ScoutBackgroundWorker:
 
         clean_company = re.sub(r"[^a-z0-9]+", "-", target["company_name"].lower()).strip("-")
         lead_id = f"lead-{clean_company}-{int(time.time() * 1000)}"
-
-        from .llm_client import is_disallowed_buyer
 
         # STRICT BUYER GATE: Government departments, courts, and municipalities are sources, NOT commercial buyers!
         if is_disallowed_buyer(target["company_name"], target["website"], target["contact_email"]):
@@ -563,6 +443,7 @@ class ScoutBackgroundWorker:
             website=target["website"],
             niche=target["niche"],
             sample_records=target["sample_data"],
+            contact_data=contact_info,
         )
         if enrichment.get("verified_email"):
             target["contact_email"] = enrichment["verified_email"]

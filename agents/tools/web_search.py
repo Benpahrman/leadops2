@@ -51,20 +51,26 @@ def search_web_playwright(query: str, max_results: int = 5) -> list[dict[str, st
             except Exception as exc:
                 logger.debug(f"Timeout waiting for li.b_algo selector: {exc}")
             
-            for el in page.query_selector_all("li.b_algo")[:max_results]:
+            seen_domains: set[str] = set()
+            for el in page.query_selector_all("li.b_algo"):
+                if len(results) >= max_results:
+                    break
                 title_el = el.query_selector("h2 a")
                 snip_el = el.query_selector("p")
                 if title_el:
-                    title = title_el.inner_text().strip()
+                    title = (title_el.text_content() or "").strip()
                     raw_href = title_el.get_attribute("href") or ""
                     clean_url = _decode_bing_url(raw_href)
-                    snippet = snip_el.inner_text().strip() if snip_el else ""
-                    if clean_url and title:
-                        results.append({
-                            "title": title,
-                            "url": clean_url,
-                            "snippet": snippet,
-                        })
+                    snippet = (snip_el.text_content() or "").strip() if snip_el else ""
+                    if clean_url and title and clean_url.startswith("http"):
+                        domain = urllib.parse.urlparse(clean_url).netloc.lower()
+                        if domain and domain not in seen_domains:
+                            seen_domains.add(domain)
+                            results.append({
+                                "title": title,
+                                "url": clean_url,
+                                "snippet": snippet,
+                            })
         finally:
             browser.close()
             
@@ -87,7 +93,10 @@ def search_web_http(query: str, max_results: int = 5) -> list[dict[str, str]]:
                 soup = BeautifulSoup(resp.text, "html.parser")
                 links = soup.select("a.result-link")
                 snippets = soup.select("td.result-snippet")
-                for i, link in enumerate(links[:max_results]):
+                seen_domains: set[str] = set()
+                for i, link in enumerate(links):
+                    if len(results) >= max_results:
+                        break
                     title = link.get_text(strip=True)
                     url = link.get("href", "")
                     if "uddg=" in url:
@@ -96,11 +105,14 @@ def search_web_http(query: str, max_results: int = 5) -> list[dict[str, str]]:
                             url = urllib.parse.unquote(match.group(1))
                     snippet = snippets[i].get_text(strip=True) if i < len(snippets) else ""
                     if title and url and url.startswith("http"):
-                        results.append({
-                            "title": title,
-                            "url": url,
-                            "snippet": snippet,
-                        })
+                        domain = urllib.parse.urlparse(url).netloc.lower()
+                        if domain and domain not in seen_domains:
+                            seen_domains.add(domain)
+                            results.append({
+                                "title": title,
+                                "url": url,
+                                "snippet": snippet,
+                            })
     except Exception as e:
         logger.debug(f"HTTP web search failed for query '{query}': {e}")
     return results
