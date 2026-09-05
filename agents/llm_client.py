@@ -499,17 +499,28 @@ class LLMAgentEngine:
                 return code
         return ""
 
-    def run_scout_discovery_agent(self, market_vertical: str, authentic_datasets: dict[str, Any]) -> dict[str, Any]:
+    def run_scout_discovery_agent(
+        self,
+        market_vertical: str,
+        authentic_datasets: dict[str, Any],
+        existing_companies: set[str] | list[str] | None = None,
+    ) -> dict[str, Any]:
         """Autonomous Scout LLM Agent: Discovers qualified B2B buyers using multi-step ReAct Tool Calling."""
         from .tools.web_search import search_web, search_company_intelligence, search_public_data_portals
         from .tools.web_fetcher import fetch_page_content, extract_contact_info_from_url, extract_portal_sample_data
         from .tools.ai_tools_registry import AI_TOOL_DEFINITIONS
 
+        existing_set = {str(c).lower().strip() for c in (existing_companies or []) if c}
+
         # 1. Step 1: Autonomous Web Search for Real Companies & Portal Candidates
         logger.info(f"🔎 [SCOUT AI AGENT: STEP 1 SEARCH] Searching live web for: '{market_vertical}'")
-        raw_company_hits = search_web(f"top real commercial private firms general contractors lenders {market_vertical}", max_results=5)
+        raw_company_hits = search_web(f"top real commercial private firms general contractors lenders {market_vertical}", max_results=6)
         # STRICT FILTER: Exclude government portals, courts, municipalities, and .gov domains from buyer hits
-        company_hits = [h for h in raw_company_hits if not is_disallowed_buyer(h.get("title", ""), h.get("url", ""), "")]
+        company_hits = [
+            h for h in raw_company_hits
+            if not is_disallowed_buyer(h.get("title", ""), h.get("url", ""), "")
+            and h.get("title", "").lower().strip() not in existing_set
+        ]
         portal_hits = search_public_data_portals(market_vertical, "Texas / Nationwide")
 
         # 2. Step 2: Extract real corporate domain contact info
@@ -537,7 +548,7 @@ class LLMAgentEngine:
             "2. NEVER target government departments, municipalities, city councils, courts, or state agencies (.gov / .mil domains) as buyers! "
             "Government agencies are DATA SOURCES to extract, not customers to sell to. Commercial buyers MUST be private for-profit businesses "
             "(General Contractors, Subcontractors, Law Firms, Lenders, Asset Recovery Firms, Title Companies, Private Wealth Advisors). "
-            "3. You MUST use the REAL enterprise and verified contact details extracted from the live research tools. "
+            "3. You MUST discover a FRESH commercial buyer company not already in the existing companies list. "
             "4. Formulate their commercial pain point, suggested extraction schema fields, recommended delivery tier ('daily', 'weekly', 'ai'), "
             "and craft a concise, hyper-personalized, sub-60-word pitch email. "
             "\nReturn ONLY a valid JSON object matching this schema: "
@@ -559,17 +570,18 @@ class LLMAgentEngine:
             "'pitch_body': str"
             "}"
         )
+        existing_notice = f"\nAlready Prospected Companies (DO NOT SELECT ANY OF THESE):\n{json.dumps(list(existing_set)[:20], indent=2)}\n" if existing_set else ""
         user_prompt = (
-            f"Market Vertical: {market_vertical}\n\n"
+            f"Market Vertical: {market_vertical}\n{existing_notice}\n"
             f"1. Live Enterprise Company Search Results (Filtered for private commercial firms):\n{json.dumps(company_hits, indent=2)}\n\n"
             f"2. Live Contact Extraction Results:\n{json.dumps(contact_info, indent=2)}\n\n"
             f"3. Live Target Data Portal Search Results:\n{json.dumps(portal_hits, indent=2)}\n\n"
             f"4. Live Sample Records Extracted from Portal:\n{json.dumps(sample_records_extracted.get('records', [])[:5], indent=2)}\n\n"
             f"Available Verified Registry Portals Context:\n"
             f"{json.dumps(list(authentic_datasets.keys()), indent=2)}\n\n"
-            f"Synthesize the fully qualified B2B buyer intelligence dossier using this live research (NO PLACEHOLDERS, NO GOVERNMENT BUYERS):"
+            f"Synthesize a brand new, fully qualified commercial B2B buyer intelligence dossier (NO PLACEHOLDERS, NO GOVERNMENT BUYERS, NO ALREADY PROSPECTED ENTITIES):"
         )
-        res = self.generate_completion(system_prompt, user_prompt, temperature=0.2, max_tokens=1500)
+        res = self.generate_completion(system_prompt, user_prompt, temperature=0.3, max_tokens=1500)
         if res and "{" in res and "}" in res:
             try:
                 start = res.find("{")
@@ -577,13 +589,17 @@ class LLMAgentEngine:
                 candidate = json.loads(res[start:end])
                 
                 # Check for prohibited placeholders & government buyers
-                c_name = (candidate.get("company_name") or "").lower()
-                p_name = (candidate.get("contact_name") or "").lower()
-                c_email = (candidate.get("contact_email") or "").lower()
-                c_web = (candidate.get("website") or "").lower()
+                c_name = (candidate.get("company_name") or "").lower().strip()
+                p_name = (candidate.get("contact_name") or "").lower().strip()
+                c_email = (candidate.get("contact_email") or "").lower().strip()
+                c_web = (candidate.get("website") or "").lower().strip()
                 
                 if is_disallowed_buyer(c_name, c_web, c_email):
                     logger.warning(f"⚠️ [SCOUT AI QA] Rejected government entity '{c_name}' / '{c_email}'. Commercial buyers must be private businesses.")
+                    return {}
+                
+                if c_name in existing_set:
+                    logger.info(f"ℹ️ [SCOUT AI QA] Entity '{c_name}' already prospected. Skipping duplicate.")
                     return {}
                 
                 banned_terms = ["john doe", "jane doe", "abc ", "abc manufacturing", "acme", "example.com", "abcmfg.com", "xyz corp", "test company"]

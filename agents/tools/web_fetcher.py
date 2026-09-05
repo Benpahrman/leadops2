@@ -84,10 +84,10 @@ def extract_contact_info_from_url(website_url: str) -> dict[str, Any]:
     all_emails = list(base_result.get("emails", []))
     all_phones = list(base_result.get("phones", []))
     
-    if not all_emails:
+    if base_result.get("ok") and not all_emails:
         for path in ["/contact", "/about", "/team", "/contact-us", "/about-us"]:
             sub_url = urljoin(website_url, path)
-            sub_res = fetch_page_content(sub_url, timeout=3.5)
+            sub_res = fetch_page_content(sub_url, timeout=2.5)
             if sub_res.get("ok"):
                 all_emails.extend(sub_res.get("emails", []))
                 all_phones.extend(sub_res.get("phones", []))

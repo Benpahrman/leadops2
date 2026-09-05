@@ -54,6 +54,7 @@ class AdminMissionControlService:
         kanban: dict[str, list[dict[str, Any]]] = {
             "PROSPECTING": [],
             "REVIEW": [],
+            "PITCH_PENDING_APPROVAL": [],
             "OUTREACH_SENT": [],
             "CONVERSATIONAL_INTAKE": [],
             "SOW_GENERATED": [],

@@ -107,6 +107,61 @@ resource apiApp 'Microsoft.App/containerApps@2023-05-01' = {
           keyVaultUrl: '${keyVaultUri}secrets/leadops-api-token'
           identity: managedIdentityId
         }
+        {
+          name: 'clerk-secret-key'
+          keyVaultUrl: '${keyVaultUri}secrets/clerk-secret-key'
+          identity: managedIdentityId
+        }
+        {
+          name: 'clerk-publishable-key'
+          keyVaultUrl: '${keyVaultUri}secrets/clerk-publishable-key'
+          identity: managedIdentityId
+        }
+        {
+          name: 'paypal-client-id'
+          keyVaultUrl: '${keyVaultUri}secrets/paypal-client-id'
+          identity: managedIdentityId
+        }
+        {
+          name: 'paypal-client-secret'
+          keyVaultUrl: '${keyVaultUri}secrets/paypal-client-secret'
+          identity: managedIdentityId
+        }
+        {
+          name: 'paypal-webhook-id'
+          keyVaultUrl: '${keyVaultUri}secrets/paypal-webhook-id'
+          identity: managedIdentityId
+        }
+        {
+          name: 'sendpulse-client-id'
+          keyVaultUrl: '${keyVaultUri}secrets/sendpulse-client-id'
+          identity: managedIdentityId
+        }
+        {
+          name: 'sendpulse-client-secret'
+          keyVaultUrl: '${keyVaultUri}secrets/sendpulse-client-secret'
+          identity: managedIdentityId
+        }
+        {
+          name: 'sendpulse-api-key'
+          keyVaultUrl: '${keyVaultUri}secrets/sendpulse-api-key'
+          identity: managedIdentityId
+        }
+        {
+          name: 'gemini-api-key'
+          keyVaultUrl: '${keyVaultUri}secrets/gemini-api-key'
+          identity: managedIdentityId
+        }
+        {
+          name: 'groq-api-key'
+          keyVaultUrl: '${keyVaultUri}secrets/groq-api-key'
+          identity: managedIdentityId
+        }
+        {
+          name: 'nvidia-api-key'
+          keyVaultUrl: '${keyVaultUri}secrets/nvidia-api-key'
+          identity: managedIdentityId
+        }
       ]
     }
     template: {
@@ -142,6 +197,54 @@ resource apiApp 'Microsoft.App/containerApps@2023-05-01' = {
             {
               name: 'LEADOPS_API_TOKEN'
               secretRef: 'leadops-api-token'
+            }
+            {
+              name: 'CLERK_SECRET_KEY'
+              secretRef: 'clerk-secret-key'
+            }
+            {
+              name: 'CLERK_PUBLISHABLE_KEY'
+              secretRef: 'clerk-publishable-key'
+            }
+            {
+              name: 'PAYPAL_CLIENT_ID'
+              secretRef: 'paypal-client-id'
+            }
+            {
+              name: 'PAYPAL_CLIENT_SECRET'
+              secretRef: 'paypal-client-secret'
+            }
+            {
+              name: 'PAYPAL_WEBHOOK_ID'
+              secretRef: 'paypal-webhook-id'
+            }
+            {
+              name: 'PAYPAL_MODE'
+              value: 'sandbox'
+            }
+            {
+              name: 'SENDPULSE_CLIENT_ID'
+              secretRef: 'sendpulse-client-id'
+            }
+            {
+              name: 'SENDPULSE_CLIENT_SECRET'
+              secretRef: 'sendpulse-client-secret'
+            }
+            {
+              name: 'SENDPULSE_API_KEY'
+              secretRef: 'sendpulse-api-key'
+            }
+            {
+              name: 'GEMINI_API_KEY'
+              secretRef: 'gemini-api-key'
+            }
+            {
+              name: 'GROQ_API_KEY'
+              secretRef: 'groq-api-key'
+            }
+            {
+              name: 'NVIDIA_API_KEY'
+              secretRef: 'nvidia-api-key'
             }
           ]
           resources: {
@@ -228,6 +331,21 @@ resource workerApp 'Microsoft.App/containerApps@2023-05-01' = {
           keyVaultUrl: '${keyVaultUri}secrets/leadops-api-token'
           identity: managedIdentityId
         }
+        {
+          name: 'gemini-api-key'
+          keyVaultUrl: '${keyVaultUri}secrets/gemini-api-key'
+          identity: managedIdentityId
+        }
+        {
+          name: 'groq-api-key'
+          keyVaultUrl: '${keyVaultUri}secrets/groq-api-key'
+          identity: managedIdentityId
+        }
+        {
+          name: 'nvidia-api-key'
+          keyVaultUrl: '${keyVaultUri}secrets/nvidia-api-key'
+          identity: managedIdentityId
+        }
       ]
     }
     template: {
@@ -259,6 +377,18 @@ resource workerApp 'Microsoft.App/containerApps@2023-05-01' = {
             {
               name: 'LEADOPS_API_TOKEN'
               secretRef: 'leadops-api-token'
+            }
+            {
+              name: 'GEMINI_API_KEY'
+              secretRef: 'gemini-api-key'
+            }
+            {
+              name: 'GROQ_API_KEY'
+              secretRef: 'groq-api-key'
+            }
+            {
+              name: 'NVIDIA_API_KEY'
+              secretRef: 'nvidia-api-key'
             }
           ]
           resources: {

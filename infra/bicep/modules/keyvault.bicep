@@ -25,12 +25,40 @@ param paypalClientId string = ''
 @secure()
 param paypalClientSecret string = ''
 
+@description('PayPal Webhook ID')
+@secure()
+param paypalWebhookId string = ''
+
 @description('Clerk Secret Key')
 @secure()
 param clerkSecretKey string = ''
 
 @description('Clerk Publishable Key')
 param clerkPublishableKey string = ''
+
+@description('SendPulse Client ID')
+@secure()
+param sendpulseClientId string = ''
+
+@description('SendPulse Client Secret')
+@secure()
+param sendpulseClientSecret string = ''
+
+@description('SendPulse API Key')
+@secure()
+param sendpulseApiKey string = ''
+
+@description('Gemini API Key')
+@secure()
+param geminiApiKey string = ''
+
+@description('Groq API Key')
+@secure()
+param groqApiKey string = ''
+
+@description('NVIDIA API Key')
+@secure()
+param nvidiaApiKey string = ''
 
 @description('LLM API Key (Gemini or Azure OpenAI)')
 @secure()
@@ -123,6 +151,14 @@ resource secretPaypalSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if 
   }
 }
 
+resource secretPaypalWebhook 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(paypalWebhookId)) {
+  parent: keyVault
+  name: 'paypal-webhook-id'
+  properties: {
+    value: paypalWebhookId
+  }
+}
+
 resource secretClerkSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(clerkSecretKey)) {
   parent: keyVault
   name: 'clerk-secret-key'
@@ -136,6 +172,54 @@ resource secretClerkPub 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!em
   name: 'clerk-publishable-key'
   properties: {
     value: clerkPublishableKey
+  }
+}
+
+resource secretSendpulseId 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(sendpulseClientId)) {
+  parent: keyVault
+  name: 'sendpulse-client-id'
+  properties: {
+    value: sendpulseClientId
+  }
+}
+
+resource secretSendpulseSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(sendpulseClientSecret)) {
+  parent: keyVault
+  name: 'sendpulse-client-secret'
+  properties: {
+    value: sendpulseClientSecret
+  }
+}
+
+resource secretSendpulseApiKey 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(sendpulseApiKey)) {
+  parent: keyVault
+  name: 'sendpulse-api-key'
+  properties: {
+    value: sendpulseApiKey
+  }
+}
+
+resource secretGeminiApiKey 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(geminiApiKey)) {
+  parent: keyVault
+  name: 'gemini-api-key'
+  properties: {
+    value: geminiApiKey
+  }
+}
+
+resource secretGroqApiKey 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(groqApiKey)) {
+  parent: keyVault
+  name: 'groq-api-key'
+  properties: {
+    value: groqApiKey
+  }
+}
+
+resource secretNvidiaApiKey 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(nvidiaApiKey)) {
+  parent: keyVault
+  name: 'nvidia-api-key'
+  properties: {
+    value: nvidiaApiKey
   }
 }
 

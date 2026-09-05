@@ -46,6 +46,34 @@ param clerkSecretKey string = ''
 @description('Clerk Publishable Key')
 param clerkPublishableKey string = ''
 
+@description('PayPal Webhook ID')
+@secure()
+param paypalWebhookId string = ''
+
+@description('SendPulse Client ID')
+@secure()
+param sendpulseClientId string = ''
+
+@description('SendPulse Client Secret')
+@secure()
+param sendpulseClientSecret string = ''
+
+@description('SendPulse API Key')
+@secure()
+param sendpulseApiKey string = ''
+
+@description('Gemini API Key')
+@secure()
+param geminiApiKey string = ''
+
+@description('Groq API Key')
+@secure()
+param groqApiKey string = ''
+
+@description('NVIDIA API Key')
+@secure()
+param nvidiaApiKey string = ''
+
 @description('LLM API Key (Gemini or Azure OpenAI)')
 @secure()
 param llmApiKey string = ''
@@ -118,8 +146,15 @@ module keyVault 'modules/keyvault.bicep' = {
     leadopsApiToken: leadopsApiToken
     paypalClientId: paypalClientId
     paypalClientSecret: paypalClientSecret
+    paypalWebhookId: paypalWebhookId
     clerkSecretKey: clerkSecretKey
     clerkPublishableKey: clerkPublishableKey
+    sendpulseClientId: sendpulseClientId
+    sendpulseClientSecret: sendpulseClientSecret
+    sendpulseApiKey: sendpulseApiKey
+    geminiApiKey: geminiApiKey
+    groqApiKey: groqApiKey
+    nvidiaApiKey: nvidiaApiKey
     llmApiKey: llmApiKey
   }
 }

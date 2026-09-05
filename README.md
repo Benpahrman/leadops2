@@ -1,4 +1,4 @@
-# LeadOps
+ # LeadOps
 
 LeadOps automates the path from a tailored prospect sandbox to recurring data delivery or a full source-code buyout.
 
@@ -19,6 +19,8 @@ The initial domain slice is vendor-neutral and already enforces:
 - PayPal webhook verification and replay-safe event dispatch
 
 See [docs/lead-lifecycle.md](docs/lead-lifecycle.md) and [docs/lead-schema.json](docs/lead-schema.json) for the domain contract.
+
+The Azure deployment boundary, done/not-done status, release gates, and operating process are documented in [docs/azure-readiness-and-operating-model.md](docs/azure-readiness-and-operating-model.md). The current gate is conditional for staging preparation and no-go for production until the live Azure checks in that document are evidenced.
 
 ## Run tests
 

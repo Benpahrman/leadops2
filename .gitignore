@@ -10,6 +10,7 @@
 # ==========================================
 node_modules/
 **/node_modules/
+swa-deploy/
 .venv/
 **/.venv/
 venv/

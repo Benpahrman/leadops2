@@ -176,7 +176,7 @@ class SqliteStorageBackend:
                 """
             )
             # Migration check for existing DBs
-            for col in ["company_name", "contact_email", "source_url", "jurisdiction", "slug", "outreach_subject", "outreach_body", "repo_url"]:
+            for col in ["company_name", "contact_name", "contact_role", "contact_email", "contact_phone", "target_portal_name", "source_url", "jurisdiction", "slug", "outreach_subject", "outreach_body", "repo_url"]:
                 try:
                     cursor.execute(f"ALTER TABLE leads ADD COLUMN {col} TEXT DEFAULT ''")
                 except sqlite3.OperationalError:
@@ -226,12 +226,17 @@ class SqliteStorageBackend:
                 INSERT INTO leads (
                     lead_id, tier_key, state, selected_fields, qa_score,
                     preview_rows, deposit_paid, final_paid, subscription_active,
-                    buyout_paid, audit_log, company_name, contact_email,
+                    buyout_paid, audit_log, company_name, contact_name, contact_role,
+                    contact_email, contact_phone, target_portal_name,
                     source_url, jurisdiction, slug, outreach_subject,
                     outreach_body, repo_url, niche, delivery_count,
                     last_login_at, created_at, upsell_sent, referral_sent,
                     winback_stage, heartbeat_count, referred_by, claimed_by, is_paused, paused_until, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
                 ON CONFLICT(lead_id) DO UPDATE SET
                     tier_key=excluded.tier_key,
                     state=excluded.state,
@@ -244,7 +249,11 @@ class SqliteStorageBackend:
                     buyout_paid=excluded.buyout_paid,
                     audit_log=excluded.audit_log,
                     company_name=excluded.company_name,
+                    contact_name=excluded.contact_name,
+                    contact_role=excluded.contact_role,
                     contact_email=excluded.contact_email,
+                    contact_phone=excluded.contact_phone,
+                    target_portal_name=excluded.target_portal_name,
                     source_url=excluded.source_url,
                     jurisdiction=excluded.jurisdiction,
                     slug=excluded.slug,
@@ -278,7 +287,11 @@ class SqliteStorageBackend:
                     1 if lead.buyout_paid else 0,
                     json.dumps(lead.audit_log),
                     getattr(lead, "company_name", "") or "",
+                    getattr(lead, "contact_name", "") or "",
+                    getattr(lead, "contact_role", "") or "",
                     getattr(lead, "contact_email", "") or "",
+                    getattr(lead, "contact_phone", "") or "",
+                    getattr(lead, "target_portal_name", "") or "",
                     getattr(lead, "source_url", "") or "",
                     getattr(lead, "jurisdiction", "") or "",
                     getattr(lead, "slug", "") or "",
@@ -730,7 +743,11 @@ class SqliteStorageBackend:
             buyout_paid=bool(row["buyout_paid"]),
             audit_log=json.loads(row["audit_log"]),
             company_name=get_col("company_name", ""),
+            contact_name=get_col("contact_name", ""),
+            contact_role=get_col("contact_role", ""),
             contact_email=get_col("contact_email", ""),
+            contact_phone=get_col("contact_phone", ""),
+            target_portal_name=get_col("target_portal_name", ""),
             source_url=get_col("source_url", ""),
             jurisdiction=get_col("jurisdiction", ""),
             slug=get_col("slug", ""),
@@ -806,7 +823,11 @@ class PostgresStorageBackend:
                     buyout_paid INTEGER NOT NULL DEFAULT 0,
                     audit_log TEXT NOT NULL,
                     company_name VARCHAR(255) DEFAULT '',
+                    contact_name VARCHAR(255) DEFAULT '',
+                    contact_role VARCHAR(255) DEFAULT '',
                     contact_email VARCHAR(255) DEFAULT '',
+                    contact_phone VARCHAR(100) DEFAULT '',
+                    target_portal_name VARCHAR(255) DEFAULT '',
                     source_url TEXT DEFAULT '',
                     jurisdiction VARCHAR(255) DEFAULT '',
                     slug VARCHAR(255) DEFAULT '',
@@ -828,6 +849,13 @@ class PostgresStorageBackend:
                     updated_at VARCHAR(100) NOT NULL
                 )
             """))
+            for column, definition in {
+                "contact_name": "VARCHAR(255) DEFAULT ''",
+                "contact_role": "VARCHAR(255) DEFAULT ''",
+                "contact_phone": "VARCHAR(100) DEFAULT ''",
+                "target_portal_name": "VARCHAR(255) DEFAULT ''",
+            }.items():
+                conn.execute(text(f"ALTER TABLE leads ADD COLUMN IF NOT EXISTS {column} {definition}"))
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS sandboxes (
                     slug VARCHAR(255) PRIMARY KEY,
@@ -900,7 +928,8 @@ class PostgresStorageBackend:
             INSERT INTO leads (
                 lead_id, tier_key, state, selected_fields, qa_score,
                 preview_rows, deposit_paid, final_paid, subscription_active,
-                buyout_paid, audit_log, company_name, contact_email,
+                buyout_paid, audit_log, company_name, contact_name, contact_role,
+                contact_email, contact_phone, target_portal_name,
                 source_url, jurisdiction, slug, outreach_subject,
                 outreach_body, repo_url, niche, delivery_count,
                 last_login_at, created_at, upsell_sent, referral_sent,
@@ -908,7 +937,8 @@ class PostgresStorageBackend:
             ) VALUES (
                 :lead_id, :tier_key, :state, :selected_fields, :qa_score,
                 :preview_rows, :deposit_paid, :final_paid, :subscription_active,
-                :buyout_paid, :audit_log, :company_name, :contact_email,
+                :buyout_paid, :audit_log, :company_name, :contact_name, :contact_role,
+                :contact_email, :contact_phone, :target_portal_name,
                 :source_url, :jurisdiction, :slug, :outreach_subject,
                 :outreach_body, :repo_url, :niche, :delivery_count,
                 :last_login_at, :created_at, :upsell_sent, :referral_sent,
@@ -926,7 +956,11 @@ class PostgresStorageBackend:
                 buyout_paid = EXCLUDED.buyout_paid,
                 audit_log = EXCLUDED.audit_log,
                 company_name = EXCLUDED.company_name,
+                contact_name = EXCLUDED.contact_name,
+                contact_role = EXCLUDED.contact_role,
                 contact_email = EXCLUDED.contact_email,
+                contact_phone = EXCLUDED.contact_phone,
+                target_portal_name = EXCLUDED.target_portal_name,
                 source_url = EXCLUDED.source_url,
                 jurisdiction = EXCLUDED.jurisdiction,
                 slug = EXCLUDED.slug,
@@ -960,7 +994,11 @@ class PostgresStorageBackend:
             "buyout_paid": 1 if lead.buyout_paid else 0,
             "audit_log": json.dumps(lead.audit_log),
             "company_name": getattr(lead, "company_name", "") or "",
+            "contact_name": getattr(lead, "contact_name", "") or "",
+            "contact_role": getattr(lead, "contact_role", "") or "",
             "contact_email": getattr(lead, "contact_email", "") or "",
+            "contact_phone": getattr(lead, "contact_phone", "") or "",
+            "target_portal_name": getattr(lead, "target_portal_name", "") or "",
             "source_url": getattr(lead, "source_url", "") or "",
             "jurisdiction": getattr(lead, "jurisdiction", "") or "",
             "slug": getattr(lead, "slug", "") or "",
