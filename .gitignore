@@ -8,6 +8,8 @@
 # ==========================================
 # Virtual Environments & Packages
 # ==========================================
+node_modules/
+**/node_modules/
 .venv/
 **/.venv/
 venv/
@@ -122,4 +124,4 @@ tempCodeRunnerFile.py
 # Infrastructure & Bicep Build Artifacts
 # ==========================================
 infra/bicep/*.json
-!infra/bicep/parameters.json
+!infra/bicep/parameters.json
