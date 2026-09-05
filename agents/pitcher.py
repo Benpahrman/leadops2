@@ -153,43 +153,56 @@ def render_sub_60_word_pitch(
     contact_name: str = "there",
     contact_role: str = "",
     pain_point: str = "",
+    business_specialty: str = "",
+    human_observation: str = "",
+    operational_friction: str = "",
     llm_engine: Any = None,
 ) -> PitchMessage:
-    """Generate concise, high-converting Challenger outreach copy with sandbox link using AI Pitcher Agent or template."""
+    """Generate concise, natural, human-to-human peer outreach copy with sandbox link."""
     sandbox_url = f"{base_url.rstrip('/')}/p/{slug}"
     default_subject = f"Sample {niche} data feed for {company_name}"
+    display_company = " ".join(company_name.split()[:4])
+    first_name = contact_name.split()[0] if contact_name and contact_name.lower() != "there" else "there"
     
     # 1. Attempt dynamic AI Pitcher Agent generation if engine is provided
     if llm_engine:
         try:
             lead_info = {
                 "company_name": company_name,
-                "contact_name": contact_name,
+                "contact_name": first_name,
                 "contact_role": contact_role or "Leadership",
                 "niche": niche,
                 "portal_name": portal_name,
-                "pain_point": pain_point or f"Needs real-time public filings from {portal_name} to win deals before competitors.",
+                "pain_point": pain_point,
+                "business_specialty": business_specialty,
+                "human_observation": human_observation,
+                "operational_friction": operational_friction or pain_point,
+                "sample_count": sample_count,
             }
             ai_pitch = llm_engine.run_pitcher_agent(lead_info, sandbox_url)
-            if ai_pitch and ai_pitch.get("body_text") and ai_pitch.get("word_count", 999) <= 75:
-                return PitchMessage(
-                    subject=ai_pitch.get("subject", default_subject),
-                    body_text=ai_pitch["body_text"],
-                    body_html=ai_pitch.get("body_html", f"<p>{ai_pitch['body_text']}</p>"),
-                    sandbox_url=sandbox_url,
-                    word_count=ai_pitch["word_count"],
-                )
+            if ai_pitch and ai_pitch.get("body_text"):
+                words = len(ai_pitch["body_text"].split())
+                if words <= 60:
+                    return PitchMessage(
+                        subject=ai_pitch.get("subject", default_subject),
+                        body_text=ai_pitch["body_text"],
+                        body_html=ai_pitch.get("body_html", f"<p>{ai_pitch['body_text']}</p>"),
+                        sandbox_url=sandbox_url,
+                        word_count=words,
+                    )
         except Exception as exc:
-            logger.warning(f"AI pitcher generation failed: {exc}. Using canonical challenger template fallback.")
+            logger.warning(f"AI pitcher generation notice: {exc}. Using natural peer template fallback.")
 
-    # 2. Canonical Challenger & Urgency template (strictly under 60 words)
-    display_company = " ".join(company_name.split()[:4])
+    # 2. Natural, authentic peer-to-peer template (strictly under 60 words, zero marketing buzzwords)
+    obs_lead = f"Saw {display_company}'s work in {niche}." if not human_observation else human_observation.rstrip(".") + "."
+    if len(obs_lead.split()) > 10:
+        obs_lead = f"Saw {display_company}'s work in {niche}."
+
     body_text = (
-        f"Hi {contact_name},\n\n"
-        f"In {niche}, speed-to-lead is critical. Waiting on manual {portal_name} searches means losing deals to faster competitors.\n\n"
-        f"We automated this for {display_company} and pulled {sample_count} live records.\n\n"
-        f"Review your sandbox feed:\n{sandbox_url}\n\n"
-        f"Worth a 2-minute look to stream daily?\n\n"
+        f"Hi {first_name},\n\n"
+        f"{obs_lead} We set up a live feed tracking new {portal_name} dockets daily so your team doesn't have to pull them manually.\n\n"
+        f"Already indexed {sample_count} live records here:\n{sandbox_url}\n\n"
+        f"Would it be helpful to stream these daily, or are you all set in-house?\n\n"
         f"Best,\nAlex | LeadOps"
     )
     
@@ -197,11 +210,10 @@ def render_sub_60_word_pitch(
     if len(words) >= 60:
         # Emergency condense to guarantee sub-60 compliance
         body_text = (
-            f"Hi {contact_name},\n\n"
-            f"In {niche}, speed-to-lead is critical. Manual searches on {portal_name} lose deals to faster competitors.\n\n"
-            f"We automated this for {display_company} with {sample_count} live records.\n\n"
-            f"Review sandbox: {sandbox_url}\n\n"
-            f"Worth a 2-minute look?\n\n"
+            f"Hi {first_name},\n\n"
+            f"We automated daily {portal_name} tracking for {display_company} so you don't have to pull dockets manually.\n\n"
+            f"Already indexed {sample_count} live records:\n{sandbox_url}\n\n"
+            f"Would it be helpful to stream these daily?\n\n"
             f"Best,\nAlex | LeadOps"
         )
     word_count = len(body_text.split())
@@ -210,14 +222,14 @@ def render_sub_60_word_pitch(
 
     body_html = (
         f"<div style='font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; color: #1e293b; max-width: 580px; line-height: 1.55;'>"
-        f"<p style='margin-bottom: 12px;'>Hi {contact_name},</p>"
-        f"<p style='margin-bottom: 14px;'>In <strong>{niche}</strong>, timing dictates deal velocity. By the time newly filed dockets on <em>{portal_name}</em> are manually checked, competing firms have often already reached out.</p>"
-        f"<p style='margin-bottom: 16px;'>We automated this for <strong>{company_name}</strong> and pulled <strong>{sample_count} fresh live records</strong> directly from the public registry.</p>"
+        f"<p style='margin-bottom: 12px;'>Hi {first_name},</p>"
+        f"<p style='margin-bottom: 14px;'>{obs_lead} We put together a live feed tracking newly filed dockets on <em>{portal_name}</em> so your team doesn't have to check public records manually.</p>"
+        f"<p style='margin-bottom: 16px;'>We already indexed <strong>{sample_count} live records</strong> formatted for your workflow:</p>"
         f"<p style='margin: 20px 0;'>"
         f"<a href='{sandbox_url}' style='background: #0284c7; color: #ffffff; padding: 11px 22px; text-decoration: none; font-weight: 600; border-radius: 6px; display: inline-block; box-shadow: 0 2px 4px rgba(2,132,199,0.2);'>Review Live Data Sandbox &rarr;</a>"
         f"</p>"
-        f"<p style='margin-bottom: 16px; color: #475569;'>Worth a 2-minute look to see if daily automated delivery beats manual searching?</p>"
-        f"<p style='margin-top: 18px; color: #64748b; font-size: 14px;'>Best,<br><strong style='color: #0f172a;'>Alex</strong> &bull; LeadOps Automation</p>"
+        f"<p style='margin-bottom: 16px; color: #475569;'>Would it be helpful to stream these to your team daily, or are you all set in-house?</p>"
+        f"<p style='margin-top: 18px; color: #64748b; font-size: 14px;'>Best,<br><strong style='color: #0f172a;'>Alex</strong> &bull; LeadOps</p>"
         f"</div>"
     )
 
@@ -573,68 +585,69 @@ class EmailTemplate:
 LIFECYCLE_EMAIL_TEMPLATES = [
     EmailTemplate(
         name="outreach_pitch",
-        subject_template="Automated {portal_name} Data Feed for {company_name}",
+        subject_template="quick note re: {portal_name} dockets for {company_name}",
         prompt_template=(
-            "Write a concise cold outreach email from Alex to {contact_name} at {company_name}. "
-            "We have verified live public records from {portal_name}. "
-            "Invite them to inspect their verified 25-row sample sandbox at {sandbox_url}. "
-            "Keep it strictly under 60 words."
+            "Write a natural, concise peer email from Alex at LeadOps to {contact_name} at {company_name}. "
+            "Explain that we set up a live feed tracking {portal_name} dockets daily so their team doesn't have to pull records by hand. "
+            "Invite them to check out their live sandbox at {sandbox_url}. "
+            "Close with a friendly binary question. Keep it natural, peer-to-peer, and strictly under 60 words."
         ),
         variables=["company_name", "contact_name", "portal_name", "sandbox_url"],
     ),
     EmailTemplate(
         name="deposit_confirmation",
-        subject_template="Milestone #1 Deposit Confirmed ($250.00 in Escrow) — LeadOps",
+        subject_template="Deposit confirmed & build underway for {company_name} [LeadOps]",
         prompt_template=(
-            "Write a confirmation email from Alex to {contact_name} at {company_name}. "
-            "Their $250.00 setup deposit is locked in third-party escrow. "
-            "The 7-agent autonomous dev swarm is now compiling and verifying their custom crawler. "
-            "Include sandbox tracking URL: {sandbox_url}."
+            "Write a clear, friendly confirmation email from Alex at LeadOps to {contact_name} at {company_name}. "
+            "Confirm their $250.00 setup deposit is safely held in third-party escrow. "
+            "Let them know our engineering team is actively building and verifying their live extraction routine. "
+            "Include sandbox tracking URL: {sandbox_url}. Tone: warm, reassuring, professional."
         ),
         variables=["company_name", "contact_name", "sandbox_url"],
     ),
     EmailTemplate(
         name="escrow_ready",
-        subject_template="QA Gate Passed (100% Accuracy) — Escrow Preview Ready for {company_name}",
+        subject_template="Extractor verified (100% QA pass) — live preview ready for {company_name}",
         prompt_template=(
-            "Write an email from Alex to {contact_name} at {company_name}. "
-            "Their crawler build passed QA Gatekeeper verification with 100% accuracy. "
-            "Invite them to review their escrow preview and unlock Milestone #2 at {sandbox_url}."
+            "Write an authentic update email from Alex at LeadOps to {contact_name} at {company_name}. "
+            "Share the good news that their custom extractor completed testing and passed QA verification with 100% schema accuracy. "
+            "Invite them to review their live escrow preview and approve delivery at {sandbox_url}. Keep it conversational and concise."
         ),
         variables=["company_name", "contact_name", "sandbox_url"],
     ),
     EmailTemplate(
         name="buyout_offer",
-        subject_template="Month 3 Milestone: Perpetual Code Buyout Option for {company_name}",
+        subject_template="Perpetual source code buyout option for {company_name}",
         prompt_template=(
-            "Write an email from Alex to {contact_name} at {company_name}. "
-            "They have been active for 3 months and qualify for our $1,500 Perpetual Source Code Buyout. "
-            "Include dashboard URL: {dashboard_url}."
+            "Write a respectful, transparent email from Alex to {contact_name} at {company_name}. "
+            "Congratulate them on 3 active months of reliable data streaming. "
+            "Explain that if they'd like full ownership with zero recurring platform fees, our $1,500 Perpetual Source Code Buyout is now available. "
+            "Include dashboard URL: {dashboard_url}. Tone: low-pressure, consultative peer."
         ),
         variables=["company_name", "contact_name", "dashboard_url"],
     ),
     EmailTemplate(
         name="welcome",
         trigger_state=State.CONVERSATIONAL_INTAKE,
-        subject_template="Welcome to LeadOps, {company_name}! Your data pipeline is starting",
+        subject_template="Welcome to LeadOps, {company_name}! Setting up your {portal_name} feed",
         prompt_template=(
-            "Write a warm, professional welcome email from Alex (Technical Solutions Engineer at LeadOps) "
-            "to {contact_name} at {company_name}. They've just entered the conversational intake phase. "
-            "Their niche is {niche}, target portal is {portal_name}, and they're on the {tier_name} tier. "
-            "Explain what happens next: scope approval, deposit, dev swarm build, QA, escrow preview, final payment, delivery. "
-            "Keep it under 150 words. Professional, encouraging tone. Include sandbox URL: {sandbox_url}."
+            "Write a warm, thoughtful welcome email from Alex (Solutions Engineer at LeadOps) "
+            "to {contact_name} at {company_name}. "
+            "Mention you're excited to help automate their {niche} pipeline from {portal_name} on the {tier_name} plan. "
+            "Briefly walk through the straightforward steps ahead: confirming fields, escrow deposit, build & QA verification, and delivery. "
+            "Keep it under 140 words. Friendly, clear, and reassuring. Sandbox link: {sandbox_url}."
         ),
         variables=["company_name", "contact_name", "niche", "portal_name", "tier_name", "sandbox_url"],
     ),
     EmailTemplate(
         name="build_heartbeat",
         trigger_state=State.DEV_BUILDING,
-        subject_template="Build Update: {company_name} - {progress}% complete",
+        subject_template="Build update: {company_name} pipeline ({progress}% complete)",
         prompt_template=(
-            "Write a brief build progress heartbeat email from Alex to {contact_name} at {company_name}. "
-            "Current progress: {progress}%. Current agent: {current_agent}. ETA: {eta}. "
-            "Recent milestone: {milestone}. Keep it under 100 words. Professional, concise tone. "
-            "Include sandbox URL for live tracking: {sandbox_url}."
+            "Write a brief, natural engineering update from Alex to {contact_name} at {company_name}. "
+            "Update: {progress}% complete. Currently verifying with {current_agent}. ETA: {eta}. "
+            "Milestone reached: {milestone}. Keep it under 80 words. Direct, human engineering tone. "
+            "Track live progress here: {sandbox_url}."
         ),
         variables=["company_name", "contact_name", "progress", "current_agent", "eta", "milestone", "sandbox_url"],
     ),

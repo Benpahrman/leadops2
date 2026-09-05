@@ -108,9 +108,14 @@ class AdminMissionControlService:
                 "slug": slug,
                 "checkout_url": f"/p/{slug}",
                 "dashboard_url": f"/dashboard/{lead.lead_id}",
-                "repo_url": f"/api/dashboard/{lead.lead_id}/buyout-bundle",
-                "outreach_subject": getattr(lead, "outreach_subject", f"Live Automated Data Feed for {company_name}"),
-                "outreach_body": getattr(lead, "outreach_body", f"Hi {company_name} Team,\n\nWe have prepared an automated data feed sandbox for your team:\nhttp://localhost:8000/p/{slug}\n\nBest,\nLeadOps Team"),
+                "outreach_subject": getattr(lead, "outreach_subject", "") or f"quick note re: {getattr(lead, 'target_portal_name', 'public registry')} filings",
+                "outreach_body": getattr(lead, "outreach_body", "") or (
+                    f"Hi {getattr(lead, 'contact_name', 'there').split()[0]},\n\n"
+                    f"We set up a live feed tracking daily {getattr(lead, 'target_portal_name', 'registry')} dockets for {company_name} so you don't have to pull records manually.\n\n"
+                    f"You can review your live sandbox here: /p/{slug}\n\n"
+                    f"Would it be helpful to stream these daily, or are you all set in-house?\n\n"
+                    f"Best,\nAlex | LeadOps"
+                ),
                 "state": lead.state.value,
                 "tier_name": lead.tier.name,
                 "tier_key": lead.tier_key,

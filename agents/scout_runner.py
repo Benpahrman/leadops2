@@ -451,6 +451,14 @@ class ScoutBackgroundWorker:
             target["contact_phone"] = enrichment["verified_phone"]
         if enrichment.get("cleaned_sample_records"):
             target["sample_data"] = enrichment["cleaned_sample_records"]
+        if enrichment.get("business_specialty"):
+            target["business_specialty"] = enrichment["business_specialty"]
+        if enrichment.get("human_observation"):
+            target["human_observation"] = enrichment["human_observation"]
+        if enrichment.get("operational_friction"):
+            target["operational_friction"] = enrichment["operational_friction"]
+        if enrichment.get("recent_activity_hook"):
+            target["recent_activity_hook"] = enrichment["recent_activity_hook"]
 
         # 4. Enrich lead with contact intelligence & AI Pitcher Agent
         lead = self.storage.get_lead(candidate.lead_id)
@@ -462,7 +470,16 @@ class ScoutBackgroundWorker:
             lead.target_portal_name = target["portal_name"]
             lead.niche = target["niche"]
             
-            # Generate hyper-personalized sub-60-word pitch email using AI Pitcher Agent
+            # Update research metadata with authentic human market investigation
+            if hasattr(lead, "research") and isinstance(lead.research, dict):
+                lead.research.update({
+                    "business_specialty": target.get("business_specialty", ""),
+                    "human_observation": target.get("human_observation", ""),
+                    "operational_friction": target.get("operational_friction", ""),
+                    "recent_activity_hook": target.get("recent_activity_hook", ""),
+                })
+            
+            # Generate natural, human-to-human peer pitch email using AI Pitcher Agent
             from .pitcher import render_sub_60_word_pitch
             pitch = render_sub_60_word_pitch(
                 company_name=target["company_name"],
@@ -473,10 +490,13 @@ class ScoutBackgroundWorker:
                 contact_name=target["contact_name"].split()[0],
                 contact_role=target["contact_role"],
                 pain_point=target["pain_point"],
+                business_specialty=target.get("business_specialty", ""),
+                human_observation=target.get("human_observation", ""),
+                operational_friction=target.get("operational_friction", ""),
                 llm_engine=self.llm_engine,
             )
-            lead.outreach_subject = target.get("pitch_subject") or pitch.subject
-            lead.outreach_body = target.get("pitch_body") or pitch.body_text
+            lead.outreach_subject = pitch.subject
+            lead.outreach_body = pitch.body_text
             self.storage.save_lead(lead)
 
             # Persist Stage 1 Discovery Artifacts to dedicated client folder
@@ -490,7 +510,10 @@ class ScoutBackgroundWorker:
                     content={
                         "company_name": target["company_name"],
                         "decision_maker": {"name": target["contact_name"], "role": target["contact_role"], "email": target["contact_email"], "phone": target["contact_phone"]},
-                        "commercial_pain_point": target["pain_point"],
+                        "business_specialty": target.get("business_specialty", ""),
+                        "human_observation": target.get("human_observation", ""),
+                        "commercial_pain_point": target.get("operational_friction", target["pain_point"]),
+                        "recent_activity_hook": target.get("recent_activity_hook", ""),
                         "target_portal": {"name": target["portal_name"], "url": target["target_url"], "jurisdiction": target["jurisdiction"]},
                         "recommended_tier": target["tier_key"],
                     },

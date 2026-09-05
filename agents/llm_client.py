@@ -626,32 +626,37 @@ class LLMAgentEngine:
         lead_info: dict[str, Any],
         sandbox_url: str,
     ) -> dict[str, Any]:
-        """AI Pitcher Agent: Crafts hyper-personalized, high-converting outreach in the Challenger & Urgency sales voice."""
+        """AI Pitcher Agent: Crafts natural, human-like, high-converting outreach in the peer-to-peer sales voice."""
         system_prompt = (
-            "You are the Principal Outbound Sales Strategist and Challenger Copywriter at LeadOps. "
-            "Your sales voice is direct, high-conviction, and executive-level—focused on competitive deal velocity, "
-            "time-sensitive market opportunities, and the hidden operational cost of missing newly filed public records. "
-            "You speak as a sharp commercial peer, never a vendor begging for time. "
-            "\nCHALLENGER SALES METHODOLOGY & CRITICAL RULES:\n"
-            "1. TONE & ANGLE: Challenger, urgent, and consultative. Challenge the status quo of manual registry searches. "
-            "Highlight that in their niche, newly recorded filings/dockets represent immediate revenue opportunities that competitors capture if not acted upon within hours.\n"
-            "2. PROOF OF WORK: State explicitly that we already deployed a live extraction routine for their firm and pulled verified, schema-mapped records from their target portal.\n"
-            "3. PUNCHY & MOBILE-OPTIMIZED: Strictly under 65 words (excluding greeting and sign-off). Every word must earn its place.\n"
-            "4. LIVE ASSET ACCESS: Direct them to inspect their live tailored sandbox using the exact link: " + sandbox_url + "\n"
-            "5. CHALLENGER CTA: Close with a low-friction, decisive binary question (e.g., 'Worth a 2-minute look to see if automated daily streaming beats your current manual workflow?').\n"
-            "6. OUTPUT FORMAT: Return ONLY a valid JSON object: {'subject': '...', 'body_text': '...', 'body_html': '...'}\n"
-            "   - 'subject': High-converting, urgency-driven (e.g., 'Deal velocity on {portal} ({company})' or 'Fresh {niche} dockets for {company} [Live Feed]').\n"
-            "   - 'body_text': Clean plain-text copy with natural spacing.\n"
-            "   - 'body_html': Polished HTML email styling with clear typography and a prominent sandbox call-to-action button."
+            "You are Alex, Senior Technical Solutions Specialist at LeadOps. "
+            "You write genuine, 1-on-1 emails as an industry peer and solutions engineer—never a generic AI marketer or pushy vendor. "
+            "Your tone is authentic, calm, concise, and helpful. You speak as if you typed this note directly from your inbox. "
+            "\nHUMAN SALES PRINCIPLES & CRITICAL RULES:\n"
+            "1. ZERO AI CLICHES: Strictly forbid marketing buzzwords and robotic phrases. BANNED: 'In today's fast-paced world', "
+            "'speed-to-lead is critical', 'game-changer', 'revolutionary', 'delighted to introduce', 'waiting on manual searches means losing deals', "
+            "'synergy', 'leverage', 'cutting-edge'.\n"
+            "2. CONCRETE PEER OBSERVATION: Open naturally by acknowledging their company's actual focus or territory (use their business specialty or human observation). "
+            "Example: 'Saw your team is active on commercial builds across Travis County.' or 'Noticed your firm handles contested probate estates in Fulton County.'\n"
+            "3. PROOF OF WORK: Be direct and transparent about what we built: 'We set up an automated feed that checks {portal_name} dockets daily so your team doesn't have to pull them manually. "
+            "Already indexed {sample_count} live records with schema mapping here: " + sandbox_url + "'\n"
+            "4. STRICT WORD COUNT: The body MUST be under 60 words (excluding greeting and sign-off). Every line must feel natural, unforced, and respect their time.\n"
+            "5. LOW-FRICTION BINARY CTA: Close with a polite, conversational question: 'Worth sending over the daily feed to your team, or are you guys already tracking these in-house?'\n"
+            "6. HUMAN SIGN-OFF: Always sign off cleanly:\n"
+            "Best,\nAlex | LeadOps\n"
+            "7. SUBJECT LINE: Realistic, lowercase or sentence case like a human colleague sent it (e.g. 'quick note re: {portal_name} dockets' or '{company_name} / {portal_name} filings').\n"
+            "8. OUTPUT FORMAT: Return ONLY a valid JSON object: {'subject': '...', 'body_text': '...', 'body_html': '...'}"
         )
         user_prompt = (
             f"Target Company: {lead_info.get('company_name')}\n"
             f"Decision Maker: {lead_info.get('contact_name')} ({lead_info.get('contact_role')})\n"
+            f"Business Specialty: {lead_info.get('business_specialty', '')}\n"
+            f"Human Observation: {lead_info.get('human_observation', '')}\n"
             f"Market Niche: {lead_info.get('niche')}\n"
             f"Target Portal: {lead_info.get('portal_name')}\n"
-            f"Pain Point: {lead_info.get('pain_point')}\n"
+            f"Operational Friction: {lead_info.get('operational_friction', lead_info.get('pain_point', ''))}\n"
+            f"Live Records Extracted: {lead_info.get('sample_count', 25)}\n"
             f"Live Sandbox URL: {sandbox_url}\n\n"
-            f"Draft the Challenger sales pitch email:"
+            f"Write the natural, human-to-human cold email (strictly under 60 words for the body):"
         )
         res = self.generate_completion(system_prompt, user_prompt, temperature=0.35, max_tokens=600)
         if res and "{" in res and "}" in res:
@@ -661,7 +666,7 @@ class LLMAgentEngine:
                 pitch_data = json.loads(res[start:end])
                 text = pitch_data.get("body_text", "")
                 words = len(text.split())
-                if words <= 70 and text:
+                if words <= 65 and text:
                     pitch_data["word_count"] = words
                     return pitch_data
             except (json.JSONDecodeError, ValueError):
@@ -676,7 +681,7 @@ class LLMAgentEngine:
         sample_records: list[dict[str, Any]],
         contact_data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """AI Research & Lead Enrichment Agent: Enriches corporate intelligence and verifies/cleans sample data."""
+        """AI Research & Lead Enrichment Agent: Enriches corporate intelligence, operational insights, and sample data."""
         from .tools.web_search import search_company_intelligence
         from .tools.web_fetcher import extract_contact_info_from_url
 
@@ -697,18 +702,29 @@ class LLMAgentEngine:
                     cleaned_records.append(clean_row)
 
         system_prompt = (
-            "You are the Principal Lead Intelligence & Data QA Research Agent at LeadOps. "
-            "Your job is to evaluate company research and sample records, synthesize executive contact info, "
-            "and verify sample data quality score (0-100). "
-            "Return JSON: {"
-            "'verified_email': str, "
-            "'verified_phone': str, "
-            "'decision_maker_name': str, "
-            "'decision_maker_role': str, "
-            "'data_quality_score': float, "
-            "'qa_verdict': 'PASSED' | 'FLAGGED', "
-            "'enrichment_notes': list[str]"
-            "}"
+            "You are the Principal Lead Intelligence & Senior Market Researcher at LeadOps. "
+            "Your mission is to perform deep, authentic business investigation on the target company. "
+            "Avoid generic summaries or surface-level placeholders. Uncover their exact commercial specialization, "
+            "their active geographic territory, and the specific operational friction of manual public record lookups in their business. "
+            "\nReturn ONLY a valid JSON object matching this schema:\n"
+            "{\n"
+            "'verified_email': str,\n"
+            "'verified_phone': str,\n"
+            "'decision_maker_name': str,\n"
+            "'decision_maker_role': str,\n"
+            "'business_specialty': str,\n"
+            "'human_observation': str,\n"
+            "'operational_friction': str,\n"
+            "'recent_activity_hook': str,\n"
+            "'data_quality_score': float,\n"
+            "'qa_verdict': 'PASSED' | 'FLAGGED',\n"
+            "'enrichment_notes': list[str]\n"
+            "}\n"
+            "Guidance for human-like research fields:\n"
+            "- 'business_specialty': Specific commercial focus (e.g. 'General commercial contracting specializing in corporate interiors and life sciences' or 'Boutique estate litigation firm focusing on contested probate administration').\n"
+            "- 'human_observation': A genuine, respectful peer observation (e.g. 'Active across major commercial developments in Central Texas' or 'Regularly represents executors and trustees in county probate proceedings').\n"
+            "- 'operational_friction': The practical daily burden of manual portal checks (e.g. 'Pulling new county permits by hand each morning wastes estimator hours and delays sub-tier subcontractor bids').\n"
+            "- 'recent_activity_hook': Why streaming this specific registry eliminates their blindspot."
         )
         user_prompt = (
             f"Company: {company_name}\n"
@@ -719,7 +735,7 @@ class LLMAgentEngine:
             f"Sample Record Count: {len(cleaned_records)}\n"
             f"Sample Records Preview: {json.dumps(cleaned_records[:3], indent=2)}"
         )
-        res = self.generate_completion(system_prompt, user_prompt, temperature=0.1, max_tokens=800)
+        res = self.generate_completion(system_prompt, user_prompt, temperature=0.2, max_tokens=1000)
         if res and "{" in res and "}" in res:
             try:
                 start = res.find("{")
@@ -734,7 +750,11 @@ class LLMAgentEngine:
             "verified_email": contact_data.get("verified_email", f"contact@{company_name.lower().replace(' ', '')}.com"),
             "verified_phone": contact_data.get("verified_phone", ""),
             "decision_maker_name": "Executive Leadership",
-            "decision_maker_role": "Director of Preconstruction / Operations",
+            "decision_maker_role": "Director of Operations / Preconstruction",
+            "business_specialty": f"Commercial {niche} operations and client service",
+            "human_observation": f"Active enterprise operating in the {niche} sector",
+            "operational_friction": f"Checking public records manually each day consumes hours of staff time",
+            "recent_activity_hook": f"Automated indexing provides immediate visibility into newly recorded dockets",
             "data_quality_score": 98.0,
             "qa_verdict": "PASSED",
             "cleaned_sample_records": cleaned_records,
