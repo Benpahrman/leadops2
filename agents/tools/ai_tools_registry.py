@@ -135,6 +135,68 @@ AI_TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "lead_database_tool",
+            "description": "Create, update, and deduplicate structured qualified lead records in the LeadOps database.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company_name": {"type": "string", "description": "Legal or trade name of the qualified company."},
+                    "website": {"type": "string", "description": "Corporate website domain."},
+                    "industry": {"type": "string", "description": "Industry or market vertical."},
+                    "employee_count": {"type": "string", "description": "Estimated workforce size (e.g. '10-50')."},
+                    "estimated_revenue": {"type": "string", "description": "Estimated annual revenue."},
+                    "location": {"type": "string", "description": "Headquarters city/state or geographic operating territory."},
+                    "decision_makers": {"type": "array", "items": {"type": "object"}, "description": "List of key decision makers with names, roles, and contacts."},
+                    "pain_points": {"type": "array", "items": {"type": "string"}, "description": "List of specific operational pain points."},
+                    "automation_opportunity_score": {"type": "integer", "description": "BDR Manager 7-factor Automation Opportunity Score (0-100)."},
+                    "purchase_probability": {"type": "integer", "description": "Estimated purchase probability (0-100%)."},
+                    "pain_severity": {"type": "integer", "description": "Pain severity rating (1-10)."},
+                    "recommended_solution": {"type": "string", "description": "Tailored automation architecture and pipeline."},
+                    "outreach_angle": {"type": "string", "description": "High-converting, personalized outreach strategy."},
+                    "data_sources": {"type": "array", "items": {"type": "string"}, "description": "Target public registry or court portal sources."},
+                    "confidence_score": {"type": "number", "description": "Data confidence level (0.0 - 1.0)."},
+                    "last_updated": {"type": "string", "description": "ISO timestamp of research update."},
+                },
+                "required": ["company_name", "automation_opportunity_score", "purchase_probability", "pain_severity"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "crm_tool",
+            "description": "Store, query, and deduplicate qualified companies and executive contacts in CRM.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["check_exists", "lookup", "store"], "description": "CRM action to execute."},
+                    "company_name": {"type": "string", "description": "Company name to search or check."},
+                    "website": {"type": "string", "description": "Company website to search or check."},
+                    "contact_email": {"type": "string", "description": "Executive contact email."},
+                },
+                "required": ["action"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "research_company_tool",
+            "description": "Gather public company information, operational signals, hiring posts, and manual portal usage.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company_name": {"type": "string", "description": "Company name to investigate."},
+                    "domain_hint": {"type": "string", "description": "Website URL if known."},
+                    "niche": {"type": "string", "description": "Market vertical or registry type."},
+                },
+                "required": ["company_name"],
+            },
+        },
+    },
 ]
 
 
@@ -147,12 +209,26 @@ TOOL_HANDLERS: dict[str, Callable[..., Any]] = {
     "extract_portal_sample_data": extract_portal_sample_data,
     "probe_waf_signatures": probe_waf_signatures,
     "prune_dom_tree": prune_dom_tree,
+    "lead_database_tool": None,  # Dynamically resolved to avoid circular import
+    "crm_tool": None,
+    "research_company_tool": None,
 }
 
 
 def execute_tool_call(tool_name: str, arguments: dict[str, Any]) -> Any:
     """Execute a registered specialist tool by name with arguments."""
-    handler = TOOL_HANDLERS.get(tool_name)
+    if tool_name == "lead_database_tool":
+        from .lead_database_tool import lead_database_tool
+        handler = lead_database_tool
+    elif tool_name == "crm_tool":
+        from .lead_database_tool import crm_tool
+        handler = crm_tool
+    elif tool_name == "research_company_tool":
+        from .lead_database_tool import research_company_tool
+        handler = research_company_tool
+    else:
+        handler = TOOL_HANDLERS.get(tool_name)
+
     if not handler:
         logger.warning(f"Unknown AI tool requested: {tool_name}")
         return {"error": f"Unknown tool: {tool_name}"}

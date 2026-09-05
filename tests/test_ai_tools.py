@@ -45,12 +45,22 @@ def test_extract_contact_info_from_url():
 
 
 def test_ai_tools_registry_definitions_and_execution():
-    assert len(AI_TOOL_DEFINITIONS) >= 5
+    assert len(AI_TOOL_DEFINITIONS) >= 8
     
     # Test search_web execution via registry
     res = execute_tool_call("search_web", {"query": "SAM.gov defense contract RFPs", "max_results": 2})
     assert isinstance(res, list)
     assert len(res) > 0
+
+    # Test lead_database_tool execution via registry
+    db_res = execute_tool_call("lead_database_tool", {
+        "company_name": "Acme Qualification Corp",
+        "automation_opportunity_score": 85,
+        "purchase_probability": 70,
+        "pain_severity": 8,
+    })
+    assert db_res["status"] == "QUALIFIED_AND_READY"
+    assert db_res["record"]["company_name"] == "Acme Qualification Corp"
     
     # Test unknown tool handling
     err = execute_tool_call("non_existent_tool", {})

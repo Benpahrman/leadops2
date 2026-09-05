@@ -460,7 +460,27 @@ class ScoutBackgroundWorker:
         if enrichment.get("recent_activity_hook"):
             target["recent_activity_hook"] = enrichment["recent_activity_hook"]
 
-        # 4. Enrich lead with contact intelligence & AI Pitcher Agent
+        # 4. Enrich lead with contact intelligence, BDR Manager Qualification Scoring, & AI Pitcher Agent
+        from .tools.lead_database_tool import (
+            calculate_automation_opportunity_score,
+            evaluate_buyer_signals,
+            is_lead_qualified,
+        )
+        scoring = calculate_automation_opportunity_score()
+        opp_score = target.get("automation_opportunity_score") or scoring["total_score"]
+        signals = evaluate_buyer_signals(
+            intel_text=(target.get("operational_friction", "") + " " + target.get("pain_point", "")),
+            industry=target["niche"],
+        )
+        purchase_prob = target.get("purchase_probability") or signals["purchase_probability"]
+        pain_sev = target.get("pain_severity") or signals["pain_severity"]
+
+        target["automation_opportunity_score"] = opp_score
+        target["purchase_probability"] = purchase_prob
+        target["pain_severity"] = pain_sev
+        target["buyer_signals"] = signals
+        target["scoring_breakdown"] = scoring
+
         lead = self.storage.get_lead(candidate.lead_id)
         if lead:
             lead.contact_name = target["contact_name"]
@@ -470,13 +490,18 @@ class ScoutBackgroundWorker:
             lead.target_portal_name = target["portal_name"]
             lead.niche = target["niche"]
             
-            # Update research metadata with authentic human market investigation
+            # Update research metadata with authentic human market investigation & qualification scoring
             if hasattr(lead, "research") and isinstance(lead.research, dict):
                 lead.research.update({
                     "business_specialty": target.get("business_specialty", ""),
                     "human_observation": target.get("human_observation", ""),
                     "operational_friction": target.get("operational_friction", ""),
                     "recent_activity_hook": target.get("recent_activity_hook", ""),
+                    "automation_opportunity_score": opp_score,
+                    "purchase_probability": purchase_prob,
+                    "pain_severity": pain_sev,
+                    "buyer_signals": signals,
+                    "scoring_breakdown": scoring,
                 })
             
             # Generate natural, human-to-human peer pitch email using AI Pitcher Agent
@@ -514,10 +539,32 @@ class ScoutBackgroundWorker:
                         "human_observation": target.get("human_observation", ""),
                         "commercial_pain_point": target.get("operational_friction", target["pain_point"]),
                         "recent_activity_hook": target.get("recent_activity_hook", ""),
+                        "automation_opportunity_score": opp_score,
+                        "purchase_probability": purchase_prob,
+                        "pain_severity": pain_sev,
                         "target_portal": {"name": target["portal_name"], "url": target["target_url"], "jurisdiction": target["jurisdiction"]},
                         "recommended_tier": target["tier_key"],
                     },
                     description="AI Market Prospector qualified commercial buyer & opportunity analysis"
+                )
+                artifact_store.save_artifact(
+                    lead_id=candidate.lead_id,
+                    stage="01_SCOUT_DISCOVERY",
+                    agent_name="BDR Manager Qualification Gate",
+                    filename="01_qualification_breakdown.json",
+                    content={
+                        "company_name": target["company_name"],
+                        "qualification_status": "QUALIFIED",
+                        "automation_opportunity_score": opp_score,
+                        "scoring_breakdown": scoring,
+                        "purchase_probability": purchase_prob,
+                        "pain_severity": pain_sev,
+                        "positive_buy_signals": signals["positive_signals"],
+                        "negative_buy_signals": signals["negative_signals"],
+                        "recommended_solution": f"Automated Daily {target['portal_name']} Data Feed",
+                        "outreach_angle": "Time-to-lead advantage on newly recorded public dockets",
+                    },
+                    description="BDR Manager 100-pt qualification scoring and buyer signal evaluation"
                 )
                 artifact_store.save_artifact(
                     lead_id=candidate.lead_id,

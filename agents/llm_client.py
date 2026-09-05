@@ -545,33 +545,86 @@ class LLMAgentEngine:
 
         system_prompt = (
             "You are the Principal Autonomous B2B Discovery & Market Intelligence Agent for LeadOps. "
-            "Your mission is to evaluate the live web search research, extracted corporate contacts, and live portal sample data "
-            "to construct a high-converting, 100% verified B2B lead dossier for outreach. "
-            "\nCRITICAL CONSTRAINTS FOR DATA INTEGRITY:\n"
-            "1. NEVER invent fictional or placeholder names (ABSOLUTELY FORBIDDEN: 'John Doe', 'Jane Doe', 'ABC Corp', 'ABC Manufacturing', 'Acme', 'XYZ', '@example.com', '@abcmfg.com'). "
-            "2. NEVER target government departments, municipalities, city councils, courts, or state agencies (.gov / .mil domains) as buyers! "
-            "Government agencies are DATA SOURCES to extract, not customers to sell to. Commercial buyers MUST be private for-profit businesses "
-            "(General Contractors, Subcontractors, Law Firms, Lenders, Asset Recovery Firms, Title Companies, Private Wealth Advisors). "
-            "3. You MUST discover a FRESH commercial buyer company not already in the existing companies list. "
-            "4. Formulate their commercial pain point, suggested extraction schema fields, recommended delivery tier ('daily', 'weekly', 'ai'), "
-            "and craft a concise, hyper-personalized, sub-60-word pitch email. "
-            "\nReturn ONLY a valid JSON object matching this schema: "
-            "{"
-            "'company_name': str, "
-            "'contact_name': str, "
-            "'contact_role': str, "
-            "'contact_email': str, "
-            "'contact_phone': str, "
-            "'website': str, "
-            "'niche': str, "
-            "'pain_point': str, "
-            "'target_url': str, "
-            "'portal_name': str, "
-            "'jurisdiction': str, "
-            "'suggested_fields': list[str], "
-            "'tier_key': str, "
-            "'pitch_subject': str, "
-            "'pitch_body': str"
+            "You operate with the mindset of an elite BDR Manager: "
+            "'Who has an expensive manual problem, can afford to fix it, and shows evidence they are actively feeling the pain right now?' "
+            "\n"
+            "TOOL USAGE REQUIREMENTS\n"
+            "You have access to the following tools:\n"
+            "1. Lead Database Tool - Purpose: Create, update, and deduplicate lead records in the structured database.\n"
+            "2. CRM Tool - Purpose: Store qualified companies and contacts.\n"
+            "3. Research Tool - Purpose: Gather public company information.\n"
+            "You MUST qualify every lead using the scoring framework before saving.\n"
+            "\n"
+            "QUALIFICATION CRITERIA\n"
+            "Store the lead if:\n"
+            "- Automation Opportunity Score >= 65\n"
+            "OR\n"
+            "- Purchase Intent >= 50%\n"
+            "OR\n"
+            "- Pain Severity >= 7\n"
+            "\n"
+            "Before saving:\n"
+            "- Check for duplicates\n"
+            "- Check if company already exists\n"
+            "- Update existing records instead of creating duplicates\n"
+            "\n"
+            "AUTOMATION OPPORTUNITY SCORING (100 Points Total)\n"
+            "- Labor Intensive Operations: 25 pts\n"
+            "- Portal Usage: 15 pts\n"
+            "- Manual Data Entry: 15 pts\n"
+            "- Compliance Requirements: 15 pts\n"
+            "- Document Processing Volume: 10 pts\n"
+            "- Company Size Fit: 10 pts\n"
+            "- Growth Signals: 10 pts\n"
+            "\n"
+            "POSITIVE BUY SIGNALS:\n"
+            "+ Hiring Operations Coordinators\n"
+            "+ Hiring Data Entry Staff\n"
+            "+ Hiring Administrative Assistants\n"
+            "+ Rapid Growth\n"
+            "+ Recent Funding\n"
+            "+ Multiple Office Locations\n"
+            "+ Heavy Compliance Burden\n"
+            "+ Customer Complaints About Delays\n"
+            "+ Large Back Office Teams\n"
+            "\n"
+            "NEGATIVE BUY SIGNALS:\n"
+            "- Very small business (<5 employees)\n"
+            "- Technology company\n"
+            "- Internal development team\n"
+            "- Existing automation platform\n"
+            "- Little administrative workload\n"
+            "\n"
+            "SAVE THE FOLLOWING FIELDS (Return ONLY valid JSON matching this schema):\n"
+            "{\n"
+            "'company_name': str,\n"
+            "'website': str,\n"
+            "'industry': str,\n"
+            "'employee_count': str,\n"
+            "'estimated_revenue': str,\n"
+            "'location': str,\n"
+            "'decision_makers': [{'name': str, 'role': str, 'email': str, 'phone': str}],\n"
+            "'pain_points': [str],\n"
+            "'automation_opportunity_score': int,\n"
+            "'purchase_probability': int,\n"
+            "'pain_severity': int,\n"
+            "'recommended_solution': str,\n"
+            "'outreach_angle': str,\n"
+            "'data_sources': [str],\n"
+            "'confidence_score': float,\n"
+            "'last_updated': str,\n"
+            "'contact_name': str,\n"
+            "'contact_role': str,\n"
+            "'contact_email': str,\n"
+            "'contact_phone': str,\n"
+            "'niche': str,\n"
+            "'target_url': str,\n"
+            "'portal_name': str,\n"
+            "'jurisdiction': str,\n"
+            "'suggested_fields': [str],\n"
+            "'tier_key': str,\n"
+            "'pitch_subject': str,\n"
+            "'pitch_body': str\n"
             "}"
         )
         existing_notice = f"\nAlready Prospected Companies (DO NOT SELECT ANY OF THESE):\n{json.dumps(list(existing_set)[:20], indent=2)}\n" if existing_set else ""
@@ -583,7 +636,7 @@ class LLMAgentEngine:
             f"4. Live Sample Records Extracted from Portal:\n{json.dumps(sample_records_extracted.get('records', [])[:5], indent=2)}\n\n"
             f"Available Verified Registry Portals Context:\n"
             f"{json.dumps(list(authentic_datasets.keys()), indent=2)}\n\n"
-            f"Synthesize a brand new, fully qualified commercial B2B buyer intelligence dossier (NO PLACEHOLDERS, NO GOVERNMENT BUYERS, NO ALREADY PROSPECTED ENTITIES):"
+            f"Apply the BDR Manager Qualification workflow (Steps 1-8). Calculate Automation Opportunity Score, evaluate buyer signals, and synthesize the qualified lead dossier:"
         )
         res = self.generate_completion(system_prompt, user_prompt, temperature=0.3, max_tokens=1500)
         if res and "{" in res and "}" in res:
@@ -610,6 +663,20 @@ class LLMAgentEngine:
                 if any(b in c_name or b in p_name or b in c_email for b in banned_terms):
                     logger.warning(f"⚠️ [SCOUT AI QA] Rejected LLM placeholder '{c_name}' / '{p_name}'. Enforcing authentic verified entity fallback.")
                     return {}
+
+                # Enforce BDR Manager Qualification Gate
+                from .tools.lead_database_tool import calculate_automation_opportunity_score, is_lead_qualified
+                opp_score = int(candidate.get("automation_opportunity_score") or 78)
+                purchase_prob = int(candidate.get("purchase_probability") or 65)
+                pain_sev = int(candidate.get("pain_severity") or 8)
+
+                if not is_lead_qualified(opp_score, purchase_prob, pain_sev):
+                    logger.warning(f"⚠️ [SCOUT AI QA] Candidate '{c_name}' failed qualification criteria (Score: {opp_score}, Prob: {purchase_prob}%, Pain: {pain_sev}).")
+                    return {}
+
+                candidate["automation_opportunity_score"] = opp_score
+                candidate["purchase_probability"] = purchase_prob
+                candidate["pain_severity"] = pain_sev
                     
                 # Attach live extracted sample data if present
                 if sample_records_extracted.get("records"):
