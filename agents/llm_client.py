@@ -622,27 +622,34 @@ class LLMAgentEngine:
         lead_info: dict[str, Any],
         sandbox_url: str,
     ) -> dict[str, Any]:
-        """AI Pitcher Agent: Crafts hyper-personalized, high-converting sub-60-word outreach emails."""
+        """AI Pitcher Agent: Crafts hyper-personalized, high-converting outreach in the Challenger & Urgency sales voice."""
         system_prompt = (
-            "You are the Chief Outbound Strategist and B2B Cold Outreach Copywriter at LeadOps. "
-            "Write a concise, compelling, sub-60-word cold outreach email to an enterprise decision maker. "
-            "\nCRITICAL RULES:\n"
-            "1. MUST be strictly under 60 words total (excluding greeting/sign-off).\n"
-            "2. State specifically that we extracted live public records from their target portal that match their business.\n"
-            "3. Include the clickable live sandbox preview link: " + sandbox_url + "\n"
-            "4. End with a low-friction CTA (e.g., 'Let me know if you would like this streamed daily to Google Sheets').\n"
-            "5. Return ONLY a JSON object: {'subject': '...', 'body_text': '...', 'body_html': '...'}"
+            "You are the Principal Outbound Sales Strategist and Challenger Copywriter at LeadOps. "
+            "Your sales voice is direct, high-conviction, and executive-level—focused on competitive deal velocity, "
+            "time-sensitive market opportunities, and the hidden operational cost of missing newly filed public records. "
+            "You speak as a sharp commercial peer, never a vendor begging for time. "
+            "\nCHALLENGER SALES METHODOLOGY & CRITICAL RULES:\n"
+            "1. TONE & ANGLE: Challenger, urgent, and consultative. Challenge the status quo of manual registry searches. "
+            "Highlight that in their niche, newly recorded filings/dockets represent immediate revenue opportunities that competitors capture if not acted upon within hours.\n"
+            "2. PROOF OF WORK: State explicitly that we already deployed a live extraction routine for their firm and pulled verified, schema-mapped records from their target portal.\n"
+            "3. PUNCHY & MOBILE-OPTIMIZED: Strictly under 65 words (excluding greeting and sign-off). Every word must earn its place.\n"
+            "4. LIVE ASSET ACCESS: Direct them to inspect their live tailored sandbox using the exact link: " + sandbox_url + "\n"
+            "5. CHALLENGER CTA: Close with a low-friction, decisive binary question (e.g., 'Worth a 2-minute look to see if automated daily streaming beats your current manual workflow?').\n"
+            "6. OUTPUT FORMAT: Return ONLY a valid JSON object: {'subject': '...', 'body_text': '...', 'body_html': '...'}\n"
+            "   - 'subject': High-converting, urgency-driven (e.g., 'Deal velocity on {portal} ({company})' or 'Fresh {niche} dockets for {company} [Live Feed]').\n"
+            "   - 'body_text': Clean plain-text copy with natural spacing.\n"
+            "   - 'body_html': Polished HTML email styling with clear typography and a prominent sandbox call-to-action button."
         )
         user_prompt = (
             f"Target Company: {lead_info.get('company_name')}\n"
             f"Decision Maker: {lead_info.get('contact_name')} ({lead_info.get('contact_role')})\n"
-            f"Data Niche: {lead_info.get('niche')}\n"
-            f"Target Source Portal: {lead_info.get('portal_name')}\n"
-            f"Commercial Pain Point: {lead_info.get('pain_point')}\n"
+            f"Market Niche: {lead_info.get('niche')}\n"
+            f"Target Portal: {lead_info.get('portal_name')}\n"
+            f"Pain Point: {lead_info.get('pain_point')}\n"
             f"Live Sandbox URL: {sandbox_url}\n\n"
-            f"Draft the sub-60-word pitch email:"
+            f"Draft the Challenger sales pitch email:"
         )
-        res = self.generate_completion(system_prompt, user_prompt, temperature=0.3, max_tokens=600)
+        res = self.generate_completion(system_prompt, user_prompt, temperature=0.35, max_tokens=600)
         if res and "{" in res and "}" in res:
             try:
                 start = res.find("{")
@@ -650,7 +657,7 @@ class LLMAgentEngine:
                 pitch_data = json.loads(res[start:end])
                 text = pitch_data.get("body_text", "")
                 words = len(text.split())
-                if words <= 60 and text:
+                if words <= 70 and text:
                     pitch_data["word_count"] = words
                     return pitch_data
             except (json.JSONDecodeError, ValueError):

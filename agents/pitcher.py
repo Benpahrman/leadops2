@@ -155,9 +155,9 @@ def render_sub_60_word_pitch(
     pain_point: str = "",
     llm_engine: Any = None,
 ) -> PitchMessage:
-    """Generate concise, sub-60-word pitch email copy with sandbox magic link using AI Pitcher Agent or template."""
+    """Generate concise, high-converting Challenger outreach copy with sandbox link using AI Pitcher Agent or template."""
     sandbox_url = f"{base_url.rstrip('/')}/p/{slug}"
-    subject = f"Sample {niche} data feed for {company_name}"
+    default_subject = f"Sample {niche} data feed for {company_name}"
     
     # 1. Attempt dynamic AI Pitcher Agent generation if engine is provided
     if llm_engine:
@@ -168,26 +168,27 @@ def render_sub_60_word_pitch(
                 "contact_role": contact_role or "Leadership",
                 "niche": niche,
                 "portal_name": portal_name,
-                "pain_point": pain_point,
+                "pain_point": pain_point or f"Needs real-time public filings from {portal_name} to win deals before competitors.",
             }
             ai_pitch = llm_engine.run_pitcher_agent(lead_info, sandbox_url)
-            if ai_pitch and ai_pitch.get("body_text") and ai_pitch.get("word_count", 999) <= 60:
+            if ai_pitch and ai_pitch.get("body_text") and ai_pitch.get("word_count", 999) <= 75:
                 return PitchMessage(
-                    subject=ai_pitch.get("subject", subject),
+                    subject=ai_pitch.get("subject", default_subject),
                     body_text=ai_pitch["body_text"],
                     body_html=ai_pitch.get("body_html", f"<p>{ai_pitch['body_text']}</p>"),
                     sandbox_url=sandbox_url,
                     word_count=ai_pitch["word_count"],
                 )
         except Exception as exc:
-            logger.warning(f"AI pitcher generation failed: {exc}. Using canonical template fallback.")
+            logger.warning(f"AI pitcher generation failed: {exc}. Using canonical challenger template fallback.")
 
-    # 2. Canonical sub-60-word template
+    # 2. Canonical Challenger & Urgency template (strictly under 60 words)
     body_text = (
         f"Hi {contact_name},\n\n"
-        f"We pulled a sample of {sample_count} recent {niche} records from {portal_name} for {company_name}.\n\n"
-        f"Review your free preview and download the CSV here:\n{sandbox_url}\n\n"
-        f"Let me know if you would like this delivered on a daily schedule.\n\n"
+        f"In {niche}, speed-to-lead is critical. Waiting on manual {portal_name} searches means losing deals to faster competitors.\n\n"
+        f"We automated this for {company_name} and pulled {sample_count} live records.\n\n"
+        f"Review your sandbox feed:\n{sandbox_url}\n\n"
+        f"Worth a 2-minute look to stream daily?\n\n"
         f"Best,\nAlex | LeadOps"
     )
     
@@ -196,15 +197,20 @@ def render_sub_60_word_pitch(
         raise ValueError(f"Pitch copy exceeded 60 words: {word_count} words")
 
     body_html = (
-        f"<p>Hi {contact_name},</p>"
-        f"<p>We pulled a sample of <strong>{sample_count} recent {niche} records</strong> from {portal_name} for {company_name}.</p>"
-        f'<p><a href="{sandbox_url}" style="background:#c26b34;color:#fff;padding:10px 16px;text-decoration:none;font-weight:bold;border-radius:4px;display:inline-block;">View Free Data Preview</a></p>'
-        f"<p>Let me know if you would like this delivered on a daily schedule.</p>"
-        f"<p>Best,<br><strong>Alex</strong> | LeadOps</p>"
+        f"<div style='font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; color: #1e293b; max-width: 580px; line-height: 1.55;'>"
+        f"<p style='margin-bottom: 12px;'>Hi {contact_name},</p>"
+        f"<p style='margin-bottom: 14px;'>In <strong>{niche}</strong>, timing dictates deal velocity. By the time newly filed dockets on <em>{portal_name}</em> are manually checked, competing firms have often already reached out.</p>"
+        f"<p style='margin-bottom: 16px;'>We automated this for <strong>{company_name}</strong> and pulled <strong>{sample_count} fresh live records</strong> directly from the public registry.</p>"
+        f"<p style='margin: 20px 0;'>"
+        f"<a href='{sandbox_url}' style='background: #0284c7; color: #ffffff; padding: 11px 22px; text-decoration: none; font-weight: 600; border-radius: 6px; display: inline-block; box-shadow: 0 2px 4px rgba(2,132,199,0.2);'>Review Live Data Sandbox &rarr;</a>"
+        f"</p>"
+        f"<p style='margin-bottom: 16px; color: #475569;'>Worth a 2-minute look to see if daily automated delivery beats manual searching?</p>"
+        f"<p style='margin-top: 18px; color: #64748b; font-size: 14px;'>Best,<br><strong style='color: #0f172a;'>Alex</strong> &bull; LeadOps Automation</p>"
+        f"</div>"
     )
 
     return PitchMessage(
-        subject=subject,
+        subject=default_subject,
         body_text=body_text,
         body_html=body_html,
         sandbox_url=sandbox_url,
