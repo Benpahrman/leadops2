@@ -33,6 +33,7 @@ jobs:
       - name: Install Python Dependencies & Run Tests
         run: |
           pip install -r requirements.txt
+          pip install pytest pytest-asyncio
           pytest -q tests/test_storage.py tests/test_api.py tests/test_observability.py
 
   build-and-deploy:
