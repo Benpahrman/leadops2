@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from .domain import State
 from .portal import PortalService
 from .scout_pipeline import ScoutCandidate, ScoutPortalPipeline
 from .storage import StorageBackend
@@ -491,27 +492,13 @@ class ScoutBackgroundWorker:
             except Exception as art_err:
                 logger.warning(f"Client artifact save notice: {art_err}")
 
-            # 5. Autonomous 100% lights-out outreach dispatch
-            try:
-                from .pitcher import send_lifecycle_email
-                send_res = send_lifecycle_email(
-                    lead,
-                    "outreach_pitch",
-                    extra_variables={
-                        "company_name": target["company_name"],
-                        "contact_name": target["contact_name"].split()[0] if target["contact_name"] else "there",
-                        "portal_name": target["portal_name"],
-                        "sandbox_url": f"http://127.0.0.1:8000/p/{candidate.slug}",
-                    }
-                )
-                if lead.state == State.REVIEW:
-                    lead.transition(State.PITCH_PENDING_APPROVAL, "Autonomous pitch prepared")
-                if lead.state == State.PITCH_PENDING_APPROVAL:
-                    lead.transition(State.OUTREACH_SENT, "Autonomous cold outreach email dispatched via SendPulse")
-                self.storage.save_lead(lead)
-                logger.info(f"📧 [AUTO-OUTREACH DISPATCHED] Cold pitch sent for {target['company_name']} -> {send_res.get('status')} | State: {lead.state.value}")
-            except Exception as email_err:
-                logger.warning(f"Auto-outreach dispatch notice: {email_err}")
+            # Keep outbound communication paused until the founder approves the copy.
+            if lead.state == State.PROSPECTING:
+                lead.transition(State.REVIEW, "Scout discovery and enrichment completed")
+            if lead.state == State.REVIEW:
+                lead.transition(State.PITCH_PENDING_APPROVAL, "Enriched pitch prepared for founder review")
+            self.storage.save_lead(lead)
+            logger.info(f"📋 [OUTREACH PENDING REVIEW] Copy prepared for {target['company_name']} | State: {lead.state.value}")
 
         logger.info(f"🚀 [PROSPECTOR READY] Lead ID: {candidate.lead_id} | Slug: {candidate.slug} | Contact: {target['contact_email']}")
 

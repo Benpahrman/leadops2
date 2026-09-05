@@ -25,7 +25,7 @@ class SystemGovernanceState:
 
 NEXT_ACTIONS_MAP: dict[State, dict[str, Any]] = {
     State.PROSPECTING: {"label": "Generate Sandbox", "target": State.REVIEW, "color": "accent"},
-    State.REVIEW: {"label": "🚀 Approve & Start Outreach", "target": State.OUTREACH_SENT, "color": "success"},
+    State.REVIEW: {"label": "Prepare Pitch for Review", "target": State.PITCH_PENDING_APPROVAL, "color": "accent"},
     State.PITCH_PENDING_APPROVAL: {"label": "🚀 Approve & Dispatch Pitch", "target": State.OUTREACH_SENT, "color": "success"},
     State.OUTREACH_SENT: {"label": "Open Intake Scope", "target": State.CONVERSATIONAL_INTAKE, "color": "accent"},
     State.CONVERSATIONAL_INTAKE: {"label": "Generate SOW & Scope", "target": State.SOW_GENERATED, "color": "accent"},
@@ -146,34 +146,37 @@ class AdminMissionControlService:
         target = action_info["target"]
 
         # Handle specific intermediate requirements
-        if prev_state in {State.REVIEW, State.PITCH_PENDING_APPROVAL} and target == State.OUTREACH_SENT:
+        if prev_state == State.REVIEW and target == State.PITCH_PENDING_APPROVAL:
+            lead.transition(State.PITCH_PENDING_APPROVAL, "Founder moved enriched pitch into approval queue")
+        elif prev_state == State.PITCH_PENDING_APPROVAL and target == State.OUTREACH_SENT:
             # Look up sandbox data for recipient & pitch context
             sandboxes = self.storage.list_sandboxes()
             sb = next((s for s in sandboxes if s.lead.lead_id == lead_id), None)
             slug = sb.slug if sb else f"lead-{lead_id}"
-            company = slug.split("-")[0].capitalize() if slug else "Target Company"
+            company = lead.company_name or (slug.split("-")[0].capitalize() if slug else "Target Company")
 
-            from .pitcher import PitcherService, SendPulseClient, render_sub_60_word_pitch
+            from .pitcher import PitcherService, render_sub_60_word_pitch
 
             pitch = render_sub_60_word_pitch(
                 company_name=company,
-                niche="Public Records",
-                portal_name="County Official Records Portal",
+                niche=lead.niche or "Public Records",
+                portal_name=lead.target_portal_name or "County Official Records Portal",
                 sample_count=len(sb.rows) if sb and sb.rows else 4,
                 slug=slug,
-                base_url="http://127.0.0.1:8000",
+                base_url=os.environ.get("LEADOPS_PUBLIC_BASE_URL", "https://omnileadfeeder.tech"),
+                contact_name=(lead.contact_name or "there").split()[0],
+                contact_role=lead.contact_role,
             )
 
-            def mock_requester(url, headers, data, method):
-                if "access_token" in url:
-                    return 200, {"access_token": "mock_token_123", "token_type": "Bearer", "expires_in": 3600}
-                return 200, {"result": True, "id": "mock_sendpulse_msg_001"}
+            recipient_email = lead.contact_email.strip()
+            if not recipient_email:
+                raise ValueError("Cannot dispatch pitch without a verified contact email")
 
-            pitcher = PitcherService(sendpulse_client=SendPulseClient(http_requester=mock_requester))
+            pitcher = PitcherService()
             pitcher.approve_and_dispatch(
                 lead=lead,
-                recipient_email=f"operations@{lead_id}.com",
-                recipient_name=company,
+                recipient_email=recipient_email,
+                recipient_name=lead.contact_name or company,
                 pitch=pitch,
                 human_approver="Founder Operator",
             )

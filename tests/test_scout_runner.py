@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 from agents.scout_runner import VERTICAL_CATALOG, ScoutBackgroundWorker, B2BWebScoutWorker
 from agents.datasets import AUTHENTIC_REGISTRY_DATASETS
+from agents.domain import State
 from agents.storage import InMemoryStorageBackend
 from agents.portal import PortalService
 
@@ -73,6 +74,8 @@ class ScoutRunnerTests(unittest.TestCase):
                 if result.get("ok") is not False:
                     self.assertIn("slug", result)
                     self.assertIn("lead_id", result)
+                    lead = storage.get_lead(result["lead_id"])
+                    self.assertEqual(lead.state, State.PITCH_PENDING_APPROVAL)
 
     @patch("agents.tools.web_search.search_web")
     @patch("agents.tools.web_fetcher.extract_contact_info_from_url")
