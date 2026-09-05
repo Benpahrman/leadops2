@@ -39,7 +39,7 @@ jobs:
     name: Build Containers & Deploy to Azure
     needs: test-and-lint
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || (secrets.AZURE_CLIENT_ID != '' || secrets.AZURE_CREDENTIALS != '') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
 
     steps:
       - name: Checkout Code
