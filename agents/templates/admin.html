@@ -430,6 +430,20 @@
         </div>
       </div>
 
+      <div class="panel-card" style="margin-bottom:18px; border-color:rgba(56,189,248,0.28);">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;">
+          <div>
+            <div style="font-size:11px; color:var(--cyan); letter-spacing:.12em; font-weight:800;">AUTONOMOUS SCOUT</div>
+            <div id="scout-automation-message" style="font-size:14px; color:#fff; margin-top:5px;">Connecting to scout supervisor...</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <span id="scout-automation-phase" class="status-badge">CHECKING</span>
+            <span id="scout-automation-progress" style="font-family:var(--mono); font-size:12px; color:var(--text-muted);">0 / 3 qualified</span>
+          </div>
+        </div>
+        <div id="scout-automation-detail" style="font-size:12px; color:var(--text-muted); margin-top:10px;">The scout status will update while it searches, enriches, and queues leads for your review.</div>
+      </div>
+
       <!-- TAB 1: DEAL MASTER PIPELINE -->
       <div id="tab-deals" class="tab-content active">
         <div class="panel-card">
@@ -1056,6 +1070,29 @@
       renderDealsTable(filtered);
     }
 
+    async function loadScoutAutomationStatus() {
+      try {
+        const headers = await getAdminHeaders();
+        const res = await fetch('/api/admin/scout/status', { headers });
+        if (!res.ok) return;
+        const data = await res.json();
+        const phase = document.getElementById('scout-automation-phase');
+        const message = document.getElementById('scout-automation-message');
+        const detail = document.getElementById('scout-automation-detail');
+        const progress = document.getElementById('scout-automation-progress');
+        if (phase) phase.textContent = data.phase || 'UNKNOWN';
+        if (message) message.textContent = data.message || 'No scout activity reported';
+        if (progress) progress.textContent = `${data.qualified_this_cycle || 0} / ${data.target_per_cycle || 3} qualified`;
+        if (detail) {
+          const next = data.next_run_at ? ` Next cycle: ${new Date(data.next_run_at).toLocaleString()}.` : '';
+          const error = data.last_error ? ` Last error: ${data.last_error}` : '';
+          detail.textContent = `Attempts this cycle: ${data.attempts_this_cycle || 0}.${next}${error}`;
+        }
+      } catch (e) {
+        console.warn('Scout status load notice:', e);
+      }
+    }
+
     // ==========================================
     // 3. ACTION HANDLERS
     // ==========================================
@@ -1312,12 +1349,14 @@
         console.warn('Admin clerk init:', e);
       }
       await loadPipelineData();
+      await loadScoutAutomationStatus();
     }
 
     window.addEventListener('load', () => {
       initAdminClerk();
       // Auto-refresh data every 30s; or every 5s if on Swarm tab
       setInterval(() => {
+        loadScoutAutomationStatus();
         if (currentActiveTab === 'swarm') {
           loadSwarmTelemetry();
         } else {

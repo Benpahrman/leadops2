@@ -544,6 +544,144 @@ class ScoutBackgroundWorker:
 
 
 @dataclass
+class ScoutAutomationSupervisor:
+    """Runs bounded scout batches and exposes operator-visible activity state."""
+
+    storage: StorageBackend
+    portal: PortalService
+    llm_engine: LLMAgentEngine = field(default_factory=LLMAgentEngine)
+    target_per_cycle: int = 3
+    min_rest_seconds: int = 900
+    max_rest_seconds: int = 1800
+    enabled: bool = True
+    is_running: bool = False
+    _task: asyncio.Task | None = None
+    _status: dict[str, Any] = field(default_factory=lambda: {
+        "phase": "STOPPED",
+        "message": "Scout automation has not started",
+        "cycle": 0,
+        "qualified_this_cycle": 0,
+        "target_per_cycle": 3,
+        "attempts_this_cycle": 0,
+        "last_result": None,
+        "last_error": None,
+        "last_activity_at": None,
+        "next_run_at": None,
+    })
+
+    def status(self) -> dict[str, Any]:
+        return dict(self._status)
+
+    def start(self) -> None:
+        if self.enabled and not self.is_running:
+            self._task = asyncio.create_task(self._run_loop())
+
+    async def stop(self) -> None:
+        self.is_running = False
+        if self._task and not self._task.done():
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+
+    async def _run_loop(self) -> None:
+        self.is_running = True
+        self._status.update({
+            "phase": "IDLE",
+            "message": "Scout automation is online",
+            "target_per_cycle": self.target_per_cycle,
+        })
+        try:
+            while self.is_running:
+                await self._run_cycle()
+                rest_seconds = random.randint(self.min_rest_seconds, self.max_rest_seconds)
+                next_run = datetime.now(timezone.utc).timestamp() + rest_seconds
+                self._status.update({
+                    "phase": "RESTING",
+                    "message": f"Cycle complete; resting for {rest_seconds // 60} minutes",
+                    "next_run_at": datetime.fromtimestamp(next_run, timezone.utc).isoformat(),
+                    "last_activity_at": datetime.now(timezone.utc).isoformat(),
+                })
+                await asyncio.sleep(rest_seconds)
+        except asyncio.CancelledError:
+            self._status.update({"phase": "STOPPED", "message": "Scout automation stopped"})
+            raise
+        except Exception as exc:
+            self._status.update({
+                "phase": "ERROR",
+                "message": "Scout automation stopped after an unexpected error",
+                "last_error": str(exc),
+                "last_activity_at": datetime.now(timezone.utc).isoformat(),
+            })
+            logger.exception("Scout automation supervisor failed")
+        finally:
+            self.is_running = False
+
+    async def _run_cycle(self) -> None:
+        self._status.update({
+            "phase": "SEARCHING",
+            "cycle": self._status.get("cycle", 0) + 1,
+            "qualified_this_cycle": 0,
+            "attempts_this_cycle": 0,
+            "last_error": None,
+            "next_run_at": None,
+        })
+        qualified = 0
+        attempts = 0
+        max_attempts = self.target_per_cycle * 4
+        while self.is_running and qualified < self.target_per_cycle and attempts < max_attempts:
+            attempts += 1
+            self._status.update({
+                "phase": "SEARCHING",
+                "message": f"Searching and qualifying lead {qualified + 1} of {self.target_per_cycle}",
+                "attempts_this_cycle": attempts,
+                "last_activity_at": datetime.now(timezone.utc).isoformat(),
+            })
+            try:
+                result = await asyncio.to_thread(
+                    ScoutBackgroundWorker(
+                        storage=self.storage,
+                        portal=self.portal,
+                        llm_engine=self.llm_engine,
+                    ).discover_next_candidate
+                )
+                if result.get("ok"):
+                    qualified += 1
+                    self._status.update({
+                        "phase": "ENRICHING",
+                        "qualified_this_cycle": qualified,
+                        "last_result": result,
+                        "message": f"Lead qualified and queued for review ({qualified}/{self.target_per_cycle})",
+                    })
+                else:
+                    self._status.update({
+                        "phase": "SEARCHING",
+                        "last_result": result,
+                        "message": result.get("reason", "Candidate rejected; continuing search"),
+                    })
+            except Exception as exc:
+                self._status.update({
+                    "phase": "SEARCHING",
+                    "last_error": str(exc),
+                    "message": "Candidate failed validation; continuing search",
+                })
+                logger.exception("Scout candidate attempt failed")
+
+        self._status.update({
+            "phase": "CYCLE_COMPLETE" if qualified >= self.target_per_cycle else "NEEDS_ATTENTION",
+            "qualified_this_cycle": qualified,
+            "attempts_this_cycle": attempts,
+            "message": (
+                f"Queued {qualified} qualified leads for founder review"
+                if qualified >= self.target_per_cycle
+                else f"Only {qualified} qualified leads found after {attempts} attempts"
+            ),
+            "last_activity_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+
+@dataclass
 class B2BWebScoutWorker:
     """Autonomous B2B Web Scout: Brainstorms niches, searches DuckDuckGo for matching firms/portals, fetches, enriches, and creates sandboxes."""
 

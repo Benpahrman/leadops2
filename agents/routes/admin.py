@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import Optional
@@ -127,6 +127,16 @@ def trigger_scout_run(
 ):
     worker = ScoutBackgroundWorker(storage=storage_backend, portal=portal_service)
     return worker.discover_next_candidate()
+
+@router.get("/api/admin/scout/status", tags=["Admin Operations"])
+def get_scout_status(
+    request: Request,
+    _: ClerkUser = Depends(require_admin),
+):
+    supervisor = getattr(request.app.state, "scout_supervisor", None)
+    if not supervisor:
+        return {"phase": "UNAVAILABLE", "message": "Scout supervisor is not configured"}
+    return supervisor.status()
 
 
 class TriggerWebScoutRequest(BaseModel):

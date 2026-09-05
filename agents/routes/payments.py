@@ -1,10 +1,11 @@
+import json
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ..paypal_config import PayPalSettings
 from ..paypal_http import PayPalHttpClient
 from ..paypal_webhook import PayPalWebhookRouter
-from .dependencies import get_storage
+from .dependencies import get_portal_service, get_storage
 
 logger = logging.getLogger("api.payments")
 
@@ -24,6 +25,7 @@ REQUIRED_PAYPAL_HEADERS = [
 async def paypal_webhook(
     request: Request,
     storage_backend=Depends(get_storage),
+    portal_service=Depends(get_portal_service),
 ):
     # Verify required PayPal transmission headers before processing
     headers = dict(request.headers)
@@ -40,6 +42,32 @@ async def paypal_webhook(
     try:
         router = PayPalWebhookRouter.from_environment(PayPalHttpClient())
         applied = router.route(raw_body, headers, leads_map)
+        event = json.loads(raw_body)
+        resource = event.get("resource") or {}
+        lead_id = resource.get("invoice_id", "")
+        if isinstance(lead_id, str) and lead_id.startswith(("setup-", "final-")):
+            lead_id = lead_id.split("-", 1)[1]
+        custom_id = resource.get("custom_id", "")
+        if isinstance(custom_id, str) and custom_id.startswith("lead:"):
+            lead_id = custom_id[5:]
+
+        lead = leads_map.get(lead_id)
+        if applied and lead and lead.deposit_paid and lead.state.value == "DEPOSIT_PAID":
+            import threading
+            from ..domain import State
+            from ..workflow import run_autonomous_dev_team
+
+            lead.transition(State.DEV_BUILDING, "Verified PayPal deposit received; autonomous dev swarm started")
+            storage_backend.save_lead(lead)
+
+            def _start_dev_swarm() -> None:
+                try:
+                    run_autonomous_dev_team(lead, slug=lead.slug or lead.lead_id, portal=portal_service)
+                    storage_backend.save_lead(lead)
+                except Exception:
+                    logger.exception("Verified deposit build kickoff failed for lead %s", lead.lead_id)
+
+            threading.Thread(target=_start_dev_swarm, daemon=True).start()
         return {"received": True, "applied": applied}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Webhook processing error: {e}")

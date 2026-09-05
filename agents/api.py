@@ -16,6 +16,7 @@ from .logging_config import get_logger
 from .middleware import EndpointRateLimiter
 from .portal import PortalService
 from .scout_pipeline import ScoutPortalPipeline
+from .scout_runner import ScoutAutomationSupervisor
 from .storage import SqliteStorageBackend, StorageBackend, create_storage_backend
 from .websocket import progress_manager
 
@@ -28,7 +29,12 @@ logger = get_logger("api")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """FastAPI application lifespan manager for clean startup and shutdown."""
+    scout_supervisor = getattr(app.state, "scout_supervisor", None)
+    if scout_supervisor:
+        scout_supervisor.start()
     yield
+    if scout_supervisor:
+        await scout_supervisor.stop()
     # Gracefully close all active WebSockets on server shutdown
     try:
         await progress_manager.close_all()
@@ -90,6 +96,12 @@ def create_app(
     if not configured_token:
         raise ValueError("LEADOPS_API_TOKEN must be set — internal scout/webhook endpoints require authentication")
     llm_engine = LLMAgentEngine()
+    scout_supervisor = ScoutAutomationSupervisor(
+        storage=storage_backend,
+        portal=portal_service,
+        llm_engine=llm_engine,
+        enabled=os.environ.get("SCOUT_AUTOMATION_ENABLED", "true").lower() == "true",
+    )
 
     # Attach services to app.state so routes can access them
     app.state.storage_backend = storage_backend
@@ -100,6 +112,7 @@ def create_app(
     app.state.scout_pipeline = scout_pipeline
     app.state.configured_token = configured_token
     app.state.llm_engine = llm_engine
+    app.state.scout_supervisor = scout_supervisor
 
     # Bootstrap default demo lead
     bootstrap_demo_lead(storage_backend, portal_service)

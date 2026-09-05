@@ -366,13 +366,17 @@ def chat_with_assistant(
     slug = validate_slug(slug)
     try:
         sandbox = ensure_demo_sandbox(slug, portal_service, storage_backend)
+        lead = sandbox.lead
+        if lead.state == State.OUTREACH_SENT:
+            lead.transition(State.CONVERSATIONAL_INTAKE, "Customer started a conversation with Alex")
+            storage_backend.save_lead(lead)
         context = {
             "slug": slug,
-            "company_name": getattr(sandbox.lead, "company_name", slug),
-            "jurisdiction": getattr(sandbox.lead, "jurisdiction", "County Registry"),
+            "company_name": getattr(lead, "company_name", slug),
+            "jurisdiction": getattr(lead, "jurisdiction", "County Registry"),
             "source_url": sandbox.source_url,
-            "tier": sandbox.lead.tier.name,
-            "selected_fields": sandbox.lead.selected_fields or [],
+            "tier": lead.tier.name,
+            "selected_fields": lead.selected_fields or [],
         }
         reply = llm_engine.chat_with_alex(req.message, context)
         return {"ok": True, "reply": reply}
