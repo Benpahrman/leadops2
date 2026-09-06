@@ -512,7 +512,7 @@ class ScoutBackgroundWorker:
                 portal_name=target["portal_name"],
                 sample_count=len(target["sample_data"]),
                 slug=candidate.slug,
-                contact_name=target["contact_name"].split()[0],
+                contact_name=(target.get("contact_name") or "").strip().split()[0] if (target.get("contact_name") or "").strip() else "there",
                 contact_role=target["contact_role"],
                 pain_point=target["pain_point"],
                 business_specialty=target.get("business_specialty", ""),

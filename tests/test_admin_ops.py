@@ -34,6 +34,21 @@ def test_pipeline_kanban_and_telemetry(test_setup):
     assert any(c["lead_id"] == "lead-admin-1" for c in kanban["columns"]["DEV_BUILDING"])
 
 
+def test_pipeline_kanban_with_empty_contact_name(test_setup):
+    storage, admin_service, client = test_setup
+    # Create lead with empty string contact_name to ensure zero IndexError
+    lead_empty = Lead("lead-empty-contact", "daily", state=State.PROSPECTING)
+    lead_empty.contact_name = ""
+    lead_empty.slug = "empty-slug"
+    storage.save_lead(lead_empty)
+
+    kanban = admin_service.get_pipeline_kanban()
+    assert kanban["total_leads"] >= 3
+    lead_entry = next((c for col in kanban["columns"].values() for c in col if c["lead_id"] == "lead-empty-contact"), None)
+    assert lead_entry is not None
+    assert "Hi there,\n\n" in lead_entry["outreach_body"]
+
+
 def test_override_lead_state(test_setup):
     storage, admin_service, client = test_setup
     res = admin_service.override_lead_state("lead-admin-1", "ESCROW_PREVIEW", "Founder fast-track approval")

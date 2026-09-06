@@ -92,25 +92,29 @@ class AdminMissionControlService:
 
         for lead in unique_leads:
             action_info = NEXT_ACTIONS_MAP.get(lead.state, {"label": "Advance", "target": None, "color": "accent"})
-            slug = getattr(lead, "slug", "") or lead.lead_id
+            slug = getattr(lead, "slug", "") or lead.lead_id or "lead"
             company_name = getattr(lead, "company_name", "") or lead.lead_id.replace("lead-", "").replace("-", " ").title()
+            raw_contact = (getattr(lead, "contact_name", "") or "").strip()
+            first_name = raw_contact.split()[0] if raw_contact else "there"
+            slug_domain = slug.split("-")[0] if "-" in slug else slug
+
             entry = {
                 "lead_id": lead.lead_id,
                 "company_name": company_name,
-                "contact_name": getattr(lead, "contact_name", ""),
-                "contact_role": getattr(lead, "contact_role", ""),
-                "contact_email": getattr(lead, "contact_email", "") or f"info@{slug.split('-')[0]}.com",
-                "contact_phone": getattr(lead, "contact_phone", ""),
-                "target_portal_name": getattr(lead, "target_portal_name", ""),
-                "niche": getattr(lead, "niche", ""),
+                "contact_name": getattr(lead, "contact_name", "") or "",
+                "contact_role": getattr(lead, "contact_role", "") or "",
+                "contact_email": getattr(lead, "contact_email", "") or f"info@{slug_domain}.com",
+                "contact_phone": getattr(lead, "contact_phone", "") or "",
+                "target_portal_name": getattr(lead, "target_portal_name", "") or "",
+                "niche": getattr(lead, "niche", "") or "",
                 "jurisdiction": getattr(lead, "jurisdiction", "County Public Registry"),
-                "source_url": getattr(lead, "source_url", ""),
+                "source_url": getattr(lead, "source_url", "") or "",
                 "slug": slug,
                 "checkout_url": f"/p/{slug}",
                 "dashboard_url": f"/dashboard/{lead.lead_id}",
                 "outreach_subject": getattr(lead, "outreach_subject", "") or f"quick note re: {getattr(lead, 'target_portal_name', 'public registry')} filings",
                 "outreach_body": getattr(lead, "outreach_body", "") or (
-                    f"Hi {getattr(lead, 'contact_name', 'there').split()[0]},\n\n"
+                    f"Hi {first_name},\n\n"
                     f"We set up a live feed tracking daily {getattr(lead, 'target_portal_name', 'registry')} dockets for {company_name} so you don't have to pull records manually.\n\n"
                     f"You can review your live sandbox here: /p/{slug}\n\n"
                     f"Would it be helpful to stream these daily, or are you all set in-house?\n\n"
