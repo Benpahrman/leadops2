@@ -1,13 +1,22 @@
+import csv
 import logging
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, PlainTextResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 from ..auth import ClerkUser, require_admin, get_current_user_optional
 from ..models import Ticket, TicketStatus, TicketPriority, TicketType, CancellationRequest, CancellationStatus
 from ..scout_runner import ScoutBackgroundWorker, B2BWebScoutWorker
+from ..scraper_catalog import (
+    get_catalog,
+    search_catalog,
+    get_scraper_source_code,
+    get_scraper_output_data,
+    execute_scraper_on_demand,
+    CATALOG_CSV_PATH,
+)
 from .dependencies import (
     get_storage,
     get_portal_service,
@@ -800,5 +809,87 @@ def get_lead_audit_trail(
         "total_events": len(trail),
         "audit_trail": trail,
     }
+
+
+# =========================================================================
+# SCRAPER CATALOG & DATASET EXPLORER ENDPOINTS
+# =========================================================================
+
+@router.get("/api/admin/scrapers", tags=["Admin Operations"])
+def list_scrapers(
+    search: str = "",
+    refresh: bool = False,
+    _: ClerkUser = Depends(require_admin),
+):
+    """Retrieve catalog of all production scrapers, code paths, and output datasets."""
+    catalog = get_catalog(refresh=refresh)
+    if search:
+        catalog = search_catalog(search, catalog)
+    return {
+        "ok": True,
+        "total": len(catalog),
+        "with_code": sum(1 for c in catalog if c.get("has_scraper_code")),
+        "with_output": sum(1 for c in catalog if c.get("has_output_data")),
+        "scrapers": catalog,
+    }
+
+
+@router.get("/api/admin/scrapers/{lead_id}/code", tags=["Admin Operations"])
+def get_scraper_code(
+    lead_id: str,
+    _: ClerkUser = Depends(require_admin),
+):
+    """Fetch the full Python source code of the scraper (portal_scraper.py or entry.py)."""
+    code = get_scraper_source_code(lead_id)
+    if not code:
+        raise HTTPException(status_code=404, detail=f"No scraper code found for lead: {lead_id}")
+    return PlainTextResponse(code, media_type="text/plain; charset=utf-8")
+
+
+@router.get("/api/admin/scrapers/{lead_id}/output", tags=["Admin Operations"])
+def get_scraper_output(
+    lead_id: str,
+    format: str = "json",
+    _: ClerkUser = Depends(require_admin),
+):
+    """Fetch the latest extracted records as JSON or CSV download."""
+    data = get_scraper_output_data(lead_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"No output dataset found for lead: {lead_id}")
+
+    if format.lower() == "csv":
+        import io
+        output_stream = io.StringIO()
+        if data and isinstance(data[0], dict):
+            fieldnames = list(data[0].keys())
+            writer = csv.DictWriter(output_stream, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(data)
+        csv_content = output_stream.getvalue()
+        return Response(
+            content=csv_content,
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{lead_id}_data.csv"'}
+        )
+
+    return {
+        "ok": True,
+        "lead_id": lead_id,
+        "rows_count": len(data),
+        "data": data,
+    }
+
+
+@router.post("/api/admin/scrapers/{lead_id}/run", tags=["Admin Operations"])
+def run_scraper_on_demand(
+    lead_id: str,
+    _: ClerkUser = Depends(require_admin),
+):
+    """Trigger on-demand execution of the scraper and return extracted rows."""
+    result = execute_scraper_on_demand(lead_id)
+    if not result.get("ok"):
+        raise HTTPException(status_code=500, detail=result.get("error", "Execution failed"))
+    return result
+
 
 

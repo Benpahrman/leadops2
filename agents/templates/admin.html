@@ -372,6 +372,10 @@
       <div class="nav-item" onclick="switchAdminTab('kanban', this)">
         <span>📋 Pipeline Kanban</span>
       </div>
+      <div class="nav-item" onclick="switchAdminTab('scrapers', this)">
+        <span>🕷️ Scrapers &amp; Data Hub</span>
+        <span class="nav-badge" id="badge-scrapers-count" style="color:var(--green);">0</span>
+      </div>
       <div class="nav-item" onclick="switchAdminTab('swarm', this)">
         <span>🤖 Swarm Telemetry</span>
         <span class="nav-badge" id="badge-swarm-count" style="color:var(--cyan);">LIVE</span>
@@ -499,6 +503,59 @@
               <div style="font-weight:700; font-size:13px; color:var(--green); margin-bottom:12px;">🚀 ACTIVE RETAINER</div>
               <div id="kanban-col-retained" style="display:flex; flex-direction:column; gap:10px;"></div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB: SCRAPERS & DATASETS HUB -->
+      <div id="tab-scrapers" class="tab-content">
+        <div class="panel-card">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
+            <div>
+              <h2 style="font-size:16px; color:#fff;">🕷️ Scraper &amp; Extracted Datasets Catalog</h2>
+              <p style="font-size:12px; color:var(--text-muted);">Instant access to all 170+ compiled production scrapers, target portals, and extracted JSON/CSV records.</p>
+            </div>
+            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+              <input type="text" class="search-input" id="scraper-search-input" placeholder="Search company, portal URL, pain point..." oninput="filterScrapersTable()" style="min-width:260px;">
+              <button class="btn btn-outline" style="font-size:11px; padding:6px 12px;" onclick="loadScrapersCatalog(true)">🔄 Rebuild Index</button>
+            </div>
+          </div>
+
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-bottom:16px;">
+            <div style="background:var(--card-alt); border:1px solid var(--border); padding:12px; border-radius:8px;">
+              <div style="font-size:10px; color:var(--text-muted); font-family:var(--mono);">INDEXED SCRAPERS</div>
+              <div id="scraper-stat-total" style="font-size:18px; font-weight:800; color:#fff; font-family:var(--mono); margin-top:2px;">--</div>
+            </div>
+            <div style="background:var(--card-alt); border:1px solid var(--border); padding:12px; border-radius:8px;">
+              <div style="font-size:10px; color:var(--text-muted); font-family:var(--mono);">RUNNABLE PYTHON CODE</div>
+              <div id="scraper-stat-code" style="font-size:18px; font-weight:800; color:var(--cyan); font-family:var(--mono); margin-top:2px;">--</div>
+            </div>
+            <div style="background:var(--card-alt); border:1px solid var(--border); padding:12px; border-radius:8px;">
+              <div style="font-size:10px; color:var(--text-muted); font-family:var(--mono);">DATASETS EXTRACTED</div>
+              <div id="scraper-stat-output" style="font-size:18px; font-weight:800; color:var(--green); font-family:var(--mono); margin-top:2px;">--</div>
+            </div>
+            <div style="background:var(--card-alt); border:1px solid var(--border); padding:12px; border-radius:8px;">
+              <div style="font-size:10px; color:var(--text-muted); font-family:var(--mono);">QA VERIFICATION</div>
+              <div id="scraper-stat-qa" style="font-size:18px; font-weight:800; color:var(--purple); font-family:var(--mono); margin-top:2px;">100% Gatekeeper</div>
+            </div>
+          </div>
+
+          <div style="overflow-x:auto;">
+            <table class="dash-table">
+              <thead>
+                <tr>
+                  <th>Company / Organization</th>
+                  <th>Target Portal &amp; Source</th>
+                  <th>Extracted Records</th>
+                  <th>Code Assets</th>
+                  <th>QA Status</th>
+                  <th>Quick Actions</th>
+                </tr>
+              </thead>
+              <tbody id="scraper-tbody">
+                <tr><td colspan="6" style="text-align:center; padding:24px; color:var(--text-muted);"><span class="skeleton" style="width:70%; height:20px;"></span></td></tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -691,13 +748,70 @@
     </div>
   </div>
 
+  <!-- CODE VIEWER MODAL -->
+  <div id="code-modal" class="modal-backdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:1000; align-items:center; justify-content:center; padding:20px;">
+    <div class="panel-card" style="max-width:860px; width:100%; position:relative; max-height:90vh; display:flex; flex-direction:column;">
+      <button onclick="closeScraperCodeModal()" style="position:absolute; top:16px; right:16px; background:transparent; border:none; color:var(--text-muted); font-size:18px; cursor:pointer;">✕</button>
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+        <span style="font-size:20px;">📄</span>
+        <h2 style="font-size:18px; color:#fff;" id="code-modal-title">Scraper Source Code</h2>
+      </div>
+      <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;" id="code-modal-subtitle">Production Playwright Extractor</p>
+      
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:8px;">
+        <button class="btn btn-outline" style="font-size:11px; padding:4px 10px;" onclick="copyScraperCode()">📋 Copy Python Code</button>
+      </div>
+
+      <pre id="code-modal-content" style="background:#060b14; border:1px solid var(--border); border-radius:8px; padding:16px; font-family:var(--mono); font-size:12px; color:#38bdf8; overflow:auto; flex:1; white-space:pre-wrap; line-height:1.5;"></pre>
+      
+      <div style="display:flex; justify-content:flex-end; margin-top:14px;">
+        <button class="btn btn-outline" onclick="closeScraperCodeModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- DATA PREVIEW MODAL -->
+  <div id="data-modal" class="modal-backdrop" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.85); z-index:1000; align-items:center; justify-content:center; padding:20px;">
+    <div class="panel-card" style="max-width:1050px; width:100%; position:relative; max-height:90vh; display:flex; flex-direction:column;">
+      <button onclick="closeScraperDataModal()" style="position:absolute; top:16px; right:16px; background:transparent; border:none; color:var(--text-muted); font-size:18px; cursor:pointer;">✕</button>
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+        <span style="font-size:20px;">📊</span>
+        <h2 style="font-size:18px; color:#fff;" id="data-modal-title">Extracted Records Feed</h2>
+      </div>
+      <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;" id="data-modal-subtitle">Sample Data Extracted from Portal</p>
+      
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+        <span id="data-modal-count" style="font-family:var(--mono); font-size:12px; color:var(--green); font-weight:700;">--</span>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-outline" id="data-download-csv-btn" style="font-size:11px; padding:4px 10px;">⬇️ Download CSV</button>
+          <button class="btn btn-outline" id="data-download-json-btn" style="font-size:11px; padding:4px 10px;">⬇️ Download JSON</button>
+        </div>
+      </div>
+
+      <div style="overflow:auto; flex:1; border:1px solid var(--border); border-radius:8px;">
+        <table class="dash-table" id="data-modal-table">
+          <thead id="data-modal-thead"></thead>
+          <tbody id="data-modal-tbody"></tbody>
+        </table>
+      </div>
+      
+      <div style="display:flex; justify-content:flex-end; margin-top:14px;">
+        <button class="btn btn-outline" onclick="closeScraperDataModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     // ==========================================
     // 1. STATE & TOAST MANAGER
     // ==========================================
     let pipelineData = { leads: [] };
+    let scrapersCatalog = [];
     let activeOutreachLeadId = null;
     let currentActiveTab = 'deals';
+    let currentViewingCode = '';
+    let currentViewingData = [];
+    let currentViewingLeadId = '';
     let swarmPollInterval = null;
 
     function showToast(message, type = 'info', duration = 4000) {
@@ -1297,6 +1411,260 @@
       }
     }
 
+    // ==========================================
+    // SCRAPERS & DATASETS CATALOG HUB
+    // ==========================================
+    async function loadScrapersCatalog(refresh = false) {
+      const tbody = document.getElementById('scraper-tbody');
+      if (tbody && (!scrapersCatalog || scrapersCatalog.length === 0)) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:32px; color:var(--text-muted);">🔄 Loading scrapers &amp; output datasets...</td></tr>`;
+      }
+      try {
+        const headers = await getAdminHeaders();
+        const url = `/api/admin/scrapers${refresh ? '?refresh=true' : ''}`;
+        const res = await fetch(url, { headers });
+        if (res.ok) {
+          const data = await res.json();
+          scrapersCatalog = data.scrapers || [];
+          
+          // Update metric counts
+          const totalEl = document.getElementById('scraper-stat-total');
+          const codeEl = document.getElementById('scraper-stat-code');
+          const outEl = document.getElementById('scraper-stat-output');
+          const badgeEl = document.getElementById('badge-scrapers-count');
+          if (totalEl) totalEl.textContent = data.total || scrapersCatalog.length;
+          if (codeEl) codeEl.textContent = data.with_code || scrapersCatalog.filter(s => s.has_scraper_code).length;
+          if (outEl) outEl.textContent = data.with_output || scrapersCatalog.filter(s => s.has_output_data).length;
+          if (badgeEl) badgeEl.textContent = data.total || scrapersCatalog.length;
+
+          renderScrapersTable(scrapersCatalog);
+          if (refresh) showToast(`Catalog refreshed! ${scrapersCatalog.length} scrapers indexed.`, 'success');
+        }
+      } catch (e) {
+        console.warn('Scrapers catalog load error:', e);
+        if (tbody) {
+          tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:24px; color:var(--red);">Failed to load scrapers: ${escapeHtml(e.message)}</td></tr>`;
+        }
+      }
+    }
+
+    function renderScrapersTable(scrapers) {
+      const tbody = document.getElementById('scraper-tbody');
+      if (!tbody) return;
+
+      if (!scrapers || scrapers.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:32px; color:var(--text-muted);">No scrapers match your search filter.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = scrapers.map(s => {
+        const companyName = s.company_name || s.lead_id;
+        const portalName = s.portal_name || 'Public Registry';
+        const portalUrl = s.portal_url || '';
+        const portalDisplay = portalUrl 
+          ? `<a href="${escapeHtml(portalUrl)}" target="_blank" style="color:var(--cyan); text-decoration:none;">${escapeHtml(portalName)} ↗</a>` 
+          : `<span style="color:var(--text-muted);">${escapeHtml(portalName)}</span>`;
+
+        let codeBadge = `<span style="color:var(--text-muted); font-size:11px;">Missing</span>`;
+        if (s.has_scraper_code) {
+          codeBadge = `<span style="background:rgba(56,189,248,0.15); color:var(--cyan); border:1px solid rgba(56,189,248,0.3); padding:2px 8px; border-radius:4px; font-family:var(--mono); font-size:11px; font-weight:700;">portal_scraper.py</span>`;
+        }
+
+        let outputBadge = `<span style="color:var(--text-muted); font-size:11px;">No Data</span>`;
+        if (s.has_output_data) {
+          outputBadge = `<span style="background:var(--green-glow); color:var(--green); border:1px solid var(--green); padding:2px 8px; border-radius:4px; font-family:var(--mono); font-size:11px; font-weight:700;">✅ ${s.output_records_count} Records</span>`;
+        }
+
+        let qaBadge = `<span style="background:rgba(168,85,247,0.15); color:var(--purple); border:1px solid rgba(168,85,247,0.3); padding:2px 8px; border-radius:4px; font-family:var(--mono); font-size:11px; font-weight:700;">${escapeHtml(s.qa_status)}</span>`;
+
+        return `
+          <tr>
+            <td>
+              <div style="font-weight:700; color:#fff; font-size:13px;">${escapeHtml(companyName)}</div>
+              <div style="font-family:var(--mono); font-size:11px; color:var(--text-muted); margin-top:2px;">${escapeHtml(s.lead_id)}</div>
+            </td>
+            <td>
+              <div style="font-size:12px;">${portalDisplay}</div>
+              ${s.commercial_pain ? `<div style="font-size:11px; color:var(--text-muted); margin-top:2px; max-width:260px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(s.commercial_pain)}</div>` : ''}
+            </td>
+            <td>${outputBadge}</td>
+            <td>${codeBadge}</td>
+            <td>${qaBadge}</td>
+            <td>
+              <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                ${s.has_scraper_code ? `<button class="btn btn-outline" style="font-size:10px; padding:3px 8px;" onclick="viewScraperCode('${s.lead_id}', '${escapeHtml(companyName)}')">📄 Code</button>` : ''}
+                ${s.has_output_data ? `<button class="btn btn-outline" style="font-size:10px; padding:3px 8px;" onclick="viewScraperData('${s.lead_id}', '${escapeHtml(companyName)}')">📊 View Data</button>` : ''}
+                ${s.has_output_data ? `<button class="btn btn-outline" style="font-size:10px; padding:3px 8px;" onclick="downloadScraperCsv('${s.lead_id}')">⬇️ CSV</button>` : ''}
+                ${s.has_entry ? `<button class="btn btn-outline" style="font-size:10px; padding:3px 8px; color:var(--green);" onclick="runScraperOnDemand('${s.lead_id}', this)">⚡ Run</button>` : ''}
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function filterScrapersTable() {
+      const q = (document.getElementById('scraper-search-input')?.value || '').toLowerCase().trim();
+      if (!q) {
+        renderScrapersTable(scrapersCatalog);
+        return;
+      }
+      const filtered = scrapersCatalog.filter(s => 
+        (s.company_name || '').toLowerCase().includes(q) ||
+        (s.lead_id || '').toLowerCase().includes(q) ||
+        (s.portal_name || '').toLowerCase().includes(q) ||
+        (s.portal_url || '').toLowerCase().includes(q) ||
+        (s.commercial_pain || '').toLowerCase().includes(q)
+      );
+      renderScrapersTable(filtered);
+    }
+
+    async function viewScraperCode(leadId, companyName) {
+      const modal = document.getElementById('code-modal');
+      const content = document.getElementById('code-modal-content');
+      document.getElementById('code-modal-title').textContent = `Scraper Code: ${companyName}`;
+      document.getElementById('code-modal-subtitle').textContent = `build_artifacts/${leadId}/src/scraper/portal_scraper.py`;
+      modal.style.display = 'flex';
+      content.textContent = 'Loading source code...';
+      currentViewingCode = '';
+
+      try {
+        const headers = await getAdminHeaders();
+        const res = await fetch(`/api/admin/scrapers/${leadId}/code`, { headers });
+        if (res.ok) {
+          const code = await res.text();
+          currentViewingCode = code;
+          content.textContent = code;
+        } else {
+          content.textContent = '// Scraper code file not found on disk.';
+        }
+      } catch (e) {
+        content.textContent = `// Error loading code: ${e.message}`;
+      }
+    }
+
+    function closeScraperCodeModal() {
+      document.getElementById('code-modal').style.display = 'none';
+    }
+
+    function copyScraperCode() {
+      if (currentViewingCode) {
+        navigator.clipboard.writeText(currentViewingCode);
+        showToast('Python source code copied to clipboard!', 'success');
+      }
+    }
+
+    async function viewScraperData(leadId, companyName) {
+      const modal = document.getElementById('data-modal');
+      const thead = document.getElementById('data-modal-thead');
+      const tbody = document.getElementById('data-modal-tbody');
+      const countEl = document.getElementById('data-modal-count');
+      
+      currentViewingLeadId = leadId;
+      document.getElementById('data-modal-title').textContent = `Extracted Records: ${companyName}`;
+      document.getElementById('data-modal-subtitle').textContent = `Live extracted feed from build_artifacts/${leadId}/`;
+      modal.style.display = 'flex';
+      
+      thead.innerHTML = '<tr><th style="padding:12px;">Loading...</th></tr>';
+      tbody.innerHTML = '<tr><td style="padding:24px; text-align:center;">Fetching dataset records...</td></tr>';
+      
+      // Wire up modal download buttons
+      document.getElementById('data-download-csv-btn').onclick = () => downloadScraperCsv(leadId);
+      document.getElementById('data-download-json-btn').onclick = () => downloadScraperJson(leadId);
+
+      try {
+        const headers = await getAdminHeaders();
+        const res = await fetch(`/api/admin/scrapers/${leadId}/output?format=json`, { headers });
+        if (res.ok) {
+          const json = await res.json();
+          const rows = json.data || [];
+          currentViewingData = rows;
+          countEl.textContent = `${rows.length} Total Records Extracted`;
+
+          if (rows.length === 0) {
+            thead.innerHTML = '';
+            tbody.innerHTML = '<tr><td style="padding:24px; text-align:center; color:var(--text-muted);">No records found in output dataset.</td></tr>';
+            return;
+          }
+
+          const fields = Object.keys(rows[0]);
+          thead.innerHTML = `<tr>${fields.map(f => `<th style="padding:8px 12px; font-size:11px; text-transform:uppercase;">${escapeHtml(f)}</th>`).join('')}</tr>`;
+          
+          tbody.innerHTML = rows.slice(0, 50).map(row => {
+            return `<tr>${fields.map(f => `<td style="padding:8px 12px; font-size:12px; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(String(row[f] ?? ''))}</td>`).join('')}</tr>`;
+          }).join('');
+        }
+      } catch (e) {
+        tbody.innerHTML = `<tr><td style="padding:24px; text-align:center; color:var(--red);">Error loading records: ${escapeHtml(e.message)}</td></tr>`;
+      }
+    }
+
+    function closeScraperDataModal() {
+      document.getElementById('data-modal').style.display = 'none';
+    }
+
+    async function downloadScraperCsv(leadId) {
+      try {
+        const headers = await getAdminHeaders();
+        const res = await fetch(`/api/admin/scrapers/${leadId}/output?format=csv`, { headers });
+        if (res.ok) {
+          const blob = await res.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `${leadId}_data.csv`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          showToast(`CSV downloaded for ${leadId}!`, 'success');
+        } else {
+          showToast('Failed to download CSV', 'error');
+        }
+      } catch (e) {
+        showToast('Error downloading CSV: ' + e.message, 'error');
+      }
+    }
+
+    function downloadScraperJson(leadId) {
+      if (currentViewingData && currentViewingData.length > 0) {
+        const blob = new Blob([JSON.stringify(currentViewingData, null, 2)], { type: 'application/json' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${leadId}_data.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        showToast(`JSON downloaded for ${leadId}!`, 'success');
+      }
+    }
+
+    async function runScraperOnDemand(leadId, btn) {
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Running...';
+      }
+      try {
+        const headers = await getAdminHeaders();
+        const res = await fetch(`/api/admin/scrapers/${leadId}/run`, { method: 'POST', headers });
+        if (res.ok) {
+          const result = await res.json();
+          showToast(`Extractor completed! ${result.rows_extracted || 0} records extracted.`, 'success');
+          await loadScrapersCatalog(true);
+        } else {
+          const err = await res.json();
+          showToast(`Scraper run failed: ${err.detail || 'Execution error'}`, 'error');
+        }
+      } catch (e) {
+        showToast('Error running scraper: ' + e.message, 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '⚡ Run';
+        }
+      }
+    }
+
     function switchAdminTab(tabName, el) {
       currentActiveTab = tabName;
       document.querySelectorAll('.nav-item').forEach(e => e.classList.remove('active'));
@@ -1308,13 +1676,16 @@
       const titles = {
         'deals': 'Deal Master Pipeline',
         'kanban': 'Pipeline Stage Kanban',
+        'scrapers': 'Scraper & Extracted Datasets Catalog',
         'swarm': '7-Agent Swarm Telemetry',
         'daily': '6:00 AM UTC Automated Feeds',
         'governance': 'Governance & System Health'
       };
       document.getElementById('topbar-title').textContent = titles[tabName] || 'Founder Mission Control';
 
-      if (tabName === 'swarm') {
+      if (tabName === 'scrapers') {
+        loadScrapersCatalog();
+      } else if (tabName === 'swarm') {
         loadSwarmTelemetry();
       } else if (tabName === 'daily') {
         loadDailyGridData();
@@ -1350,6 +1721,7 @@
       }
       await loadPipelineData();
       await loadScoutAutomationStatus();
+      await loadScrapersCatalog();
     }
 
     window.addEventListener('load', () => {
