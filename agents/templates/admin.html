@@ -692,18 +692,41 @@
       </p>
 
       <div style="display:flex; flex-direction:column; gap:12px; margin-bottom:20px;">
-        <div>
-          <label style="font-size:11px; color:var(--text-muted); font-family:var(--mono);">Email Template:</label>
-          <select id="email-template-select" style="width:100%; background:var(--card-alt); border:1px solid var(--border); color:#fff; padding:8px 12px; border-radius:6px; font-size:12px; margin-top:4px;" onchange="onTemplateChange()">
-            <option value="outreach_pitch">Cold Outreach Pitch (with Live Sandbox Link)</option>
-            <option value="deposit_confirmation">Milestone #1 Deposit Confirmation ($250 Locked)</option>
-            <option value="escrow_ready">Escrow Preview Ready (QA Gate >=95% Passed)</option>
-            <option value="post_delivery_receipt">Welcome & Daily Delivery Receipt</option>
-            <option value="upsell">Volume & Cadence Retainer Upsell</option>
-            <option value="buyout_offer">Month 3 Perpetual Code Buyout Offer ($1,500)</option>
-            <option value="winback_1">Win-Back Re-engagement (Day 3 / Churn)</option>
-          </select>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+          <div>
+            <label style="font-size:11px; color:var(--text-muted); font-family:var(--mono);">Lifecycle Intent / Template:</label>
+            <select id="email-template-select" style="width:100%; background:var(--card-alt); border:1px solid var(--border); color:#fff; padding:8px 10px; border-radius:6px; font-size:12px; margin-top:4px;" onchange="fetchAiDraftEmail()">
+              <option value="outreach_pitch">Cold Outreach Pitch (with Live Sandbox Link)</option>
+              <option value="deposit_confirmation">Milestone #1 Deposit Confirmation ($250 Locked)</option>
+              <option value="escrow_ready">Escrow Preview Ready (QA Gate >=95% Passed)</option>
+              <option value="post_delivery_receipt">Welcome & Daily Delivery Receipt</option>
+              <option value="upsell">Volume & Cadence Retainer Upsell</option>
+              <option value="buyout_offer">Month 3 Perpetual Code Buyout Offer ($1,500)</option>
+              <option value="winback_1">Win-Back Re-engagement (Day 3 / Churn)</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px; color:var(--text-muted); font-family:var(--mono);">AI Voice Tone:</label>
+            <select id="email-tone-select" style="width:100%; background:var(--card-alt); border:1px solid var(--border); color:#fff; padding:8px 10px; border-radius:6px; font-size:12px; margin-top:4px;" onchange="fetchAiDraftEmail()">
+              <option value="human_peer">Human Solutions Peer (&lt;70 words, zero hype)</option>
+              <option value="executive_concise">Executive Brief (Ultra concise & direct)</option>
+              <option value="technical_deep">Technical Engineer (Data schema focus)</option>
+            </select>
+          </div>
         </div>
+
+        <div>
+          <label style="font-size:11px; color:var(--text-muted); font-family:var(--mono);">AI Custom Instruction (Optional Prompt Polish):</label>
+          <div style="display:flex; gap:8px; margin-top:4px;">
+            <input type="text" id="ai-custom-instruction" placeholder="e.g. Reference their active court filings, keep under 50 words..." style="flex:1; background:var(--card-alt); border:1px solid var(--border); color:#fff; padding:8px 12px; border-radius:6px; font-size:12px;">
+            <button class="btn btn-outline" id="ai-draft-btn" type="button" onclick="fetchAiDraftEmail()" style="white-space:nowrap; font-size:11px; padding:6px 12px;">✨ Prompt LLM</button>
+          </div>
+        </div>
+
+        <div id="ai-draft-badge" style="display:none; font-size:11px; font-family:var(--mono); color:var(--cyan); padding:4px 8px; border-radius:4px; background:rgba(6,182,212,0.1); border:1px solid rgba(6,182,212,0.2); width:fit-content;">
+          ✨ Drafted live by LLM
+        </div>
+
         <div>
           <label style="font-size:11px; color:var(--text-muted); font-family:var(--mono);">Recipient Email:</label>
           <input type="text" id="outreach-email" style="width:100%; background:var(--card-alt); border:1px solid var(--border); color:#fff; padding:8px 12px; border-radius:6px; font-size:12px; margin-top:4px;">
@@ -713,8 +736,8 @@
           <input type="text" id="outreach-subject" style="width:100%; background:var(--card-alt); border:1px solid var(--border); color:#fff; padding:8px 12px; border-radius:6px; font-size:12px; margin-top:4px;">
         </div>
         <div>
-          <label style="font-size:11px; color:var(--text-muted); font-family:var(--mono);">Custom Pitch / Context Copy:</label>
-          <textarea id="outreach-body" rows="5" style="width:100%; background:var(--card-alt); border:1px solid var(--border); color:#fff; padding:10px 12px; border-radius:6px; font-size:12px; font-family:var(--mono); margin-top:4px;"></textarea>
+          <label style="font-size:11px; color:var(--text-muted); font-family:var(--mono);">Personalized Email Copy (LLM Generated):</label>
+          <textarea id="outreach-body" rows="6" style="width:100%; background:var(--card-alt); border:1px solid var(--border); color:#fff; padding:10px 12px; border-radius:6px; font-size:12px; font-family:var(--mono); line-height:1.5; margin-top:4px;"></textarea>
         </div>
       </div>
 
@@ -1317,52 +1340,73 @@
       document.getElementById('swarm-logs-modal').style.display = 'none';
     }
 
-    const EMAIL_TEMPLATES = {
-      outreach_pitch: (lead) => ({
-        subject: `Automated ${lead.jurisdiction || 'Public Records'} Data Feed for ${lead.company_name}`,
-        body: `Hi ${lead.company_name} Team,\n\nWe deployed an automated data extractor for ${lead.jurisdiction || 'public records'}.\n\nYou can review your verified 25-row sample feed here: ${window.location.origin}/p/${lead.slug || lead.lead_id}\n\nLet me know if you would like daily 6:00 AM delivery activated.\n\nBest,\nBen | LeadOps Engineering`
-      }),
-      deposit_confirmation: (lead) => ({
-        subject: `Milestone #1 Deposit Confirmed ($250.00 in Escrow) — LeadOps`,
-        body: `Hi ${lead.company_name} Team,\n\nYour 50% milestone setup deposit of $250.00 has been verified and locked in third-party escrow.\n\nOur 7-agent autonomous dev swarm is now compiling and verifying your Playwright crawler. You will receive an alert as soon as the independent QA Gatekeeper confirms >=95% accuracy.\n\nTrack progress: ${window.location.origin}/dashboard/${lead.lead_id}\n\nBest,\nLeadOps Engineering`
-      }),
-      escrow_ready: (lead) => ({
-        subject: `QA Gate Passed (100% Accuracy) — Escrow Preview Ready for ${lead.company_name}`,
-        body: `Hi ${lead.company_name} Team,\n\nYour custom extractor build is complete and certified by the QA Gatekeeper.\n\nReview your unmasked 25-row sample records here: ${window.location.origin}/p/${lead.slug || lead.lead_id}\n\nAuthorize your Milestone #2 final balance ($250.00) to activate daily 6:00 AM delivery.\n\nBest,\nLeadOps Engineering`
-      }),
-      post_delivery_receipt: (lead) => ({
-        subject: `Daily Public Records Data Delivery #1 Dispatched — LeadOps`,
-        body: `Hi ${lead.company_name} Team,\n\nYour morning data delivery batch has been successfully dispatched to your connected Google Sheet.\n\nView live console: ${window.location.origin}/dashboard/${lead.lead_id}\n\nBest,\nLeadOps Engineering`
-      }),
-      upsell: (lead) => ({
-        subject: `Scale Your LeadOps Data Feed — Multi-County & High Frequency`,
-        body: `Hi ${lead.company_name} Team,\n\nYour data feed has successfully delivered consecutive daily batches. If your team needs multi-county expansion or real-time 15-minute polling, let us know.\n\nView plans: ${window.location.origin}/dashboard/${lead.lead_id}\n\nBest,\nBen | LeadOps Engineering`
-      }),
-      buyout_offer: (lead) => ({
-        subject: `Month 3 Milestone: Perpetual Code Buyout Option for ${lead.company_name}`,
-        body: `Hi ${lead.company_name} Team,\n\nYou have been an active subscriber for 3 months! You are now eligible for our flat $1,500 Perpetual Code Buyout. Receive complete Python/Playwright source code (.zip) to run forever with zero recurring monthly fees.\n\nClaim buyout: ${window.location.origin}/dashboard/${lead.lead_id}\n\nBest,\nLeadOps Engineering`
-      }),
-      winback_1: (lead) => ({
-        subject: `Still looking for ${lead.jurisdiction || 'public records'} data automation?`,
-        body: `Hi ${lead.company_name} Team,\n\nWe noticed you explored the verified sandbox for ${lead.jurisdiction || 'county public records'}.\n\nYour 25-record sample stream is still live and verified: ${window.location.origin}/p/${lead.slug || lead.lead_id}\n\nLet us know if you have questions about schema customization or Google Sheets sync.\n\nBest,\nBen | LeadOps Engineering`
-      }),
-    };
-
-    function onTemplateChange() {
+    async function fetchAiDraftEmail() {
+      if (!activeOutreachLeadId) return;
       const tKey = document.getElementById('email-template-select').value;
-      const lead = (pipelineData.leads || []).find(l => l.lead_id === activeOutreachLeadId) || { lead_id: activeOutreachLeadId, company_name: 'Client', jurisdiction: 'Registry' };
-      const generator = EMAIL_TEMPLATES[tKey] || EMAIL_TEMPLATES.outreach_pitch;
-      const tpl = generator(lead);
-      document.getElementById('outreach-subject').value = tpl.subject;
-      document.getElementById('outreach-body').value = tpl.body;
+      const tone = document.getElementById('email-tone-select') ? document.getElementById('email-tone-select').value : 'human_peer';
+      const customInstruction = document.getElementById('ai-custom-instruction') ? document.getElementById('ai-custom-instruction').value.trim() : '';
+      const subjEl = document.getElementById('outreach-subject');
+      const bodyEl = document.getElementById('outreach-body');
+      const badgeEl = document.getElementById('ai-draft-badge');
+      const btn = document.getElementById('ai-draft-btn');
+
+      if (badgeEl) {
+        badgeEl.style.display = 'inline-block';
+        badgeEl.textContent = '✨ Alex AI drafting personalized email with live LLM...';
+        badgeEl.style.color = 'var(--cyan)';
+      }
+      if (btn) btn.disabled = true;
+
+      subjEl.placeholder = 'Generating personalized subject with LLM...';
+      bodyEl.placeholder = 'Generating authentic peer copy with LLM...';
+
+      try {
+        const res = await fetch(`/api/admin/leads/${activeOutreachLeadId}/draft-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            template_name: tKey,
+            tone: tone,
+            custom_instruction: customInstruction,
+          })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (data.ok) {
+          subjEl.value = data.subject || '';
+          bodyEl.value = data.body || '';
+          if (badgeEl) {
+            badgeEl.textContent = `✓ Generated live by LLM (${data.model || data.provider || 'AI'})`;
+            badgeEl.style.color = '#10b981';
+          }
+        }
+      } catch (err) {
+        console.warn('AI draft fetch notice:', err);
+        if (badgeEl) {
+          badgeEl.textContent = '⚠️ LLM draft failed - using contextual peer baseline';
+          badgeEl.style.color = '#f59e0b';
+        }
+        const lead = (pipelineData.leads || []).find(l => l.lead_id === activeOutreachLeadId) || { company_name: 'there', target_portal_name: 'public records' };
+        if (!subjEl.value) subjEl.value = `quick note re: ${lead.target_portal_name || lead.jurisdiction || 'filings'} for ${lead.company_name || 'your team'}`;
+        if (!bodyEl.value) {
+          bodyEl.value = `Hi there,\n\nSaw your team's work. We put together a live feed tracking daily dockets so you don't have to pull records manually.\n\nAlready indexed live records here: ${window.location.origin}/p/${lead.slug || lead.lead_id}\n\nWould it be helpful to stream these daily?\n\nBest,\nAlex | LeadOps`;
+        }
+      } finally {
+        if (btn) btn.disabled = false;
+      }
     }
 
     function openOutreachComposer(leadId) {
       activeOutreachLeadId = leadId;
       const lead = (pipelineData.leads || []).find(l => l.lead_id === leadId) || { lead_id: leadId, company_name: leadId, contact_email: 'ops@company.com' };
       document.getElementById('outreach-email').value = lead.contact_email || 'team@company.com';
-      onTemplateChange();
+      document.getElementById('outreach-subject').value = '';
+      document.getElementById('outreach-body').value = '';
+      if (document.getElementById('ai-custom-instruction')) {
+        document.getElementById('ai-custom-instruction').value = '';
+      }
       document.getElementById('outreach-modal').style.display = 'flex';
+      fetchAiDraftEmail();
     }
 
     function closeOutreachModal() {

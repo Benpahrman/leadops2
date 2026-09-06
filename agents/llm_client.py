@@ -1,9 +1,16 @@
 import json
 import os
+import re
 from typing import Any, Optional
 import httpx
 from openai import OpenAI
 from .logging_config import get_logger
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
 logger = get_logger("llm_agent")
 
@@ -56,43 +63,59 @@ class LLMAgentEngine:
         api_key: str | None = None,
         model: str | None = None,
     ):
-        # Prioritize port 11435 (User's active Ollama instance)
-        detected_url = "http://localhost:11435/v1"
+        groq_key = os.environ.get("GROQ_API_KEY", "").strip()
+        nvidia_key = os.environ.get("NVIDIA_API_KEY", "").strip()
+        gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
+
+        detected_local_url = None
         for candidate in ["http://localhost:11435/v1", "http://127.0.0.1:11435/v1"]:
             try:
-                with httpx.Client(timeout=0.5) as http_client:
+                with httpx.Client(timeout=0.3) as http_client:
                     r = http_client.get(f"{candidate}/models")
                     if r.status_code == 200:
-                        detected_url = candidate
+                        detected_local_url = candidate
                         break
-            except (httpx.RequestError, httpx.TimeoutException):
+            except Exception:
                 continue
 
-        self.base_url = base_url or os.environ.get("LOCAL_LLM_BASE_URL", detected_url)
-        self.api_key = api_key or os.environ.get("LOCAL_LLM_API_KEY", "ollama")
-        
-        # Auto-detect available model name (prefer fast lightweight models for real-time chat)
-        detected_model = "qwen2.5:3b"
-        try:
-            with httpx.Client(timeout=1.0) as http_client:
-                r = http_client.get(f"{self.base_url}/models")
-                if r.status_code == 200:
-                    data = r.json().get("data", [])
-                    model_ids = [m.get("id") for m in data if m.get("id")]
-                    # Prioritize fast models for low latency UX
-                    for preferred in ["qwen2.5:3b", "phi4-mini:latest", "hermes3:8b", "qwen2.5:7b", "gpt-oss:latest"]:
-                        if preferred in model_ids:
-                            detected_model = preferred
-                            break
-                    else:
-                        if model_ids:
-                            detected_model = model_ids[0]
-        except (httpx.RequestError, httpx.TimeoutException, json.JSONDecodeError):
-            pass
+        # Priority 1: Explicit base_url passed
+        if base_url:
+            self.provider = "custom"
+            self.base_url = base_url
+            self.api_key = api_key or "custom"
+            self.model = model or "gpt-oss:latest"
+        # Priority 2: Fast cloud inference (Groq - sub-second latency)
+        elif groq_key:
+            self.provider = "groq"
+            self.base_url = "https://api.groq.com/openai/v1"
+            self.api_key = api_key or groq_key
+            self.model = model or os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
+        # Priority 3: Nvidia Nemotron / Llama
+        elif nvidia_key:
+            self.provider = "nvidia"
+            self.base_url = "https://integrate.api.nvidia.com/v1"
+            self.api_key = api_key or nvidia_key
+            self.model = model or os.environ.get("NVIDIA_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b")
+        # Priority 4: Gemini Flash
+        elif gemini_key:
+            self.provider = "gemini"
+            self.base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
+            self.api_key = api_key or gemini_key
+            self.model = model or os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+        # Priority 5: Local Ollama
+        elif detected_local_url:
+            self.provider = "ollama"
+            self.base_url = detected_local_url
+            self.api_key = api_key or "ollama"
+            self.model = model or "qwen2.5:3b"
+        else:
+            self.provider = "ollama"
+            self.base_url = "http://localhost:11435/v1"
+            self.api_key = api_key or "ollama"
+            self.model = model or "qwen2.5:3b"
 
-        self.model = model or os.environ.get("LOCAL_LLM_MODEL", detected_model)
         self._client: Optional[OpenAI] = None
-        logger.info(f"⚡ [LLM ENGINE INITIALIZED] Connected to {self.base_url} using model '{self.model}'")
+        logger.info(f"⚡ [LLM ENGINE INITIALIZED] Provider: {self.provider} | Model: '{self.model}' | Endpoint: {self.base_url}")
 
     @property
     def client(self) -> OpenAI:
@@ -101,26 +124,30 @@ class LLMAgentEngine:
         return self._client
 
     def is_available(self) -> bool:
-        """Check if local LLM server is responding."""
+        """Check if LLM backend is available."""
+        if os.environ.get("MOCK_LLM") == "true":
+            return False
+        if self.provider in ("groq", "nvidia", "gemini") and bool(self.api_key):
+            return True
         try:
-            with httpx.Client(timeout=1.0) as http_client:
+            with httpx.Client(timeout=0.6) as http_client:
                 r = http_client.get(f"{self.base_url}/models")
                 return r.status_code == 200
-        except (httpx.RequestError, httpx.TimeoutException):
+        except Exception:
             return False
 
     def generate_completion(
         self,
         system_prompt: str,
         user_prompt: str,
-        temperature: float = 0.2,
+        temperature: float = 0.3,
         max_tokens: int = 1500,
     ) -> str:
-        """Execute a live LLM completion request with graceful fallback."""
+        """Execute a live LLM completion request with clean reasoning stripping."""
         if os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("MOCK_LLM") == "true" or not self.is_available():
             return ""
 
-        logger.info(f"🧠 [LLM PROMPT DISPATCH] Model: {self.model} | Endpoint: {self.base_url}")
+        logger.info(f"🧠 [LLM PROMPT DISPATCH] Provider: {self.provider} | Model: {self.model}")
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -130,17 +157,107 @@ class LLMAgentEngine:
                 ],
                 temperature=temperature,
                 max_tokens=max_tokens,
-                timeout=120.0,
+                timeout=45.0,
             )
-            content = response.choices[0].message.content or ""
+            msg = response.choices[0].message
+            content = msg.content or ""
+            if not content and getattr(msg, "reasoning", None):
+                content = msg.reasoning or ""
+            if "<think>" in content:
+                content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
+            content = content.strip()
             logger.info(f"✓ [LLM COMPLETION RECEIVED] Generated {len(content)} chars")
-            return content.strip()
-        except (httpx.RequestError, httpx.TimeoutException, ConnectionError) as e:
-            logger.warning(f"⚠️ [LLM NOTICE] Local LLM error ({type(e).__name__}: {e}). Using expert heuristic fallback.")
-            return ""
+            return content
         except Exception as e:
-            logger.error(f"❌ [LLM ERROR] Unexpected error: {type(e).__name__}: {e}")
+            logger.warning(f"⚠️ [LLM NOTICE] Provider error ({type(e).__name__}: {e}). Trying fallback...")
+            if self.provider == "groq" and os.environ.get("NVIDIA_API_KEY"):
+                try:
+                    fallback_client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=os.environ["NVIDIA_API_KEY"])
+                    fb_resp = fallback_client.chat.completions.create(
+                        model=os.environ.get("NVIDIA_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b"),
+                        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        timeout=45.0,
+                    )
+                    c = fb_resp.choices[0].message.content or ""
+                    if "<think>" in c:
+                        c = re.sub(r"<think>.*?</think>", "", c, flags=re.DOTALL)
+                    return c.strip()
+                except Exception as fb_err:
+                    logger.warning(f"Fallback error: {fb_err}")
             return ""
+
+    def draft_lifecycle_email(
+        self,
+        lead_info: dict[str, Any],
+        template_name: str = "outreach_pitch",
+        tone: str = "human_peer",
+        custom_instruction: str = "",
+    ) -> dict[str, str]:
+        """Draft a contextual, non-templated cold or lifecycle email using live LLM."""
+        company = lead_info.get("company_name", "your team")
+        contact_name = lead_info.get("contact_name", "there")
+        portal = lead_info.get("target_portal_name") or lead_info.get("jurisdiction") or "public records registry"
+        niche = lead_info.get("niche", "public data tracking")
+        pain = lead_info.get("commercial_pain") or lead_info.get("operational_friction") or "pulling filings by hand every morning"
+        specialty = lead_info.get("business_specialty") or lead_info.get("human_observation") or f"active work in {niche}"
+        sandbox_url = lead_info.get("sandbox_url") or lead_info.get("checkout_url") or "#"
+        sample_count = lead_info.get("sample_count", 25)
+
+        system_prompt = (
+            "You are Alex, Senior Technical Solutions Specialist at LeadOps. "
+            "You write authentic 1-on-1 peer emails from one human solutions engineer to another. "
+            "NEVER sound like a marketer, automated bot, or generic sales rep. "
+            "Rules:\n"
+            "1. NO buzzwords: Banned words: 'speed-to-lead', 'game changer', 'streamline', 'leverage', 'cutting-edge', 'delighted'.\n"
+            "2. Be concise: Under 70 words total.\n"
+            "3. Reference their actual company, portal, and specific operational pain point.\n"
+            "4. Include their live sandbox link.\n"
+            "5. Close with a natural, low-pressure binary question (e.g. 'Worth having these stream over each morning, or is your team already tracking them in-house?').\n"
+            "6. Sign off: Best,\nAlex | LeadOps\n"
+            "Output JSON ONLY: {'subject': '...', 'body': '...'}"
+        )
+
+        user_prompt = (
+            f"Stage / Intent: {template_name}\n"
+            f"Tone: {tone}\n"
+            f"Target Company: {company}\n"
+            f"Contact: {contact_name}\n"
+            f"Target Portal: {portal}\n"
+            f"Specialty / Observation: {specialty}\n"
+            f"Friction: {pain}\n"
+            f"Verified Live Records: {sample_count}\n"
+            f"Live Sandbox Link: {sandbox_url}\n"
+        )
+        if custom_instruction:
+            user_prompt += f"\nOperator Custom Instruction: {custom_instruction}\n"
+
+        res = self.generate_completion(system_prompt, user_prompt, temperature=0.35, max_tokens=700)
+        if res and "{" in res and "}" in res:
+            try:
+                start = res.find("{")
+                end = res.rfind("}") + 1
+                parsed = json.loads(res[start:end])
+                if parsed.get("subject") and parsed.get("body"):
+                    return parsed
+            except Exception:
+                pass
+
+        if res:
+            subject = f"quick note re: {portal} filings for {company}"
+            return {"subject": subject, "body": res}
+
+        return {
+            "subject": f"quick note re: {portal} filings for {company}",
+            "body": (
+                f"Hi {contact_name},\n\n"
+                f"Saw {company}'s work in {niche}. We put together a live feed tracking new {portal} dockets daily so your team doesn't have to pull records manually.\n\n"
+                f"Already indexed {sample_count} live records here:\n{sandbox_url}\n\n"
+                f"Would it be helpful to stream these daily, or are you all set in-house?\n\n"
+                f"Best,\nAlex | LeadOps"
+            ),
+        }
 
     def generate_completion_with_tools(
         self,

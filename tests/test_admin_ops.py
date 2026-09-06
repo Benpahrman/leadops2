@@ -156,3 +156,49 @@ def test_admin_api_endpoints_rbac(test_setup):
     )
     assert res.status_code == 200
     assert res.json()["emergency_stop_active"] is True
+
+
+def test_admin_draft_email_and_lifecycle_dispatch(test_setup):
+    storage, admin_service, client = test_setup
+    admin_headers = {"Authorization": "Bearer mock_user_founder_lead_admin"}
+
+    lead = storage.get_lead("lead-admin-1")
+    lead.company_name = "Apex Logistics"
+    lead.contact_name = "Marcus Vance"
+    lead.contact_email = "marcus@apexlogistics.com"
+    lead.target_portal_name = "Harris County Freight Docket"
+    lead.niche = "Commercial Freight Records"
+    storage.save_lead(lead)
+
+    # Test draft-email endpoint
+    draft_res = client.post(
+        "/api/admin/leads/lead-admin-1/draft-email",
+        headers=admin_headers,
+        json={
+            "template_name": "outreach_pitch",
+            "tone": "human_peer",
+            "custom_instruction": "Mention Harris County specifically",
+        },
+    )
+    assert draft_res.status_code == 200
+    data = draft_res.json()
+    assert data["ok"] is True
+    assert "subject" in data
+    assert "body" in data
+    assert len(data["body"]) > 0
+
+    # Test send-lifecycle-email endpoint with custom body
+    send_res = client.post(
+        "/api/admin/leads/lead-admin-1/send-lifecycle-email",
+        headers=admin_headers,
+        json={
+            "template_name": "outreach_pitch",
+            "custom_subject": data["subject"],
+            "custom_body": data["body"],
+        },
+    )
+    assert send_res.status_code == 200
+    send_data = send_res.json()
+    assert send_data["ok"] is True
+    assert send_data["lead_id"] == "lead-admin-1"
+

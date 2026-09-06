@@ -1,5 +1,6 @@
 import csv
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, PlainTextResponse
@@ -584,6 +585,12 @@ class SendLifecycleEmailRequest(BaseModel):
     custom_body: Optional[str] = None
 
 
+class DraftEmailRequest(BaseModel):
+    template_name: str = "outreach_pitch"
+    tone: str = "human_peer"
+    custom_instruction: str = ""
+
+
 @router.post("/api/admin/leads/{lead_id}/swarm", tags=["Admin Operations"])
 def trigger_admin_swarm_build(
     lead_id: str,
@@ -600,7 +607,17 @@ def trigger_admin_swarm_build(
     if not lead:
         raise HTTPException(status_code=404, detail=f"Lead not found: {lead_id}")
 
-    sandbox = portal_service.get_sandbox_by_lead_id(lead_id)
+    sandbox = None
+    try:
+        sandboxes = storage_backend.list_sandboxes()
+        sandbox = next((s for s in sandboxes if getattr(s, "lead", None) and s.lead.lead_id == lead_id), None)
+    except Exception:
+        pass
+    if not sandbox and hasattr(portal_service, "get_sandbox") and (lead.slug or lead_id):
+        try:
+            sandbox = portal_service.get_sandbox(lead.slug or lead_id)
+        except Exception:
+            pass
     slug = sandbox.slug if sandbox else (lead.slug or lead.lead_id)
 
     def _run_build():
@@ -752,6 +769,72 @@ def send_lead_lifecycle_email(
         "template": req.template_name,
         "recipient": lead.contact_email,
         "sent": sent,
+    }
+
+
+@router.post("/api/admin/leads/{lead_id}/draft-email", tags=["Admin Operations"])
+def draft_lead_email(
+    lead_id: str,
+    req: DraftEmailRequest,
+    _: ClerkUser = Depends(require_admin),
+    storage_backend=Depends(get_storage),
+    portal_service=Depends(get_portal_service),
+):
+    """Draft a personalized, high-converting outreach or lifecycle email using live LLM."""
+    from ..llm_client import LLMAgentEngine
+
+    lead = storage_backend.get_lead(lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail=f"Lead not found: {lead_id}")
+
+    sandbox = None
+    try:
+        sandboxes = storage_backend.list_sandboxes()
+        sandbox = next((s for s in sandboxes if getattr(s, "lead", None) and s.lead.lead_id == lead_id), None)
+    except Exception:
+        pass
+    if not sandbox and hasattr(portal_service, "get_sandbox") and (lead.slug or lead_id):
+        try:
+            sandbox = portal_service.get_sandbox(lead.slug or lead_id)
+        except Exception:
+            pass
+    slug = sandbox.slug if (sandbox and sandbox.slug) else (lead.slug or lead_id)
+    base_url = os.environ.get("LEADOPS_PUBLIC_BASE_URL", "https://omnileadfeeder.tech").rstrip("/")
+    sandbox_url = f"{base_url}/p/{slug}"
+
+    lead_info = {
+        "company_name": getattr(lead, "company_name", None) or f"Lead {lead_id}",
+        "contact_name": (getattr(lead, "contact_name", None) or "there").split()[0] if getattr(lead, "contact_name", None) else "there",
+        "contact_role": getattr(lead, "contact_role", None) or "Leadership",
+        "niche": getattr(lead, "niche", None) or "public records",
+        "target_portal_name": getattr(lead, "target_portal_name", None) or getattr(lead, "jurisdiction", None) or "county records portal",
+        "jurisdiction": getattr(lead, "jurisdiction", None) or "county records portal",
+        "commercial_pain": getattr(lead, "commercial_pain", None) or getattr(lead, "pain_point", None) or "pulling filings by hand every morning",
+        "operational_friction": getattr(lead, "operational_friction", None) or getattr(lead, "commercial_pain", None) or getattr(lead, "pain_point", None) or "manual docket lookups",
+        "business_specialty": getattr(lead, "business_specialty", None) or f"active operations in {getattr(lead, 'niche', None) or 'the local area'}",
+        "human_observation": getattr(lead, "human_observation", None) or "",
+        "sample_count": len(sandbox.rows) if (sandbox and getattr(sandbox, "rows", None)) else (getattr(lead, "preview_rows", None) or 25),
+        "sandbox_url": sandbox_url,
+        "tier_name": getattr(lead.tier, "name", "Daily Sync") if hasattr(lead, "tier") and lead.tier else "Daily Sync",
+    }
+
+    engine = LLMAgentEngine()
+    result = engine.draft_lifecycle_email(
+        lead_info=lead_info,
+        template_name=req.template_name,
+        tone=req.tone,
+        custom_instruction=req.custom_instruction,
+    )
+
+    return {
+        "ok": True,
+        "lead_id": lead_id,
+        "template": req.template_name,
+        "tone": req.tone,
+        "subject": result.get("subject", ""),
+        "body": result.get("body", ""),
+        "model": engine.model,
+        "provider": engine.provider,
     }
 
 
