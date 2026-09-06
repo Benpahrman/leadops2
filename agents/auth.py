@@ -1,11 +1,14 @@
 """Clerk authentication adapter and session verification with Global Admin & Company association."""
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from typing import Any
 
 from fastapi import Depends, Header, HTTPException, status, Cookie
+
+logger = logging.getLogger(__name__)
 
 # Super Admin Email Addresses (comma-separated in LEADOPS_ADMIN_EMAILS env var)
 GLOBAL_ADMIN_EMAILS = set(
