@@ -62,6 +62,17 @@ class LeadLifecycleTests(unittest.TestCase):
         lead.transition(State.DEV_BUILDING, "Operator resolved proxy/access issue")
         self.assertEqual(lead.state, State.DEV_BUILDING)
 
+    def test_tier_aliases_and_fallback(self):
+        lead_a = Lead("lead-tier-a", "A")
+        self.assertEqual(lead_a.tier.name, "Daily Sync")
+        self.assertEqual(lead_a.tier_key, "daily")
+
+        lead_b = Lead("lead-tier-b", "tier_b")
+        self.assertEqual(lead_b.tier.name, "Weekly Sync")
+
+        lead_unknown = Lead("lead-custom", "legacy-unknown-tier")
+        self.assertEqual(lead_unknown.tier.name, "Weekly Sync")
+
 
 if __name__ == "__main__":
     unittest.main()

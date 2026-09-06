@@ -41,13 +41,38 @@ class Tier:
     recurring: bool = True
 
 
-TIERS = {
+TIERS: dict[str, Tier] = {
     "weekly": Tier("Weekly Sync", 25_000, "monthly", 15, "1x weekly"),
     "daily": Tier("Daily Sync", 50_000, "monthly", 15, "5x weekly"),
     "ai": Tier("AI / Heavy Extraction", 85_000, "monthly", 25, "daily"),
 }
 
 BUYOUT = Tier("Full Buyout", 150_000, "one_time", 25, "client-owned", False)
+
+TIER_ALIASES: dict[str, str] = {
+    "a": "daily",
+    "tier_a": "daily",
+    "tier-a": "daily",
+    "tier a": "daily",
+    "tier 1": "daily",
+    "b": "weekly",
+    "tier_b": "weekly",
+    "tier-b": "weekly",
+    "tier b": "weekly",
+    "tier 2": "weekly",
+    "c": "weekly",
+    "tier_c": "weekly",
+    "tier-c": "weekly",
+    "tier c": "weekly",
+    "tier 3": "weekly",
+    "standard": "weekly",
+    "starter": "weekly",
+    "basic": "weekly",
+    "pro": "daily",
+    "growth": "daily",
+    "enterprise": "ai",
+    "heavy": "ai",
+}
 
 
 ALLOWED_TRANSITIONS = {
@@ -117,15 +142,24 @@ class Lead:
     def __post_init__(self) -> None:
         if not self.created_at:
             self.created_at = datetime.now(timezone.utc).isoformat()
+        raw = (self.tier_key or "").strip().lower()
+        if raw in TIER_ALIASES:
+            self.tier_key = TIER_ALIASES[raw]
+        elif raw in TIERS or raw == "buyout":
+            self.tier_key = raw
+        elif not self.tier_key:
+            self.tier_key = "weekly"
 
     @property
     def tier(self) -> Tier:
-        if self.tier_key == "buyout":
+        raw = (self.tier_key or "").strip().lower()
+        if raw in ("buyout", "full_buyout", "full buyout", "client-owned"):
             return BUYOUT
-        try:
-            return TIERS[self.tier_key]
-        except KeyError as error:
-            raise ValueError(f"Unknown pricing tier: {self.tier_key}") from error
+        if raw in TIERS:
+            return TIERS[raw]
+        if raw in TIER_ALIASES:
+            return TIERS[TIER_ALIASES[raw]]
+        return TIERS["weekly"]
 
     def transition(self, target: State, reason: str) -> None:
         previous_state = self.state

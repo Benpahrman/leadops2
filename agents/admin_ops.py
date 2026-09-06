@@ -121,9 +121,9 @@ class AdminMissionControlService:
                     f"Best,\nAlex | LeadOps"
                 ),
                 "state": lead.state.value,
-                "tier_name": lead.tier.name,
-                "tier_key": lead.tier_key,
-                "mrr": lead.tier.price_cents / 100,
+                "tier_name": getattr(lead.tier, "name", "Weekly Sync"),
+                "tier_key": getattr(lead, "tier_key", "weekly"),
+                "mrr": getattr(lead.tier, "price_cents", 25000) / 100,
                 "selected_fields_count": len(lead.selected_fields),
                 "deposit_paid": lead.deposit_paid,
                 "final_paid": lead.final_paid,

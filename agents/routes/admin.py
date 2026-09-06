@@ -104,18 +104,22 @@ def get_pipeline_kanban(
     _: ClerkUser = Depends(require_admin),
     admin_service=Depends(get_admin_service),
 ):
-    kanban_res = admin_service.get_pipeline_kanban()
-    all_leads = []
-    cols = kanban_res.get("columns", {}) if isinstance(kanban_res, dict) else {}
-    for col_list in cols.values():
-        if isinstance(col_list, list):
-            all_leads.extend(col_list)
+    try:
+        kanban_res = admin_service.get_pipeline_kanban()
+        all_leads = []
+        cols = kanban_res.get("columns", {}) if isinstance(kanban_res, dict) else {}
+        for col_list in cols.values():
+            if isinstance(col_list, list):
+                all_leads.extend(col_list)
 
-    return {
-        "leads": all_leads,
-        "kanban": kanban_res,
-        "telemetry": admin_service.get_sandbox_telemetry(),
-    }
+        return {
+            "leads": all_leads,
+            "kanban": kanban_res,
+            "telemetry": admin_service.get_sandbox_telemetry(),
+        }
+    except Exception as e:
+        logger.error(f"Failed to fetch pipeline kanban: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to load pipeline: {e}")
 
 @router.post("/api/admin/leads/{lead_id}/advance", tags=["Admin Operations"])
 def advance_lead_state(
