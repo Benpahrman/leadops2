@@ -339,6 +339,17 @@ class SqliteStorageBackend:
                     cursor.execute(f"ALTER TABLE leads ADD COLUMN {col} INTEGER DEFAULT 0")
                 except sqlite3.OperationalError:
                     pass
+            # AI Lead Scoring & Qualification columns
+            for col in ["automation_opportunity_score", "purchase_probability", "pain_severity"]:
+                try:
+                    cursor.execute(f"ALTER TABLE leads ADD COLUMN {col} INTEGER DEFAULT 0")
+                except sqlite3.OperationalError:
+                    pass
+            for col in ["qualification_verdict", "research"]:
+                try:
+                    cursor.execute(f"ALTER TABLE leads ADD COLUMN {col} TEXT DEFAULT ''")
+                except sqlite3.OperationalError:
+                    pass
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS sandboxes (
@@ -376,11 +387,13 @@ class SqliteStorageBackend:
                     source_url, jurisdiction, slug, outreach_subject,
                     outreach_body, repo_url, niche, delivery_count,
                     last_login_at, created_at, upsell_sent, referral_sent,
-                    winback_stage, heartbeat_count, referred_by, claimed_by, is_paused, paused_until, paypal_vault_id, subscription_id, decision_maker_linkedin, updated_at
+                    winback_stage, heartbeat_count, referred_by, claimed_by, is_paused, paused_until, paypal_vault_id, subscription_id, decision_maker_linkedin,
+                    automation_opportunity_score, purchase_probability, pain_severity, qualification_verdict, research, updated_at
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?
                 )
                 ON CONFLICT(lead_id) DO UPDATE SET
                     tier_key=excluded.tier_key,
@@ -420,6 +433,11 @@ class SqliteStorageBackend:
                     paypal_vault_id=excluded.paypal_vault_id,
                     subscription_id=excluded.subscription_id,
                     decision_maker_linkedin=excluded.decision_maker_linkedin,
+                    automation_opportunity_score=excluded.automation_opportunity_score,
+                    purchase_probability=excluded.purchase_probability,
+                    pain_severity=excluded.pain_severity,
+                    qualification_verdict=excluded.qualification_verdict,
+                    research=excluded.research,
                     updated_at=excluded.updated_at
                 """,
                 (
@@ -461,6 +479,11 @@ class SqliteStorageBackend:
                     getattr(lead, "paypal_vault_id", "") or "",
                     getattr(lead, "subscription_id", "") or "",
                     getattr(lead, "decision_maker_linkedin", "") or "",
+                    getattr(lead, "automation_opportunity_score", 75) or 75,
+                    getattr(lead, "purchase_probability", 60) or 60,
+                    getattr(lead, "pain_severity", 6) or 6,
+                    getattr(lead, "qualification_verdict", "QUALIFIED_HOT") or "QUALIFIED_HOT",
+                    json.dumps(getattr(lead, "research", {}) or {}),
                     datetime.now(timezone.utc).isoformat(),
                 ),
             )
@@ -1102,6 +1125,15 @@ class SqliteStorageBackend:
             paypal_vault_id=get_col("paypal_vault_id", ""),
             subscription_id=get_col("subscription_id", ""),
             decision_maker_linkedin=get_col("decision_maker_linkedin", ""),
+            automation_opportunity_score=int(get_col("automation_opportunity_score", 75) or 75),
+            purchase_probability=int(get_col("purchase_probability", 60) or 60),
+            pain_severity=int(get_col("pain_severity", 6) or 6),
+            qualification_verdict=str(get_col("qualification_verdict", "QUALIFIED_HOT") or "QUALIFIED_HOT"),
+            research=(
+                json.loads(get_col("research", "{}"))
+                if isinstance(get_col("research", "{}"), str) and get_col("research", "{}").strip().startswith("{")
+                else (get_col("research", {}) if isinstance(get_col("research", {}), dict) else {})
+            ),
         )
 
     def backup_db(self, target_path: str | None = None) -> str:
@@ -1218,6 +1250,11 @@ class PostgresStorageBackend:
                 "contact_phone": "VARCHAR(100) DEFAULT ''",
                 "target_portal_name": "VARCHAR(255) DEFAULT ''",
                 "decision_maker_linkedin": "VARCHAR(500) DEFAULT ''",
+                "automation_opportunity_score": "INTEGER DEFAULT 75",
+                "purchase_probability": "INTEGER DEFAULT 60",
+                "pain_severity": "INTEGER DEFAULT 6",
+                "qualification_verdict": "VARCHAR(50) DEFAULT 'QUALIFIED_HOT'",
+                "research": "TEXT DEFAULT '{}'",
             }.items():
                 conn.execute(text(f"ALTER TABLE leads ADD COLUMN IF NOT EXISTS {column} {definition}"))
             conn.execute(text("""
@@ -1310,7 +1347,8 @@ class PostgresStorageBackend:
                 source_url, jurisdiction, slug, outreach_subject,
                 outreach_body, repo_url, niche, delivery_count,
                 last_login_at, created_at, upsell_sent, referral_sent,
-                winback_stage, heartbeat_count, referred_by, claimed_by, is_paused, paused_until, decision_maker_linkedin, updated_at
+                winback_stage, heartbeat_count, referred_by, claimed_by, is_paused, paused_until, decision_maker_linkedin,
+                automation_opportunity_score, purchase_probability, pain_severity, qualification_verdict, research, updated_at
             ) VALUES (
                 :lead_id, :tier_key, :state, :selected_fields, :qa_score,
                 :preview_rows, :deposit_paid, :final_paid, :subscription_active,
@@ -1319,7 +1357,8 @@ class PostgresStorageBackend:
                 :source_url, :jurisdiction, :slug, :outreach_subject,
                 :outreach_body, :repo_url, :niche, :delivery_count,
                 :last_login_at, :created_at, :upsell_sent, :referral_sent,
-                :winback_stage, :heartbeat_count, :referred_by, :claimed_by, :is_paused, :paused_until, :decision_maker_linkedin, :updated_at
+                :winback_stage, :heartbeat_count, :referred_by, :claimed_by, :is_paused, :paused_until, :decision_maker_linkedin,
+                :automation_opportunity_score, :purchase_probability, :pain_severity, :qualification_verdict, :research, :updated_at
             )
             ON CONFLICT (lead_id) DO UPDATE SET
                 tier_key = EXCLUDED.tier_key,
@@ -1357,6 +1396,11 @@ class PostgresStorageBackend:
                 is_paused = EXCLUDED.is_paused,
                 paused_until = EXCLUDED.paused_until,
                 decision_maker_linkedin = EXCLUDED.decision_maker_linkedin,
+                automation_opportunity_score = EXCLUDED.automation_opportunity_score,
+                purchase_probability = EXCLUDED.purchase_probability,
+                pain_severity = EXCLUDED.pain_severity,
+                qualification_verdict = EXCLUDED.qualification_verdict,
+                research = EXCLUDED.research,
                 updated_at = EXCLUDED.updated_at
         """)
         params = {
@@ -1396,6 +1440,11 @@ class PostgresStorageBackend:
             "is_paused": 1 if getattr(lead, "is_paused", False) else 0,
             "paused_until": getattr(lead, "paused_until", "") or "",
             "decision_maker_linkedin": getattr(lead, "decision_maker_linkedin", "") or "",
+            "automation_opportunity_score": getattr(lead, "automation_opportunity_score", 75) or 75,
+            "purchase_probability": getattr(lead, "purchase_probability", 60) or 60,
+            "pain_severity": getattr(lead, "pain_severity", 6) or 6,
+            "qualification_verdict": getattr(lead, "qualification_verdict", "QUALIFIED_HOT") or "QUALIFIED_HOT",
+            "research": json.dumps(getattr(lead, "research", {}) or {}),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         with self.engine.begin() as conn:

@@ -641,23 +641,32 @@ class ScoutBackgroundWorker:
             lead.source_url = target.get("target_url", "")
             lead.niche = target["niche"]
             
+            lead.automation_opportunity_score = opp_score
+            lead.purchase_probability = purchase_prob
+            lead.pain_severity = pain_sev
+            lead.qualification_verdict = "QUALIFIED_HOT" if opp_score >= 70 else "QUALIFIED_NURTURE"
+
             # Update research metadata with authentic human market investigation & qualification scoring
+            research_payload = {
+                "linkedin_url": target.get("linkedin_url", ""),
+                "decision_maker_name": target["contact_name"],
+                "decision_maker_role": target["contact_role"],
+                "job_intent": target.get("job_intent"),
+                "business_specialty": target.get("business_specialty", ""),
+                "human_observation": target.get("human_observation", ""),
+                "operational_friction": target.get("operational_friction", ""),
+                "recent_activity_hook": target.get("recent_activity_hook", ""),
+                "automation_opportunity_score": opp_score,
+                "purchase_probability": purchase_prob,
+                "pain_severity": pain_sev,
+                "buyer_signals": signals,
+                "scoring_breakdown": scoring,
+                "qualification_verdict": lead.qualification_verdict,
+            }
             if hasattr(lead, "research") and isinstance(lead.research, dict):
-                lead.research.update({
-                    "linkedin_url": target.get("linkedin_url", ""),
-                    "decision_maker_name": target["contact_name"],
-                    "decision_maker_role": target["contact_role"],
-                    "job_intent": target.get("job_intent"),
-                    "business_specialty": target.get("business_specialty", ""),
-                    "human_observation": target.get("human_observation", ""),
-                    "operational_friction": target.get("operational_friction", ""),
-                    "recent_activity_hook": target.get("recent_activity_hook", ""),
-                    "automation_opportunity_score": opp_score,
-                    "purchase_probability": purchase_prob,
-                    "pain_severity": pain_sev,
-                    "buyer_signals": signals,
-                    "scoring_breakdown": scoring,
-                })
+                lead.research.update(research_payload)
+            else:
+                lead.research = research_payload
             
             # Generate natural, human-to-human peer pitch email using AI Pitcher Agent
             if target.get("job_intent"):

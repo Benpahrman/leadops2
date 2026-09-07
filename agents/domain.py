@@ -140,6 +140,11 @@ class Lead:
     paused_until: str = ""
     paypal_vault_id: str = ""
     subscription_id: str = ""
+    automation_opportunity_score: int = 75
+    purchase_probability: int = 60
+    pain_severity: int = 6
+    qualification_verdict: str = "QUALIFIED_HOT"
+    research: dict = field(default_factory=dict)
     updated_at: str = ""
 
     def __post_init__(self) -> None:

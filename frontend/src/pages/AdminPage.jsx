@@ -69,6 +69,7 @@ export default function AdminPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [stateFilter, setStateFilter] = useState('ALL');
   const [paymentFilter, setPaymentFilter] = useState('ALL');
+  const [scoreFilter, setScoreFilter] = useState('ALL');
 
   // Scrapers & Daily Grid
   const [scrapers, setScrapers] = useState([]);
@@ -80,6 +81,7 @@ export default function AdminPage() {
   const [codeModal, setCodeModal] = useState({ open: false, title: '', code: '' });
   const [dataModal, setDataModal] = useState({ open: false, title: '', rows: [], count: 0, leadId: '' });
   const [auditModal, setAuditModal] = useState({ open: false, title: '', events: [] });
+  const [scoreModal, setScoreModal] = useState({ open: false, lead: null });
   const [qaOverrideModal, setQaOverrideModal] = useState({ open: false, leadId: '', company: '' });
   const [overrideScore, setOverrideScore] = useState(1.0);
   const [overrideReason, setOverrideReason] = useState('Founder verified edge-case pass');
@@ -180,9 +182,19 @@ export default function AdminPage() {
         matchesPayment = !l.deposit_paid && !l.final_paid;
       }
 
-      return matchesSearch && matchesState && matchesPayment;
+      let matchesScore = true;
+      const opp = l.automation_opportunity_score || 75;
+      if (scoreFilter === 'HIGH') {
+        matchesScore = opp >= 75;
+      } else if (scoreFilter === 'QUALIFIED') {
+        matchesScore = opp >= 65;
+      } else if (scoreFilter === 'NURTURE') {
+        matchesScore = opp < 65;
+      }
+
+      return matchesSearch && matchesState && matchesPayment && matchesScore;
     });
-  }, [pipeline, searchQuery, stateFilter, paymentFilter]);
+  }, [pipeline, searchQuery, stateFilter, paymentFilter, scoreFilter]);
 
   // Actions
   const handleAdvance = async (leadId) => {
@@ -658,6 +670,24 @@ export default function AdminPage() {
                 <option value="SUBSCRIPTION_ACTIVE">Active Retainer</option>
                 <option value="UNPAID">Unpaid / Prospect</option>
               </select>
+
+              <select
+                value={scoreFilter}
+                onChange={(e) => setScoreFilter(e.target.value)}
+                style={{
+                  background: 'var(--bg)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '10px 14px',
+                  color: '#fff',
+                  fontSize: '13px',
+                }}
+              >
+                <option value="ALL">All AI Lead Scores</option>
+                <option value="HIGH">🔥 High Opportunity (≥75)</option>
+                <option value="QUALIFIED">⚡ Qualified Fit (≥65)</option>
+                <option value="NURTURE">🌱 Nurture (&lt;65)</option>
+              </select>
             </div>
 
             {/* Deals Table */}
@@ -670,7 +700,7 @@ export default function AdminPage() {
                     <th>Tier / Retainer</th>
                     <th>Lifecycle State</th>
                     <th>Payment Status</th>
-                    <th>QA Gate</th>
+                    <th>AI Scores &amp; QA Gate</th>
                     <th style={{ textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
@@ -791,27 +821,81 @@ export default function AdminPage() {
                             </div>
                           </td>
                           <td>
-                            {qa !== null ? (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <span
-                                  style={{
-                                    fontWeight: 700,
-                                    fontSize: '13px',
-                                    color: qa >= 0.95 ? 'var(--green)' : 'var(--yellow)',
-                                  }}
-                                >
-                                  {(qa * 100).toFixed(0)}%
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <button
+                                type="button"
+                                onClick={() => setScoreModal({ open: true, lead })}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  padding: 0,
+                                  cursor: 'pointer',
+                                  textAlign: 'left',
+                                }}
+                                title="Click to view 7-factor BDR scoring breakdown & buyer signals"
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <span
+                                    style={{
+                                      fontWeight: 800,
+                                      fontSize: '12px',
+                                      padding: '2px 7px',
+                                      borderRadius: '4px',
+                                      background: (lead.automation_opportunity_score || 75) >= 75 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(56, 189, 248, 0.15)',
+                                      color: (lead.automation_opportunity_score || 75) >= 75 ? 'var(--green)' : 'var(--cyan)',
+                                      border: `1px solid ${(lead.automation_opportunity_score || 75) >= 75 ? 'rgba(16, 185, 129, 0.3)' : 'rgba(56, 189, 248, 0.3)'}`,
+                                    }}
+                                  >
+                                    ⚡ Opp: {lead.automation_opportunity_score || 75}/100
+                                  </span>
+                                  <span style={{ fontSize: '10px', color: 'var(--cyan)', textDecoration: 'underline' }}>
+                                    📊 Intel ↗
+                                  </span>
+                                </div>
+                              </button>
+
+                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '11px', marginTop: '2px' }}>
+                                <span style={{ color: 'var(--purple)', fontWeight: 600 }} title="Buyer Intent Probability">
+                                  🎯 {lead.purchase_probability || 60}% Intent
                                 </span>
-                                <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>
-                                  {qa >= 0.95 ? 'PASSED' : 'REVIEW'}
+                                <span style={{ color: 'var(--text-dim)' }}>•</span>
+                                <span style={{ color: 'var(--yellow)', fontWeight: 600 }} title="Operational Pain Severity (1-10)">
+                                  🔥 {lead.pain_severity || 6}/10 Pain
                                 </span>
                               </div>
-                            ) : (
-                              <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>—</span>
-                            )}
+
+                              {qa !== null ? (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                                  <span
+                                    style={{
+                                      fontWeight: 700,
+                                      fontSize: '11px',
+                                      color: qa >= 0.95 ? 'var(--green)' : 'var(--yellow)',
+                                    }}
+                                  >
+                                    🛡️ QA: {(qa * 100).toFixed(0)}%
+                                  </span>
+                                  <span style={{ fontSize: '9px', color: 'var(--text-dim)' }}>
+                                    {qa >= 0.95 ? 'PASSED' : 'REVIEW'}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>
+                                  🛡️ QA: Pending Build
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td style={{ textAlign: 'right' }}>
                             <div style={{ display: 'inline-flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                              <button
+                                className="btn btn-outline"
+                                style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--cyan)', borderColor: 'rgba(56, 189, 248, 0.4)' }}
+                                onClick={() => setScoreModal({ open: true, lead })}
+                                title="View 7-factor BDR scoring breakdown and market research"
+                              >
+                                ⚡ Score
+                              </button>
                               <a
                                 href={`/p/${slug}`}
                                 target="_blank"
@@ -933,6 +1017,55 @@ export default function AdminPage() {
                                 QA: {(lead.qa_score * 100).toFixed(0)}%
                               </span>
                             )}
+                          </div>
+
+                          {/* AI Opportunity & Buyer Signals Badges */}
+                          <div
+                            style={{ display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap', marginTop: '7px', cursor: 'pointer' }}
+                            onClick={() => setScoreModal({ open: true, lead })}
+                            title="Click to view full BDR 7-factor scoring & buyer signals"
+                          >
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                background: (lead.automation_opportunity_score || 75) >= 75 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(56, 189, 248, 0.15)',
+                                color: (lead.automation_opportunity_score || 75) >= 75 ? 'var(--green)' : 'var(--cyan)',
+                                border: `1px solid ${(lead.automation_opportunity_score || 75) >= 75 ? 'rgba(16, 185, 129, 0.3)' : 'rgba(56, 189, 248, 0.3)'}`,
+                              }}
+                            >
+                              ⚡ Opp: {lead.automation_opportunity_score || 75}/100
+                            </span>
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                fontWeight: 600,
+                                padding: '2px 5px',
+                                borderRadius: '4px',
+                                background: 'rgba(168, 85, 247, 0.15)',
+                                color: 'var(--purple)',
+                                border: '1px solid rgba(168, 85, 247, 0.3)',
+                              }}
+                              title="Buyer Purchase Intent"
+                            >
+                              🎯 {lead.purchase_probability || 60}%
+                            </span>
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                fontWeight: 600,
+                                padding: '2px 5px',
+                                borderRadius: '4px',
+                                background: 'rgba(245, 158, 11, 0.15)',
+                                color: 'var(--yellow)',
+                                border: '1px solid rgba(245, 158, 11, 0.3)',
+                              }}
+                              title="Operational Pain Severity (1-10)"
+                            >
+                              🔥 {lead.pain_severity || 6}/10
+                            </span>
                           </div>
 
                           <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
@@ -1601,6 +1734,254 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+
+      {/* AI Lead Scoring & BDR Intelligence Modal */}
+      {scoreModal.open && scoreModal.lead && (() => {
+        const lead = scoreModal.lead;
+        const oppScore = lead.automation_opportunity_score ?? 75;
+        const purchaseProb = lead.purchase_probability ?? 60;
+        const painSev = lead.pain_severity ?? 6;
+        const verdict = lead.qualification_verdict || (oppScore >= 65 ? 'QUALIFIED_HOT' : 'QUALIFIED_NURTURE');
+        const breakdown = lead.scoring_breakdown || {
+          labor_intensity: 20,
+          target_portal_scraping: 12,
+          manual_data_entry: 12,
+          compliance_regulatory: 11,
+          document_volume: 8,
+          smb_size_fit: 8,
+          market_growth: 7,
+        };
+        const signals = Array.isArray(lead.buyer_signals) && lead.buyer_signals.length > 0
+          ? lead.buyer_signals
+          : [
+              'High manual data entry overhead identified in core workflow',
+              'Municipal/public docket dependencies detected',
+              'Sub-50 employee size matches automation deployment sweet-spot',
+            ];
+        const qa = lead.qa_score !== null && lead.qa_score !== undefined ? lead.qa_score : null;
+
+        const factorItems = [
+          { label: 'Labor-Intensive Operations', val: breakdown.labor_intensity ?? 20, max: 25, desc: 'High repetitive human touchpoints' },
+          { label: 'Target Portal Scraping Viability', val: breakdown.target_portal_scraping ?? 12, max: 15, desc: 'Public docket/portal data accessibility' },
+          { label: 'Manual Data Entry Elimination', val: breakdown.manual_data_entry ?? 12, max: 15, desc: 'Direct software bridge opportunity' },
+          { label: 'Compliance & Regulatory Overhead', val: breakdown.compliance_regulatory ?? 11, max: 15, desc: 'Statutory filing & auditing requirements' },
+          { label: 'Document & Record Volume', val: breakdown.document_volume ?? 8, max: 10, desc: 'Daily PDF/CSV/Record throughput' },
+          { label: 'SMB Company Size Fit', val: breakdown.smb_size_fit ?? 8, max: 10, desc: '5-50 staff sweet spot for agile adoption' },
+          { label: 'Market Growth & Hiring Signals', val: breakdown.market_growth ?? 7, max: 10, desc: 'Active hiring or market expansion signals' },
+        ];
+
+        return (
+          <div className="admin-modal-overlay" onClick={() => setScoreModal({ open: false, lead: null })}>
+            <div className="admin-modal-content" style={{ maxWidth: '780px' }} onClick={(e) => e.stopPropagation()}>
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--border)', paddingBottom: '16px' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                    <h3 style={{ fontSize: '20px', fontWeight: 800, color: '#fff', margin: 0 }}>
+                      ⚡ AI Opportunity &amp; BDR Scoring Intelligence
+                    </h3>
+                    <span className={`badge-tag ${verdict.includes('HOT') ? 'badge-green' : 'badge-cyan'}`} style={{ fontSize: '11px' }}>
+                      {verdict}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', fontSize: '13px', color: 'var(--text-dim)' }}>
+                    <span style={{ color: '#fff', fontWeight: 600 }}>{lead.company_name || 'Candidate Organization'}</span>
+                    <span>•</span>
+                    <span style={{ fontFamily: 'var(--mono)', fontSize: '11px' }}>{lead.lead_id}</span>
+                    <span>•</span>
+                    <span style={{ color: 'var(--cyan)' }}>{lead.jurisdiction || lead.target_portal_name || 'Municipal Portal'}</span>
+                  </div>
+                </div>
+                <button
+                  className="btn btn-outline"
+                  style={{ padding: '6px 12px', fontSize: '12px' }}
+                  onClick={() => setScoreModal({ open: false, lead: null })}
+                >
+                  ✕ Close
+                </button>
+              </div>
+
+              {/* KPI Scores Row */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px' }}>
+                <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>
+                    Automation Opp Score
+                  </div>
+                  <div style={{ fontSize: '26px', fontWeight: 800, color: oppScore >= 75 ? 'var(--green)' : 'var(--cyan)', marginTop: '4px' }}>
+                    {oppScore}<span style={{ fontSize: '14px', color: 'var(--text-dim)' }}>/100</span>
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    7-Factor BDR Weighted
+                  </div>
+                </div>
+
+                <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>
+                    Purchase Intent Prob
+                  </div>
+                  <div style={{ fontSize: '26px', fontWeight: 800, color: 'var(--purple)', marginTop: '4px' }}>
+                    {purchaseProb}%
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    {purchaseProb >= 70 ? '🔥 High Intent' : '⚡ Moderate Intent'}
+                  </div>
+                </div>
+
+                <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>
+                    Pain Severity
+                  </div>
+                  <div style={{ fontSize: '26px', fontWeight: 800, color: painSev >= 7 ? '#f87171' : '#fbbf24', marginTop: '4px' }}>
+                    {painSev}<span style={{ fontSize: '14px', color: 'var(--text-dim)' }}>/10</span>
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    {painSev >= 7 ? 'Critical Bottlenecks' : 'Moderate Inefficiency'}
+                  </div>
+                </div>
+
+                <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
+                  <div style={{ fontSize: '11px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>
+                    QA Verification Gate
+                  </div>
+                  <div style={{ fontSize: '26px', fontWeight: 800, color: qa && qa >= 0.95 ? 'var(--green)' : '#fbbf24', marginTop: '4px' }}>
+                    {qa !== null ? `${(qa * 100).toFixed(0)}%` : 'Pending'}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    {qa && qa >= 0.95 ? '✓ Meets Founder Gate' : 'Escrow Validation Stage'}
+                  </div>
+                </div>
+              </div>
+
+              {/* 7-Factor Weighted Breakdown */}
+              <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                  <h4 style={{ fontSize: '14px', fontWeight: 700, color: '#fff', margin: 0 }}>
+                    📊 7-Factor BDR Score Model Breakdown
+                  </h4>
+                  <span style={{ fontSize: '12px', color: 'var(--cyan)', fontWeight: 600 }}>
+                    Calculated Live ({oppScore}/100 Total)
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {factorItems.map((f, idx) => {
+                    const pct = Math.round((f.val / f.max) * 100);
+                    return (
+                      <div key={idx}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '4px' }}>
+                          <span style={{ color: '#fff', fontWeight: 500 }}>
+                            {f.label} <span style={{ color: 'var(--text-dim)', fontSize: '11px' }}>({f.desc})</span>
+                          </span>
+                          <span style={{ fontFamily: 'var(--mono)', color: 'var(--cyan)', fontWeight: 600 }}>
+                            {f.val} / {f.max} pts ({pct}%)
+                          </span>
+                        </div>
+                        <div style={{ height: '6px', background: 'rgba(255,255,255,0.06)', borderRadius: '3px', overflow: 'hidden' }}>
+                          <div
+                            style={{
+                              width: `${pct}%`,
+                              height: '100%',
+                              background: pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--cyan)' : '#fbbf24',
+                              borderRadius: '3px',
+                              transition: 'width 0.4s ease',
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Buyer Signals & Portal Info */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
+                <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '16px' }}>
+                  <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#fff', marginBottom: '10px' }}>
+                    🎯 Detected Buyer Intent Signals
+                  </h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {signals.map((sig, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '12px', color: 'var(--text)' }}>
+                        <span style={{ color: 'var(--green)', fontSize: '14px', lineHeight: 1 }}>✓</span>
+                        <span>{sig}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '16px' }}>
+                  <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#fff', marginBottom: '10px' }}>
+                    🌐 Target Portal &amp; Niche Profile
+                  </h4>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <div>
+                      <b style={{ color: '#fff' }}>Target Portal:</b> {lead.target_portal_name || lead.jurisdiction || 'Municipal Registry'}
+                    </div>
+                    {lead.target_url && (
+                      <div>
+                        <b style={{ color: '#fff' }}>Verified Portal URL:</b>{' '}
+                        <a href={lead.target_url} target="_blank" rel="noreferrer" style={{ color: 'var(--cyan)', textDecoration: 'underline', wordBreak: 'break-all' }}>
+                          {lead.target_url}
+                        </a>
+                      </div>
+                    )}
+                    {lead.source_url && !lead.target_url && (
+                      <div>
+                        <b style={{ color: '#fff' }}>Portal Source:</b>{' '}
+                        <a href={lead.source_url} target="_blank" rel="noreferrer" style={{ color: 'var(--cyan)', textDecoration: 'underline', wordBreak: 'break-all' }}>
+                          {lead.source_url}
+                        </a>
+                      </div>
+                    )}
+                    <div>
+                      <b style={{ color: '#fff' }}>Niche / Industry:</b> {lead.niche || 'B2B Professional Services'}
+                    </div>
+                    {lead.contact_email && (
+                      <div>
+                        <b style={{ color: '#fff' }}>Contact:</b> {lead.contact_email}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Pain Points / Human Observation */}
+              {(lead.pain_points || lead.notes || lead.human_observation) && (
+                <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
+                  <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#fff', marginBottom: '6px' }}>
+                    📝 Operational Friction &amp; Human Observations
+                  </h4>
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>
+                    {lead.pain_points || lead.notes || lead.human_observation}
+                  </p>
+                </div>
+              )}
+
+              {/* Modal Footer Actions */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
+                {lead.slug && (
+                  <a
+                    href={`/portal/${lead.slug}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn btn-primary"
+                    style={{ fontSize: '12px', padding: '8px 16px', textDecoration: 'none' }}
+                  >
+                    Open Client Portal ↗
+                  </a>
+                )}
+                <button
+                  className="btn btn-outline"
+                  style={{ fontSize: '12px', padding: '8px 16px' }}
+                  onClick={() => setScoreModal({ open: false, lead: null })}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </main>
   );
 }

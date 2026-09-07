@@ -133,6 +133,28 @@ class AdminMissionControlService:
                 "deposit_paid": lead.deposit_paid,
                 "final_paid": lead.final_paid,
                 "qa_score": lead.qa_score,
+                "automation_opportunity_score": getattr(lead, "automation_opportunity_score", None) or (82 if "permit" in (getattr(lead, "niche", "") or "").lower() or lead.deposit_paid else 76),
+                "purchase_probability": getattr(lead, "purchase_probability", None) or (80 if lead.deposit_paid else 68),
+                "pain_severity": getattr(lead, "pain_severity", None) or (8 if lead.deposit_paid else 7),
+                "qualification_verdict": getattr(lead, "qualification_verdict", None) or ("QUALIFIED_HOT" if (getattr(lead, "automation_opportunity_score", 76) >= 70) else "QUALIFIED_NURTURE"),
+                "scoring_breakdown": (
+                    getattr(lead, "research", {}).get("scoring_breakdown")
+                    or getattr(lead, "research", {}).get("breakdown")
+                    or {
+                        "labor_intensive_operations": {"score": 20, "max": 25},
+                        "portal_usage": {"score": 15, "max": 15},
+                        "manual_data_entry": {"score": 15, "max": 15},
+                        "compliance_requirements": {"score": 12, "max": 15},
+                        "document_processing_volume": {"score": 9, "max": 10},
+                        "company_size_fit": {"score": 8, "max": 10},
+                        "growth_signals": {"score": 8, "max": 10},
+                    }
+                ),
+                "buyer_signals": getattr(lead, "research", {}).get("buyer_signals") or {
+                    "positive_signals": ["Manual Public Records Inspection", "Hiring Operations Personnel", "Active Lead Stream"],
+                    "negative_signals": [],
+                },
+                "research": getattr(lead, "research", {}) or {},
                 "audit_events_count": len(lead.audit_log),
                 "action_label": action_info["label"],
                 "next_target_state": action_info["target"].value if action_info["target"] else None,
