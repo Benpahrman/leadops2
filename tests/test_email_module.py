@@ -369,3 +369,59 @@ def test_inbound_reply_with_running_conversation_log():
     # Confirms it answers the new webhook question rather than robotically repeating pricing setup
     assert "webhook" in reply_lower or "zapier" in reply_lower or "endpoint" in reply_lower or "json" in reply_lower
 
+
+def test_cloudflare_sending_domains_resolution():
+    """Verify that sender emails strictly resolve to Cloudflare registered subdomains."""
+    # Default without explicit domain rotates/resolves to email.omnileadfeeder.tech or contact.omnileadfeeder.tech
+    settings = EmailSettings(from_name="Alex | OmniLeadFeeder")
+    resolved_1 = settings.resolve_sender_email(hint="lead_123")
+    assert any(resolved_1.endswith(d) for d in ("@email.omnileadfeeder.tech", "@contact.omnileadfeeder.tech"))
+
+    # Explicit strategy contact_only
+    settings_contact = EmailSettings(sending_strategy="contact_only")
+    assert settings_contact.resolve_sender_email() == "alex@contact.omnileadfeeder.tech"
+
+    # Explicit strategy email_only
+    settings_email = EmailSettings(sending_strategy="email_only")
+    assert settings_email.resolve_sender_email() == "alex@email.omnileadfeeder.tech"
+
+    # Preserves custom username prefix
+    settings_custom_user = EmailSettings(from_email="outreach.ops@unknown-domain.com")
+    resolved_custom = settings_custom_user.resolve_sender_email(preferred_domain="contact.omnileadfeeder.tech")
+    assert resolved_custom == "outreach.ops@contact.omnileadfeeder.tech"
+
+
+def test_cloudflare_sending_domains_rotation():
+    """Verify rotation between email.omnileadfeeder.tech and contact.omnileadfeeder.tech across leads."""
+    settings = EmailSettings(sending_strategy="rotate")
+    hits = set()
+    for test_id in ["prospect_a", "prospect_b", "prospect_c", "prospect_d", "prospect_e"]:
+        email_addr = settings.resolve_sender_email(hint=test_id)
+        hits.add(email_addr.split("@")[-1])
+
+    # Confirms both Cloudflare registered subdomains are exercised
+    assert "email.omnileadfeeder.tech" in hits
+    assert "contact.omnileadfeeder.tech" in hits
+
+
+def test_email_client_dispatches_with_cloudflare_subdomain():
+    """Verify EmailClient generates MIME From and Reply-To using Cloudflare subdomains."""
+    captured = {}
+    def fake_hook(data):
+        captured.update(data)
+        return {"ok": True, "message_id": "test_msg_id"}
+
+    settings = EmailSettings(from_email="alex@email.omnileadfeeder.tech", outreach_dispatch_enabled=True)
+    client = EmailClient(settings=settings, transport_hook=fake_hook)
+
+    res = client.send_email(
+        to_email="prospect@commercialbuilders.com",
+        to_name="Jane Doe",
+        subject="Quick question re: Dallas permits",
+        text_body="Saw you do commercial work in Dallas.",
+    )
+
+    assert res["ok"] is True
+    assert captured["from_email"] in ("alex@email.omnileadfeeder.tech", "alex@contact.omnileadfeeder.tech")
+
+

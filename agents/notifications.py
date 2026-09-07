@@ -213,10 +213,14 @@ class NotificationManager:
                 if linkedin_url:
                     contact_display += f"\n[👔 LinkedIn Profile]({linkedin_url})"
 
+                from .email.config import EmailSettings
+                sending_from = EmailSettings.from_environment().resolve_sender_email(hint=getattr(lead, "lead_id", "") or email)
+
                 fields = [
                     {"name": "👤 Contact", "value": contact_display, "inline": True},
                     {"name": "🏢 Company & Niche", "value": f"**{company}**\n_{niche}_", "inline": True},
                     {"name": "🏛️ Target Portal", "value": f"`{portal}`", "inline": True},
+                    {"name": "📤 Sending From", "value": f"`{sending_from}`\n*(Cloudflare Routed)*", "inline": True},
                 ]
                 if job_info:
                     fields.append({

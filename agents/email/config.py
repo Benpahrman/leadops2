@@ -54,6 +54,53 @@ class EmailSettings:
     # Multi-Inbox Accounts (list of {id, user, password, from_name, from_email, start_date})
     extra_inboxes: list[dict[str, str]] = field(default_factory=list)
 
+    # Cloudflare Registered Sending Subdomains (email.omnileadfeeder.tech & contact.omnileadfeeder.tech)
+    allowed_sending_domains: list[str] = field(
+        default_factory=lambda: ["email.omnileadfeeder.tech", "contact.omnileadfeeder.tech"]
+    )
+    outreach_sending_domains: list[str] = field(
+        default_factory=lambda: ["email.omnileadfeeder.tech", "contact.omnileadfeeder.tech"]
+    )
+    sending_strategy: Literal["rotate", "email_only", "contact_only"] = "rotate"
+
+    def resolve_sender_email(self, hint: str = "", preferred_domain: str | None = None) -> str:
+        """Resolve the authentic From: address enforcing registered Cloudflare sending domains.
+        
+        Guarantees sender domain is either email.omnileadfeeder.tech or contact.omnileadfeeder.tech.
+        """
+        raw_email = (self.from_email or "").strip()
+        user_part = "alex"
+        explicit_domain = ""
+
+        if "@" in raw_email:
+            parts = raw_email.split("@", 1)
+            user_part = parts[0] or "alex"
+            explicit_domain = parts[1].lower().strip()
+
+        # If user explicitly preferred a domain that is valid
+        if preferred_domain and preferred_domain.lower().strip() in self.allowed_sending_domains:
+            return f"{user_part}@{preferred_domain.lower().strip()}"
+
+        # If configured from_email already uses one of the allowed Cloudflare subdomains, use it
+        if explicit_domain in self.allowed_sending_domains:
+            return f"{user_part}@{explicit_domain}"
+
+        # Strategy-based selection from pool
+        active_pool = self.outreach_sending_domains or self.allowed_sending_domains
+        if self.sending_strategy == "contact_only" and "contact.omnileadfeeder.tech" in active_pool:
+            return f"{user_part}@contact.omnileadfeeder.tech"
+        elif self.sending_strategy == "email_only" and "email.omnileadfeeder.tech" in active_pool:
+            return f"{user_part}@email.omnileadfeeder.tech"
+
+        # Rotate based on hint (e.g. recipient email or lead_id)
+        if hint:
+            idx = sum(ord(c) for c in hint) % len(active_pool)
+            chosen = active_pool[idx]
+        else:
+            chosen = active_pool[0]
+
+        return f"{user_part}@{chosen}"
+
     @classmethod
     def from_environment(cls) -> "EmailSettings":
         """Load email configuration dynamically from environment variables."""
@@ -71,12 +118,27 @@ class EmailSettings:
             or ""
         ).strip()
 
-        from_name = os.environ.get("EMAIL_FROM_NAME", "Alex | LeadOps").strip()
+        from_name = os.environ.get("EMAIL_FROM_NAME", "Alex | OmniLeadFeeder").strip()
         from_email = (
             os.environ.get("EMAIL_FROM_EMAIL")
-            or os.environ.get("GMAIL_USER")
-            or "Alex.Clientops@omnileadfeeder.tech"
+            or "alex@email.omnileadfeeder.tech"
         ).strip()
+
+        # Cloudflare Sending Subdomains
+        outreach_domains_raw = os.environ.get("OUTREACH_SENDING_DOMAINS", "").strip()
+        if outreach_domains_raw:
+            outreach_sending_domains = [d.strip().lower() for d in outreach_domains_raw.split(",") if d.strip()]
+        else:
+            outreach_sending_domains = ["email.omnileadfeeder.tech", "contact.omnileadfeeder.tech"]
+
+        sending_strategy_raw = os.environ.get("OUTREACH_SENDING_STRATEGY", "rotate").strip().lower()
+        sending_strategy: Literal["rotate", "email_only", "contact_only"] = (
+            "contact_only"
+            if sending_strategy_raw == "contact_only"
+            else "email_only"
+            if sending_strategy_raw == "email_only"
+            else "rotate"
+        )
 
         smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
         smtp_port = int(os.environ.get("SMTP_PORT", "465"))
@@ -113,6 +175,9 @@ class EmailSettings:
             app_password=app_password,
             from_name=from_name,
             from_email=from_email,
+            allowed_sending_domains=["email.omnileadfeeder.tech", "contact.omnileadfeeder.tech"],
+            outreach_sending_domains=outreach_sending_domains,
+            sending_strategy=sending_strategy,
             smtp_host=smtp_host,
             smtp_port=smtp_port,
             smtp_use_ssl=smtp_use_ssl,

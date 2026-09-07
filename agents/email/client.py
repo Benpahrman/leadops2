@@ -55,7 +55,7 @@ class EmailClient:
         actual_name = f"{to_name} ({to_email})" if (override_email and override_email.lower() != to_email.lower()) else to_name
         email_subject = f"[{to_name}] {subject}" if (override_email and override_email.lower() != to_email.lower()) else subject
 
-        sender_email = self.settings.from_email or self.settings.user
+        sender_email = self.settings.resolve_sender_email(hint=actual_recipient)
         sender_name = self.settings.from_name
 
         # If running in unit test mode with a mock transport hook, execute hook
@@ -99,7 +99,7 @@ class EmailClient:
         msg["Reply-To"] = email.utils.formataddr((str(Header(sender_name, "utf-8")), sender_email))
         msg["To"] = email.utils.formataddr((str(Header(actual_name, "utf-8")), actual_recipient))
         msg["Date"] = email.utils.formatdate(localtime=True)
-        message_id = email.utils.make_msgid(domain=sender_email.split("@")[-1] if "@" in sender_email else "leadops.tech")
+        message_id = email.utils.make_msgid(domain=sender_email.split("@")[-1] if "@" in sender_email else "email.omnileadfeeder.tech")
         msg["Message-ID"] = message_id
 
         if in_reply_to:
@@ -155,7 +155,11 @@ class EmailClient:
                     timeout=self.settings.smtp_timeout,
                 ) as server:
                     server.login(self.settings.user, self.settings.app_password)
-                    server.send_message(msg)
+                    try:
+                        server.send_message(msg)
+                    except smtplib.SMTPResponseException as smtp_err:
+                        logger.warning(f"Envelope {sender_email} retry with auth user envelope: {smtp_err}")
+                        server.send_message(msg, from_addr=self.settings.user)
             else:
                 with smtplib.SMTP(
                     self.settings.smtp_host,
@@ -168,13 +172,18 @@ class EmailClient:
                         server.starttls(context=context)
                         server.ehlo()
                     server.login(self.settings.user, self.settings.app_password)
-                    server.send_message(msg)
+                    try:
+                        server.send_message(msg)
+                    except smtplib.SMTPResponseException as smtp_err:
+                        logger.warning(f"Envelope {sender_email} retry with auth user envelope: {smtp_err}")
+                        server.send_message(msg, from_addr=self.settings.user)
 
-            logger.info(f"📧 [SMTP SENT] Successfully sent email to {actual_recipient} via Gmail SMTP (MsgID: {message_id})")
+            logger.info(f"📧 [SMTP SENT] Successfully sent email to {actual_recipient} from {sender_email} via Gmail SMTP (MsgID: {message_id})")
             return {
                 "ok": True,
                 "message_id": message_id,
                 "recipient": actual_recipient,
+                "from_email": sender_email,
                 "status": "SENT",
             }
         except Exception as exc:
