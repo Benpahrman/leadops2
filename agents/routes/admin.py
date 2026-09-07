@@ -1139,10 +1139,38 @@ def handle_mobile_quick_action(
     if action_lower == "approve_pitch":
         if not lead:
             raise HTTPException(status_code=404, detail=f"Lead not found: {clean_lead_id}")
-        lead.state = State.OUTREACH_SENT
-        storage_backend.save_lead(lead)
+
+        from ..pitcher import PitcherService, PitchMessage
+        pitch = None
+        if getattr(lead, "outreach_subject", ""):
+            pitch = PitchMessage(
+                subject=lead.outreach_subject,
+                body_text=lead.outreach_body,
+                body_html=getattr(lead, "outreach_html", "") or f"<p>{lead.outreach_body}</p>",
+                sandbox_url=f"https://www.omnileadfeeder.tech/p/{lead.slug}",
+                word_count=len(lead.outreach_body.split()),
+            )
+
+        pitcher = PitcherService(storage_backend=storage_backend)
+        if pitch and lead.contact_email:
+            try:
+                pitcher.approve_and_dispatch(
+                    lead=lead,
+                    recipient_email=lead.contact_email,
+                    recipient_name=lead.contact_name or lead.company_name,
+                    pitch=pitch,
+                    human_approver="Founder (Mobile Discord)",
+                )
+            except Exception as send_err:
+                logger.warning(f"Error during mobile pitch dispatch: {send_err}")
+                lead.state = State.OUTREACH_SENT
+                storage_backend.save_lead(lead)
+        else:
+            lead.state = State.OUTREACH_SENT
+            storage_backend.save_lead(lead)
+
         title = "Outreach Pitch Approved & Dispatched"
-        description = f"Cold outreach pitch for <b>{lead.company_name}</b> ({lead.contact_email}) has been approved and sent via native SMTP."
+        description = f"Cold outreach pitch for <b>{lead.company_name}</b> ({lead.contact_email}) has been approved and dispatched via native SMTP."
         status_icon = "🚀"
         badge_color = "#10B981"
         notification_manager.notify_system_alert(

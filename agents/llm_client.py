@@ -20,7 +20,19 @@ DISALLOWED_BUYER_DOMAINS = {
     "sam.gov", "usps.gov", "irs.gov", "court.gov",
     "dictionary.cambridge.org", "merriam-webster.com", "wikipedia.org", "wiktionary.org",
     "investopedia.com", "thefreedictionary.com", "britannica.com", "collinsdictionary.com",
-    "dictionary.com"
+    "dictionary.com",
+    # Big tech giants & massive software corporations (build in-house solutions)
+    "google.com", "alphabet.com", "microsoft.com", "apple.com", "amazon.com", "meta.com", "facebook.com",
+    "oracle.com", "ibm.com", "salesforce.com", "intel.com", "cisco.com", "adobe.com", "netflix.com",
+    "uber.com", "lyft.com", "twitter.com", "x.com", "airbnb.com", "stripe.com", "palantir.com",
+    "snowflake.com", "databricks.com", "sap.com", "workday.com", "servicenow.com", "intuit.com",
+    "atlassian.com",
+    # Mega conglomerates & Fortune 50 multinationals
+    "accenture.com", "deloitte.com", "mckinsey.com", "kpmg.com", "ey.com", "pwc.com",
+    "boeing.com", "lockheedmartin.com", "raytheon.com", "ge.com", "walmart.com", "target.com",
+    "costco.com", "homedepot.com", "jpmorgan.com", "chase.com", "goldmansachs.com",
+    "bankofamerica.com", "wellsfargo.com", "citi.com", "citigroup.com", "morganstanley.com",
+    "pnc.com", "berkshirehathaway.com", "tesla.com"
 }
 
 DISALLOWED_BUYER_KEYWORDS = {
@@ -30,7 +42,15 @@ DISALLOWED_BUYER_KEYWORDS = {
     "county clerk", "district clerk", "tax assessor", "sheriff", "police department", "fire department",
     "secretary of state", "open data", "public records office", "government", "municipality",
     "school district", "isd", "university of",
-    "definition", "meaning of", "synonyms of", "pronunciation of"
+    "definition", "meaning of", "synonyms of", "pronunciation of",
+    # Enterprise & Big Tech Giants (likely have in-house data/scraping engineering teams)
+    "google", "alphabet", "microsoft", "apple inc", "amazon.com", "meta platforms", "facebook inc",
+    "oracle corp", "ibm corp", "salesforce", "intel corp", "cisco systems", "adobe inc", "netflix",
+    "uber technologies", "lyft inc", "palantir", "snowflake inc", "databricks", "sap se", "workday",
+    "servicenow", "atlassian", "accenture", "deloitte", "mckinsey", "kpmg", "ernst & young", "pwc",
+    "pricewaterhousecoopers", "boeing", "lockheed martin", "raytheon", "general electric", "walmart",
+    "target corp", "jpmorgan chase", "goldman sachs", "bank of america", "wells fargo", "citigroup",
+    "morgan stanley", "berkshire hathaway", "pnc bank", "pnc financial"
 }
 
 
@@ -1126,12 +1146,20 @@ class LLMAgentEngine:
             "+ Customer Complaints About Delays\n"
             "+ Large Back Office Teams\n"
             "\n"
-            "NEGATIVE BUY SIGNALS:\n"
-            "- Very small business (<5 employees)\n"
-            "- Technology company\n"
-            "- Internal development team\n"
-            "- Existing automation platform\n"
-            "- Little administrative workload\n"
+            "NEGATIVE BUY SIGNALS (IMMEDIATE DISQUALIFICATION):\n"
+            "- Huge enterprise corporations (>1,000 employees) or tech giants (e.g. Google, Microsoft, Amazon, Meta, Oracle, IBM) - THEY HAVE IN-HOUSE SOLUTIONS\n"
+            "- Software technology platforms with in-house engineering and scraper teams\n"
+            "- Multinational enterprise financial conglomerates\n"
+            "- Very small micro-businesses (<5 employees) unable to afford retainers\n"
+            "- Existing enterprise RPA/automation platforms already deployed\n"
+            "\n"
+            "IDEAL BUYER PROFILE (HIGH PRIORITY TARGETS):\n"
+            "- Mid-market regional commercial companies (10 to 300 employees)\n"
+            "- Regional commercial contractors, subcontractors, and estimating firms\n"
+            "- Regional equipment lenders, commercial leasing firms, and private credit\n"
+            "- Mid-sized litigation and probate law firms, title agencies, and medical credentialing agencies\n"
+            "- Heavy manual daily portal lookup burden with ZERO in-house data engineers\n"
+            "\n"
             "\n"
             "SAVE THE FOLLOWING FIELDS (Return ONLY valid JSON matching this schema):\n"
             "{\n"

@@ -54,9 +54,9 @@ VERTICAL_CATALOG: dict[str, dict[str, Any]] = {
         "pain_point": "Needs automated tracking of newly posted DoD and federal civilian RFPs and pre-solicitation notices.",
         "tier_key": "ai",
         "buyer_search_queries": [
-            "top defense contractors federal proposal capture management",
-            "defense aerospace and IT systems integrator companies",
-            "federal government contractors NAICS 541512 541715",
+            "commercial federal defense subcontractors proposal bidding Texas",
+            "regional defense logistics and supply subcontractors",
+            "mid market federal contracting firms NAICS 541512",
         ],
     },
     "Secretary of State UCC Secured Asset Financing & Commercial Debt": {
@@ -666,6 +666,17 @@ class ScoutBackgroundWorker:
                 lead.transition(State.PITCH_PENDING_APPROVAL, "Enriched pitch prepared for founder review")
             self.storage.save_lead(lead)
             logger.info(f"📋 [OUTREACH PENDING REVIEW] Copy prepared for {target['company_name']} | State: {lead.state.value}")
+
+            # Push mobile notification to Discord & Telegram with 1-tap Approve/Reject buttons
+            try:
+                from .notifications import notification_manager
+                notification_manager.notify_lead_qualified_and_dispatching(
+                    lead=lead,
+                    pitch=pitch,
+                )
+                logger.info(f"📱 [DISCORD NOTIFICATION DISPATCHED] Mobile review alert sent for {target['company_name']}")
+            except Exception as notify_err:
+                logger.warning(f"Failed to dispatch Discord review alert: {notify_err}")
 
         logger.info(f"🚀 [PROSPECTOR READY] Lead ID: {candidate.lead_id} | Slug: {candidate.slug} | Contact: {target['contact_email']}")
 

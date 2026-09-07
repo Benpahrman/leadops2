@@ -140,13 +140,19 @@ class NotificationManager:
             if (self.settings.telegram_bot_token and self.settings.telegram_chat_id)
             else None
         )
-        self.async_dispatch = async_dispatch
+        is_cloud = bool(
+            os.environ.get("CONTAINER_APP_NAME")
+            or os.environ.get("DATABASE_URL", "").startswith("postgresql")
+            or os.environ.get("ENVIRONMENT") == "production"
+        )
+        default_base = "https://www.omnileadfeeder.tech" if is_cloud else "http://127.0.0.1:8000"
         self.base_url = (
             base_url
             or os.environ.get("LEADOPS_PUBLIC_URL", "")
             or os.environ.get("BASE_URL", "")
-            or "http://127.0.0.1:8000"
+            or default_base
         ).rstrip("/")
+        self.async_dispatch = async_dispatch
         self.force_dispatch_in_test = force_dispatch_in_test
 
     def is_configured(self) -> bool:
@@ -217,11 +223,11 @@ class NotificationManager:
                 })
 
                 self.discord.send_embed(
-                    title=f"🎯 Lead Qualified & Pitch Dispatching: {company}",
-                    description=f"Passed all **Quality Gates** (Website, MX/Bounce, Voice QA, Quota). Dispatching via native Gmail SMTP.",
+                    title=f"🎯 Lead Qualified & Pitch Ready for Review: {company}",
+                    description="Candidate passed all Quality Gates. Outbound cold pitch is drafted and awaiting your 1-tap mobile decision.",
                     fields=fields,
                     color=0x24483B,  # Pine Slate
-                    footer="LeadOps • Autonomous Pitcher Engine",
+                    footer="OmniLeadFeeder Technologies • Autonomous Pitcher Engine",
                 )
 
             # 2. Telegram Message
