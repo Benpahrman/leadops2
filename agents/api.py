@@ -102,13 +102,18 @@ def create_app(
     if not configured_token:
         raise ValueError("LEADOPS_API_TOKEN must be set — internal scout/webhook endpoints require authentication")
     llm_engine = LLMAgentEngine()
-    scout_interval_seconds = int(os.environ.get("SCOUT_INTERVAL_SECONDS", "600"))
+    fixed_scout_interval = os.environ.get("SCOUT_INTERVAL_SECONDS")
+    default_min_rest = int(fixed_scout_interval) if fixed_scout_interval else int(os.environ.get("SCOUT_MIN_REST_SECONDS", "3600"))
+    default_max_rest = int(fixed_scout_interval) if fixed_scout_interval else int(os.environ.get("SCOUT_MAX_REST_SECONDS", "7200"))
+    target_per_cycle = int(os.environ.get("SCOUT_TARGET_PER_CYCLE", "1"))
+
     scout_supervisor = ScoutAutomationSupervisor(
         storage=storage_backend,
         portal=portal_service,
         llm_engine=llm_engine,
-        min_rest_seconds=scout_interval_seconds,
-        max_rest_seconds=scout_interval_seconds,
+        target_per_cycle=target_per_cycle,
+        min_rest_seconds=default_min_rest,
+        max_rest_seconds=default_max_rest,
         enabled=os.environ.get("SCOUT_AUTOMATION_ENABLED", "true").lower() == "true",
     )
 

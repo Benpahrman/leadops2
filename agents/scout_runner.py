@@ -866,9 +866,9 @@ class ScoutAutomationSupervisor:
     storage: StorageBackend
     portal: PortalService
     llm_engine: LLMAgentEngine = field(default_factory=LLMAgentEngine)
-    target_per_cycle: int = 3
-    min_rest_seconds: int = 600
-    max_rest_seconds: int = 600
+    target_per_cycle: int = 1
+    min_rest_seconds: int = 3600
+    max_rest_seconds: int = 7200
     enabled: bool = True
     is_running: bool = False
     _task: asyncio.Task | None = None
@@ -877,7 +877,7 @@ class ScoutAutomationSupervisor:
         "message": "Scout automation has not started",
         "cycle": 0,
         "qualified_this_cycle": 0,
-        "target_per_cycle": 3,
+        "target_per_cycle": 1,
         "attempts_this_cycle": 0,
         "last_result": None,
         "last_error": None,

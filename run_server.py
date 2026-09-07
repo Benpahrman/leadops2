@@ -402,24 +402,25 @@ def run_daily_automation(
 def run_continuous_scout_loop(
     storage: SqliteStorageBackend,
     portal: PortalService,
-    min_interval_seconds: int = 1800,  # 30 minutes
-    max_interval_seconds: int = 3600,  # 60 minutes
+    min_interval_seconds: int = 3600,  # 60 minutes
+    max_interval_seconds: int = 7200,  # 120 minutes
     stop_event: threading.Event | None = None,
 ) -> None:
     """Continuous background thread that autonomously discovers new target enterprises and seeds prospective sandboxes 24/7.
-    Runs randomly 30-60 minutes apart in production (1800-3600s), and respects mobile pause/resume controls."""
+    Runs randomly 1-2 hours apart in production (3600-7200s), and respects mobile pause/resume controls."""
     import random
     from agents.logging_config import get_logger
     log = get_logger("scout_continuous")
 
-    min_sec = int(os.environ.get("PROSPECTOR_MIN_INTERVAL_SECONDS", str(min_interval_seconds)))
-    max_sec = int(os.environ.get("PROSPECTOR_MAX_INTERVAL_SECONDS", str(max_interval_seconds)))
+    fixed_interval = os.environ.get("SCOUT_INTERVAL_SECONDS")
+    min_sec = int(fixed_interval or os.environ.get("SCOUT_MIN_REST_SECONDS") or os.environ.get("PROSPECTOR_MIN_INTERVAL_SECONDS", str(min_interval_seconds)))
+    max_sec = int(fixed_interval or os.environ.get("SCOUT_MAX_REST_SECONDS") or os.environ.get("PROSPECTOR_MAX_INTERVAL_SECONDS", str(max_interval_seconds)))
     log.info(f"🚀 [SCOUT DAEMON] Continuous background prospecting active — randomized intervals between {min_sec // 60}m and {max_sec // 60}m")
     
     worker = ScoutBackgroundWorker(storage=storage, portal=portal)
     while not (stop_event and stop_event.is_set()):
         # Check if paused via mobile operator quick-action
-        is_paused = os.environ.get("PROSPECTOR_PAUSED", "false").lower() in ("true", "1", "yes")
+        is_paused = os.environ.get("PROSPECTOR_PAUSED", "false").lower() in ("true", "1", "yes") or os.environ.get("SCOUT_AUTOMATION_ENABLED", "true").lower() == "false"
         if is_paused:
             log.info("⏸️ [SCOUT DAEMON] Prospector is paused by operator. Standing by...")
             if stop_event:
@@ -435,7 +436,7 @@ def run_continuous_scout_loop(
         except Exception as e:
             log.warning(f"Scout continuous discovery iteration: {e}")
         
-        # Calculate random sleep duration between 30 and 60 minutes
+        # Calculate random sleep duration between 1 and 2 hours
         sleep_duration = random.randint(min_sec, max_sec)
         log.info(f"⏳ [SCOUT DAEMON] Next prospecting discovery window in {sleep_duration // 60} minutes ({sleep_duration}s)")
 
@@ -456,15 +457,15 @@ def main():
     print("           ⚡ LEADOPS LIVE PRODUCTION ENGINE & SERVER ⚡          ")
     print("==================================================================")
 
-    # 1. Start Continuous Scout Thread (randomized 30-60 min intervals)
+    # 1. Start Continuous Scout Thread (randomized 1-2 hour intervals)
     stop_event = threading.Event()
     scout_thread = threading.Thread(
         target=run_continuous_scout_loop,
-        args=(storage, portal, 1800, 3600, stop_event),
+        args=(storage, portal, 3600, 7200, stop_event),
         daemon=True,
     )
     scout_thread.start()
-    print("✓ Continuous Scout Crawler: Active (randomized 30-60 min production interval)")
+    print("✓ Continuous Scout Crawler: Active (paced 1-2 hour production interval)")
 
     monitor = RetainerMonitorWorker()
     dashboard_service = CustomerDashboardService(storage=storage)
