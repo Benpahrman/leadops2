@@ -385,7 +385,7 @@ def test_client_artifacts_and_audit_trail(client, tmp_path):
 def test_invoice_endpoint(client):
     res = client.get("/api/dashboard/test-lead-1/invoice")
     assert res.status_code == 200
-    assert "LEADOPS TECHNOLOGIES" in res.text
+    assert "OMNILEADFEEDER TECHNOLOGIES" in res.text
     assert "OFFICIAL RECEIPT / INVOICE" in res.text
 
 

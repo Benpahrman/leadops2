@@ -75,7 +75,7 @@ class EmailSettings:
         from_email = (
             os.environ.get("EMAIL_FROM_EMAIL")
             or os.environ.get("GMAIL_USER")
-            or "ClientOps.LeadOps@cultofthefork.tech"
+            or "Alex.Clientops@omnileadfeeder.tech"
         ).strip()
 
         smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()

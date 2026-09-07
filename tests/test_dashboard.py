@@ -125,7 +125,7 @@ def test_dashboard_invoice_generation():
     assert len(inv_data["items"]) == 2
 
     inv_html = service.generate_invoice_html("lead-inv-1")
-    assert "LEADOPS TECHNOLOGIES" in inv_html
+    assert "OMNILEADFEEDER TECHNOLOGIES" in inv_html
     assert "Sterling Title LLC" in inv_html
     assert "$500.00 USD" in inv_html
     assert "OFFICIAL RECEIPT / INVOICE" in inv_html

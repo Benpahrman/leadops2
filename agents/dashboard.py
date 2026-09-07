@@ -376,12 +376,18 @@ class CustomerDashboardService:
             raise KeyError(f"Lead not found: {lead_id}")
 
         now = datetime.now(timezone.utc)
-        inv_num = f"INV-LEADOPS-{lead.lead_id.upper()[:8]}-{now.strftime('%Y%m')}"
+        inv_num = f"INV-OMNI-{lead.lead_id.upper()[:8]}-{now.strftime('%Y%m')}"
         company = lead.company_name or "Client Organization"
         contact_email = lead.contact_email or "operations@client.com"
         tier_price = lead.tier.price_cents / 100.0
 
         items = []
+        if getattr(lead, "buyout_paid", False):
+            items.append({
+                "description": f"Full Source Code Buyout & Dedicated Data Crawler Handover ({lead.tier.name})",
+                "status": "PAID (CLIENT OWNED)",
+                "amount": 1500.00,
+            })
         if lead.deposit_paid:
             items.append({
                 "description": f"Milestone #1 Setup Deposit — 7-Agent Dev Swarm Pipeline & QA Gate ({lead.jurisdiction or lead.tier.name})",
@@ -396,7 +402,7 @@ class CustomerDashboardService:
             })
         elif lead.subscription_active:
             items.append({
-                "description": f"Monthly Data Stream Retainer ({lead.tier.name}) — Daily 8:00 AM CST Feed",
+                "description": f"Monthly Data Stream Retainer ({lead.tier.name}) — Continuous Feed Delivery",
                 "status": "ACTIVE RECURRING",
                 "amount": tier_price,
             })
@@ -421,7 +427,7 @@ class CustomerDashboardService:
             "items": items,
             "total_paid_usd": total_paid,
             "tax_id": "XX-XXX8921",
-            "escrow_agent": "LeadOps Escrow Protection Engine (PayPal Verified)",
+            "escrow_agent": "OmniLeadFeeder Escrow Protection Protocol (PayPal Verified)",
             "qa_cert_hash": getattr(lead, "qa_certificate_hash", "QA-CERT-VERIFIED-100"),
         }
 
@@ -447,7 +453,7 @@ class CustomerDashboardService:
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Invoice {data['invoice_number']} | LeadOps B2B Data</title>
+  <title>Invoice {data['invoice_number']} | OmniLeadFeeder Public Records Feeds</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
@@ -553,9 +559,9 @@ class CustomerDashboardService:
     <div class="invoice-card">
       <div class="header-row">
         <div>
-          <div class="brand-title">⚡ LEADOPS TECHNOLOGIES</div>
-          <div class="brand-sub">Autonomous B2B Data Streams & Public Records Pipelines</div>
-          <div class="brand-sub">Austin, Texas • clientops@cultofthefork.tech</div>
+          <div class="brand-title">⚡ OMNILEADFEEDER TECHNOLOGIES</div>
+          <div class="brand-sub">Autonomous B2B Data Streams &amp; Public Records Pipelines</div>
+          <div class="brand-sub">Austin, Texas • operations@omnileadfeeder.tech • https://www.omnileadfeeder.tech</div>
         </div>
         <div>
           <div class="inv-title">OFFICIAL RECEIPT / INVOICE</div>
@@ -611,8 +617,8 @@ class CustomerDashboardService:
       </div>
 
       <div class="footer-note">
-        <p><b>Tax &amp; Compliance Information:</b> LeadOps Technologies Inc. (W-9 on file). All milestone setup deposits are protected under the LeadOps Escrow Protocol with guaranteed ≥95% schema accuracy floor.</p>
-        <p style="margin-top:6px;">For accounting questions or custom purchase orders, contact <code>billing@cultofthefork.tech</code>.</p>
+        <p><b>Tax &amp; Compliance Information:</b> OmniLeadFeeder Technologies (W-9 on file). All milestone setup deposits are protected under the OmniLeadFeeder Escrow Protocol with guaranteed ≥95% schema accuracy floor.</p>
+        <p style="margin-top:6px;">For accounting questions or custom purchase orders, contact <code>billing@omnileadfeeder.tech</code> or <code>operations@omnileadfeeder.tech</code>.</p>
       </div>
     </div>
   </div>
