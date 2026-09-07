@@ -21,13 +21,14 @@ export async function suggestColumns(slug) {
   return res.json();
 }
 
-export async function payDeposit(slug, { email, cardholder, paypalOrderId }) {
+export async function payDeposit(slug, { email, cardholder, targetUrl, paypalOrderId }) {
   const res = await fetch(`${API_BASE}/api/sandbox/${slug}/pay-deposit`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       email,
       cardholder,
+      target_url: targetUrl || '',
       paypal_order_id: paypalOrderId || `PAYID-${Date.now()}`,
       tos_accepted: true,
       sow_accepted: true,

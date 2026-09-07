@@ -497,6 +497,62 @@ def test_chat_persistent_conversation_log_and_history(client):
     assert any("HubSpot" in m["message"] for m in history_data["messages"])
 
 
+def test_target_url_confirmation_flow(client):
+    """Verify that confirming or customizing the target docket URL updates lead and sandbox source_url."""
+    slug = "test-company-test-lead-1"
+    custom_target_url = "https://records.dallascounty.org/dockets/search"
+
+    # 1. Validate custom target URL pre-flight
+    val_res = client.post(
+        f"/api/sandbox/{slug}/validate-source",
+        json={"target_url": custom_target_url}
+    )
+    assert val_res.status_code == 200
+    val_data = val_res.json()
+    assert val_data["ok"] is True
+    assert val_data["source_url"] == custom_target_url
+    assert val_data["url_valid"] is True
+
+    # 2. Pay deposit confirming the custom target URL
+    pay_res = client.post(
+        f"/api/sandbox/{slug}/pay-deposit",
+        json={
+            "email": "lead-counsel@dallastexas.com",
+            "cardholder": "Dallas Litigation Group",
+            "target_url": custom_target_url,
+            "paypal_order_id": "PAYID-CONFIRM-TARGET-001",
+        }
+    )
+    assert pay_res.status_code == 200
+    pay_data = pay_res.json()
+    assert pay_data["ok"] is True
+
+    # 3. Verify that lead and sandbox now reflect the confirmed target URL
+    portal = client.app.state.portal_service
+    sandbox = portal.get_sandbox(slug)
+    assert sandbox.source_url == custom_target_url
+    assert sandbox.lead.source_url == custom_target_url
+
+
+def test_chat_target_url_detection(client):
+    """Verify that providing a target URL in customer chat automatically updates lead and sandbox source_url."""
+    slug = "test-company-test-lead-1"
+    chat_url = "https://permits.austintexas.gov/citizenaccess"
+
+    res = client.post(
+        f"/api/sandbox/{slug}/chat",
+        json={"message": f"Here is the exact permit portal we need scraped: {chat_url}"}
+    )
+    assert res.status_code == 200
+    assert res.json()["ok"] is True
+
+    portal = client.app.state.portal_service
+    sandbox = portal.get_sandbox(slug)
+    assert sandbox.source_url == chat_url
+    assert sandbox.lead.source_url == chat_url
+
+
+
 
 
 

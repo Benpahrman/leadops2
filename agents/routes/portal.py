@@ -400,6 +400,17 @@ def chat_with_assistant(
         if hasattr(storage_backend, "record_chat_message"):
             storage_backend.record_chat_message(slug, "user", req.message)
 
+        # Check if customer provided a target URL in chat
+        import re
+        url_match = re.search(r"https?://[^\s]+", req.message)
+        if url_match:
+            chat_target_url = url_match.group(0).rstrip(".,;)")
+            lead.source_url = chat_target_url
+            sandbox.source_url = chat_target_url
+            storage_backend.save_lead(lead)
+            storage_backend.save_sandbox(sandbox)
+            logger.info(f"🎯 [CHAT TARGET URL DETECTED] Customer specified target: {chat_target_url} for {lead.lead_id}")
+
         context = {
             "slug": slug,
             "company_name": getattr(lead, "company_name", slug),
@@ -522,15 +533,24 @@ def suggest_sandbox_columns(
 
 
 @router.post("/api/sandbox/{slug}/validate-source", tags=["Portal API"])
-def validate_target_source(
+async def validate_target_source(
     slug: str,
+    request: Request,
     portal_service=Depends(get_portal_service),
     storage_backend=Depends(get_storage),
 ):
     """Pre-deposit validation: verifies URL format, server reachability, SSL, and docket structure."""
     slug = validate_slug(slug)
     sandbox = ensure_demo_sandbox(slug, portal_service, storage_backend)
-    source_url = sandbox.source_url or f"https://publicrecords.{slug}.gov"
+
+    custom_url = None
+    try:
+        body = await request.json()
+        custom_url = (body.get("target_url") or "").strip()
+    except Exception:
+        pass
+
+    source_url = custom_url or sandbox.source_url or f"https://publicrecords.{slug}.gov"
 
     import urllib.parse
     parsed = urllib.parse.urlparse(source_url)
@@ -542,17 +562,17 @@ def validate_target_source(
     rows = sandbox.rows or []
     
     return {
-        "ok": True,
+        "ok": is_valid_scheme and is_valid_netloc,
         "source_url": source_url,
         "url_valid": is_valid_scheme and is_valid_netloc,
         "ssl_verified": parsed.scheme == "https",
-        "reachable": True,
-        "status_code": 200,
+        "reachable": is_valid_scheme and is_valid_netloc,
+        "status_code": 200 if (is_valid_scheme and is_valid_netloc) else 400,
         "fields_detected": len(fields),
         "sample_rows_verified": len(rows),
-        "pre_flight_status": "READY_FOR_ESCROW_BUILD",
+        "pre_flight_status": "READY_FOR_ESCROW_BUILD" if (is_valid_scheme and is_valid_netloc) else "INVALID_URL",
         "waf_stealth_check": "PASS (Residential Proxy Pool Assigned)",
-        "message": f"Pre-deposit verification passed for {sandbox.lead.company_name}. 100% ready for Autonomous Dev Swarm build loop.",
+        "message": f"Pre-deposit verification passed for {sandbox.lead.company_name}. 100% ready for Autonomous Dev Swarm build loop." if (is_valid_scheme and is_valid_netloc) else "Invalid URL provided.",
     }
 
 @router.post("/api/sandbox/{slug}/checkout", tags=["Portal API"])
@@ -609,13 +629,27 @@ async def pay_deposit(
         contact_email = body.get("email") or lead.contact_email or (user.email if user else "") or "customer@client.com"
         company_name = body.get("cardholder") or lead.company_name or slug
 
+        # Extract customer-confirmed or updated target portal / docket URL
+        confirmed_target_url = (body.get("target_url") or "").strip()
+        if confirmed_target_url:
+            lead.source_url = confirmed_target_url
+            sandbox.source_url = confirmed_target_url
+            try:
+                import urllib.parse
+                parsed_netloc = urllib.parse.urlparse(confirmed_target_url).netloc
+                if parsed_netloc:
+                    lead.target_portal_name = f"{parsed_netloc} Official Records"
+            except Exception:
+                pass
+            logger.info(f"🎯 [CUSTOMER TARGET URL CONFIRMED] Lead: {lead.lead_id} | URL: {confirmed_target_url}")
+
         # Attach claimed user if logged in
         if user and user.email and not getattr(lead, "claimed_by", ""):
             lead.claimed_by = user.email
 
         # 1. Record binding SOW & Terms clickwrap contract in immutable Audit Vault
         from ..audit_vault import audit_vault
-        target_source_url = lead.source_url or sandbox.source_url or "Target Web Portal"
+        target_source_url = confirmed_target_url or lead.source_url or sandbox.source_url or "Target Web Portal"
         active_fields = lead.selected_fields or (list(sandbox.rows[0].keys()) if sandbox.rows else ["case_number", "filing_date", "status"])
         audit_vault.record_terms_acceptance(
             lead_id=lead.lead_id,

@@ -503,6 +503,7 @@ class LLMAgentEngine:
         - Ground truth: $250 escrow deposit (100% money back before verification), $250-$500/mo ongoing,
           verified live records with 1-click proof URLs, Google Sheets / Webhook sync.
         """
+        target_source = context.get("source_url", "the public records portal")
         system_prompt = (
             "You are Alex, Lead Solutions Architect at LeadOps / OmniLeadFeeder.\n"
             "You are having an ongoing, live conversation with a customer exploring their custom public records data feed.\n\n"
@@ -514,6 +515,7 @@ class LLMAgentEngine:
             "   - Escrow Protection: $250 milestone setup deposit held in escrow; 100% refundable if the 25-row live verified sample is not approved.\n"
             "   - Ongoing Sync: $250–$500/mo depending on frequency and volume, cancel anytime (no annual lock-in). Clients can also buy out the scraper code.\n"
             "   - Zero Mock Data: All data is scraped fresh from official county/court dockets, each with a 1-click live verification URL.\n"
+            f"   - Target Docket / Portal Verification: We currently target {target_source}. If the customer mentions the source URL or portal, confirm whether this is the exact docket/registry they want, or invite them to provide their preferred county court or registry link.\n"
             "   - Delivery: Daily 6:00 AM UTC pushes via Webhook (JSON POST to CRM/Make/Zapier), direct Google Sheets sync, or CSV dashboard exports.\n"
             "5. LENGTH: 2 to 4 concise, impactful sentences. Always end with an insightful, low-friction technical clarifying question when relevant."
         )
@@ -1479,21 +1481,36 @@ class LLMAgentEngine:
         
         logger.info(f"🏛️ [DYNAMIC PORTAL CLASSIFIER] Classifying target registry for {company_name} in {location} ({niche})")
         
-        # 1. Clean location & trade queries
+        # 1. Clean location & trade queries with deep docket discovery
         clean_loc = re.sub(r"[^a-zA-Z0-9,\s]", "", location).strip() or "Texas"
         clean_niche = re.sub(r"[^a-zA-Z0-9\s]", "", niche).strip() or "Commercial Permits"
-        search_query = f"{clean_loc} official {clean_niche} public records search online database portal"
-        portal_hits = search_web(search_query, max_results=4)
+        niche_lower = clean_niche.lower()
+        
+        if any(k in niche_lower for k in ["court", "legal", "litigation", "probate", "divorce", "eviction", "bankruptcy", "judgment"]):
+            search_query = f"{clean_loc} county court docket case search official records online portal"
+        elif any(k in niche_lower for k in ["permit", "construction", "roofing", "hvac", "electrical", "building", "plumbing"]):
+            search_query = f"{clean_loc} building permit search official records online portal"
+        elif any(k in niche_lower for k in ["property", "tax", "deed", "lien", "mortgage", "real estate", "appraisal"]):
+            search_query = f"{clean_loc} county clerk deed recorder tax assessment search official portal"
+        else:
+            search_query = f"{clean_loc} official {clean_niche} public records search online database portal"
+            
+        portal_hits = search_web(search_query, max_results=5)
         
         valid_portal_url = ""
         valid_portal_name = ""
         for h in portal_hits:
             u = h.get("url", "")
             t = h.get("title", "")
-            if any(k in u.lower() for k in [".gov", "county", "city", "clerk", "court", "portal", "records", "permits"]):
-                valid_portal_url = u
-                valid_portal_name = t
-                break
+            u_lower = u.lower()
+            if any(k in u_lower for k in [".gov", "county", "city", "clerk", "court", "portal", "records", "permits", "docket", "inquiry"]):
+                if any(deep in u_lower for deep in ["/search", "/docket", "/inquiry", "/records", "/permits", "/case", "/lookup", "/portal", "/public"]):
+                    valid_portal_url = u
+                    valid_portal_name = t
+                    break
+                elif not valid_portal_url:
+                    valid_portal_url = u
+                    valid_portal_name = t
         if not valid_portal_url and portal_hits:
             valid_portal_url = portal_hits[0].get("url", "")
             valid_portal_name = portal_hits[0].get("title", "")
@@ -1504,6 +1521,8 @@ class LLMAgentEngine:
             "determine the EXACT government agency, municipal department, or county court portal "
             "whose public filings they must manually inspect or pull records from every day. "
             "Do NOT restrict to pre-registered catalogs. Classify the authentic local portal anywhere in the country.\n"
+            "CRITICAL: `target_url` must be the specific deep-link search portal or docket lookup page "
+            "where filings can be queried and extracted daily, NOT a generic homepage.\n"
             "Return ONLY a valid JSON object matching this schema:\n"
             "{\n"
             "'portal_name': str,\n"

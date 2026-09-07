@@ -3,19 +3,37 @@ import { useNavigate } from 'react-router-dom';
 import { payDeposit } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 
-export default function EscrowCheckoutModal({ isOpen, onClose, slug, companyName, defaultEmail = '' }) {
+export default function EscrowCheckoutModal({ isOpen, onClose, slug, companyName, defaultEmail = '', defaultTargetUrl = '' }) {
   const navigate = useNavigate();
   const { showToast } = useToast();
 
   const [email, setEmail] = useState(defaultEmail || '');
   const [cardholder, setCardholder] = useState(companyName || '');
+  const [targetUrl, setTargetUrl] = useState(defaultTargetUrl || '');
   const [tosAgreed, setTosAgreed] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Keep target URL and email in sync if default props arrive
+  React.useEffect(() => {
+    if (defaultTargetUrl && !targetUrl) {
+      setTargetUrl(defaultTargetUrl);
+    }
+  }, [defaultTargetUrl]);
+
+  React.useEffect(() => {
+    if (defaultEmail && !email) {
+      setEmail(defaultEmail);
+    }
+  }, [defaultEmail]);
 
   if (!isOpen) return null;
 
   const handleCheckout = async (e) => {
     e.preventDefault();
+    if (!targetUrl || !targetUrl.trim()) {
+      showToast('Please confirm or enter your target public records / docket URL.', 'error');
+      return;
+    }
     if (!email) {
       showToast('Please enter your company email address.', 'error');
       return;
@@ -32,6 +50,7 @@ export default function EscrowCheckoutModal({ isOpen, onClose, slug, companyName
       const data = await payDeposit(slug, {
         email,
         cardholder,
+        targetUrl: targetUrl.trim(),
         paypalOrderId: `PAYID-${Date.now()}`,
       });
 
@@ -96,6 +115,42 @@ export default function EscrowCheckoutModal({ isOpen, onClose, slug, companyName
         </div>
 
         <form onSubmit={handleCheckout}>
+          {/* Target Public Records / Docket Source URL Verification */}
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(56, 189, 248, 0.08), rgba(99, 102, 241, 0.08))',
+            border: '1px solid rgba(56, 189, 248, 0.3)',
+            borderRadius: '8px',
+            padding: '14px',
+            marginBottom: '16px',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: 'var(--cyan)' }}>
+                🎯 Target Public Records / Docket URL
+              </label>
+              {targetUrl === defaultTargetUrl && targetUrl ? (
+                <span style={{ fontSize: '10px', background: 'rgba(16, 185, 129, 0.2)', color: 'var(--green)', padding: '2px 8px', borderRadius: '12px', fontWeight: 700 }}>
+                  ✓ Auto-Identified by Scout
+                </span>
+              ) : (
+                <span style={{ fontSize: '10px', background: 'rgba(56, 189, 248, 0.2)', color: 'var(--cyan)', padding: '2px 8px', borderRadius: '12px', fontWeight: 700 }}>
+                  ✏️ Custom Portal Specified
+                </span>
+              )}
+            </div>
+            <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px', lineHeight: 1.4 }}>
+              <b>Is this the exact docket or registry portal you want streamed?</b> Confirm this URL or paste your preferred county court, municipal permit, or licensing registry URL below.
+            </p>
+            <input
+              type="url"
+              required
+              className="form-input"
+              placeholder="https://records.county.gov/docket/search"
+              value={targetUrl}
+              onChange={(e) => setTargetUrl(e.target.value)}
+              style={{ fontSize: '12px', fontFamily: 'var(--mono)' }}
+            />
+          </div>
+
           <div style={{ marginBottom: '14px' }}>
             <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '6px', color: '#fff' }}>
               Company / Billing Email

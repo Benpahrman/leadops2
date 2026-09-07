@@ -99,6 +99,22 @@ export default function SandboxPage() {
                 >
                   🏛️ Official Registry: {new URL(sourceUrl).hostname} ↗
                 </a>
+                <button
+                  type="button"
+                  onClick={() => setIsCheckoutOpen(true)}
+                  className="badge-tag"
+                  style={{
+                    background: 'rgba(56, 189, 248, 0.12)',
+                    color: 'var(--cyan)',
+                    border: '1px solid rgba(56, 189, 248, 0.3)',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                  }}
+                  title="Confirm or change the target docket URL for your pipeline"
+                >
+                  🎯 Confirm / Edit Target Portal
+                </button>
               </div>
 
               <h1 style={{ fontSize: '28px', fontWeight: 800, color: '#fff', letterSpacing: '-0.5px' }}>
@@ -163,6 +179,7 @@ export default function SandboxPage() {
         slug={slug}
         companyName={companyName}
         defaultEmail={sandboxData?.lead?.contact_email || ''}
+        defaultTargetUrl={sourceUrl}
       />
     </main>
   );

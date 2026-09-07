@@ -50,7 +50,10 @@ class SafeConsoleStreamHandler(logging.StreamHandler):
             except UnicodeEncodeError:
                 safe_msg = msg.encode("ascii", errors="replace").decode("ascii")
                 stream.write(safe_msg + self.terminator)
-                self.flush()
+            except (ValueError, OSError):
+                pass
+        except (ValueError, OSError):
+            pass
         except Exception:
             self.handleError(record)
 
