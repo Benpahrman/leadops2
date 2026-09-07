@@ -114,6 +114,7 @@ def get_pipeline_kanban(
 
         return {
             "leads": all_leads,
+            "pipeline": all_leads,
             "kanban": kanban_res,
             "telemetry": admin_service.get_sandbox_telemetry(),
         }

@@ -77,6 +77,7 @@ class AdminMissionControlService:
             State.SOW_GENERATED: 5,
             State.CONVERSATIONAL_INTAKE: 4,
             State.OUTREACH_SENT: 3,
+            State.PITCH_PENDING_APPROVAL: 2.5,
             State.REVIEW: 2,
             State.PROSPECTING: 1,
             State.BLOCKED_NEEDS_REVIEW: 0,
@@ -84,14 +85,18 @@ class AdminMissionControlService:
 
         for lead in leads:
             comp_norm = (getattr(lead, "company_name", "") or lead.lead_id).lower().strip()
-            score = state_priority.get(lead.state, 1) + (10 if lead.deposit_paid else 0)
-            if comp_norm not in seen_companies or score > state_priority.get(seen_companies[comp_norm].state, 1) + (10 if seen_companies[comp_norm].deposit_paid else 0):
+            state_val = lead.state if isinstance(lead.state, State) else State(str(lead.state).replace("State.", "").strip()) if str(lead.state).replace("State.", "").strip() in State.__members__ else State.PROSPECTING
+            score = state_priority.get(state_val, 1) + (10 if lead.deposit_paid else 0)
+            seen_state = seen_companies[comp_norm].state if comp_norm in seen_companies else None
+            seen_state_val = seen_state if isinstance(seen_state, State) else State(str(seen_state).replace("State.", "").strip()) if str(seen_state).replace("State.", "").strip() in State.__members__ else State.PROSPECTING
+            if comp_norm not in seen_companies or score > state_priority.get(seen_state_val, 1) + (10 if seen_companies[comp_norm].deposit_paid else 0):
                 seen_companies[comp_norm] = lead
 
         unique_leads = list(seen_companies.values())
 
         for lead in unique_leads:
-            action_info = NEXT_ACTIONS_MAP.get(lead.state, {"label": "Advance", "target": None, "color": "accent"})
+            state_val = lead.state if isinstance(lead.state, State) else State(str(lead.state).replace("State.", "").strip()) if str(lead.state).replace("State.", "").strip() in State.__members__ else State.PROSPECTING
+            action_info = NEXT_ACTIONS_MAP.get(state_val, {"label": "Advance", "target": None, "color": "accent"})
             slug = getattr(lead, "slug", "") or lead.lead_id or "lead"
             company_name = getattr(lead, "company_name", "") or lead.lead_id.replace("lead-", "").replace("-", " ").title()
             raw_contact = (getattr(lead, "contact_name", "") or "").strip()
@@ -120,7 +125,7 @@ class AdminMissionControlService:
                     f"Would it be helpful to stream these daily, or are you all set in-house?\n\n"
                     f"Best,\nAlex | LeadOps"
                 ),
-                "state": lead.state.value,
+                "state": state_val.value,
                 "tier_name": getattr(lead.tier, "name", "Weekly Sync"),
                 "tier_key": getattr(lead, "tier_key", "weekly"),
                 "mrr": getattr(lead.tier, "price_cents", 25000) / 100,
@@ -133,8 +138,11 @@ class AdminMissionControlService:
                 "next_target_state": action_info["target"].value if action_info["target"] else None,
                 "action_color": action_info["color"],
             }
-            if lead.state.value in kanban:
-                kanban[lead.state.value].append(entry)
+            state_key = state_val.value
+            if state_key in kanban:
+                kanban[state_key].append(entry)
+            else:
+                kanban["PROSPECTING"].append(entry)
 
         return {
             "total_leads": len(unique_leads),

@@ -67,6 +67,9 @@ export default function AdminPage() {
 
       if (pipeData.status === 'fulfilled') {
         setPipeline(pipeData.value.leads || pipeData.value.pipeline || []);
+      } else {
+        console.warn('Pipeline fetch error:', pipeData.reason);
+        showToast(`Pipeline load error: ${pipeData.reason?.message || 'Authentication required'}`, 'error');
       }
       if (metricData.status === 'fulfilled') {
         setMetrics(metricData.value);
