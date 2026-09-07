@@ -13,7 +13,12 @@ SPA_INDEX_PATH = os.path.join(
 
 def render_react_spa(lead_data: dict | None = None, slug: str | None = None) -> str:
     """Returns compiled React Single Page App index.html with environment keys injected."""
-    paypal_client_id = os.environ.get("PAYPAL_CLIENT_ID") or DEFAULT_DEV_PAYPAL_ID
+    paypal_mode = os.environ.get("PAYPAL_MODE", "sandbox").lower()
+    paypal_client_id = (
+        (os.environ.get("PAYPAL_LIVE_CLIENT_ID") if paypal_mode == "live" else None)
+        or os.environ.get("PAYPAL_CLIENT_ID")
+        or DEFAULT_DEV_PAYPAL_ID
+    )
     clerk_pk = os.environ.get("CLERK_PUBLISHABLE_KEY") or DEFAULT_DEV_CLERK_PK
 
     if not os.path.exists(SPA_INDEX_PATH):

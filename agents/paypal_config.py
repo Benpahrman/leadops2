@@ -26,10 +26,19 @@ class PayPalSettings:
         mode = os.getenv("PAYPAL_MODE", "sandbox").lower()
         if mode not in {"sandbox", "live"}:
             raise ValueError("PAYPAL_MODE must be sandbox or live")
+        client_id = os.getenv("PAYPAL_CLIENT_ID", "")
+        client_secret = os.getenv("PAYPAL_CLIENT_SECRET", "")
+        webhook_id = os.getenv("PAYPAL_WEBHOOK_ID", "")
+
+        if mode == "live":
+            client_id = os.getenv("PAYPAL_LIVE_CLIENT_ID") or client_id
+            client_secret = os.getenv("PAYPAL_LIVE_CLIENT_SECRET") or client_secret
+            webhook_id = os.getenv("PAYPAL_LIVE_WEBHOOK_ID") or webhook_id
+
         values = {
-            "client_id": os.getenv("PAYPAL_CLIENT_ID", ""),
-            "client_secret": os.getenv("PAYPAL_CLIENT_SECRET", ""),
-            "webhook_id": os.getenv("PAYPAL_WEBHOOK_ID", ""),
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "webhook_id": webhook_id,
         }
         missing = [name for name, value in values.items() if not value]
         if missing:

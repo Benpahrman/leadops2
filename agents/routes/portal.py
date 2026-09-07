@@ -564,7 +564,11 @@ def request_checkout(
 ):
     try:
         checkout_info = portal_service.request_checkout(slug)
-        client_id = os.environ.get("PAYPAL_CLIENT_ID", "")
+        paypal_mode = os.environ.get("PAYPAL_MODE", "sandbox").lower()
+        client_id = (
+            (os.environ.get("PAYPAL_LIVE_CLIENT_ID") if paypal_mode == "live" else None)
+            or os.environ.get("PAYPAL_CLIENT_ID", "")
+        )
         return {**checkout_info, "paypal_client_id": client_id}
     except (KeyError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -761,7 +765,11 @@ def get_final_checkout(
     """Returns final milestone (Payment #2) checkout payload."""
     try:
         checkout_info = portal_service.request_final_checkout(slug)
-        client_id = os.environ.get("PAYPAL_CLIENT_ID", "mock_paypal_client_id")
+        paypal_mode = os.environ.get("PAYPAL_MODE", "sandbox").lower()
+        client_id = (
+            (os.environ.get("PAYPAL_LIVE_CLIENT_ID") if paypal_mode == "live" else None)
+            or os.environ.get("PAYPAL_CLIENT_ID", "")
+        )
         return {**checkout_info, "paypal_client_id": client_id}
     except (KeyError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
