@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth, useUser, SignIn } from '@clerk/clerk-react';
 import {
   fetchAdminPipeline,
   fetchAdminMetrics,
@@ -23,12 +23,30 @@ import {
 import { useToast } from '../context/ToastContext';
 
 export default function AdminPage() {
-  const { getToken } = useAuth();
+  const { isLoaded, isSignedIn, getToken } = useAuth();
+  const { user } = useUser();
   const { showToast } = useToast();
+
+  const [masterAuth, setMasterAuth] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const k = urlParams.get('key') || urlParams.get('token') || urlParams.get('admin_key');
+        if (k) {
+          localStorage.setItem('leadops_admin_token', k);
+          return true;
+        }
+        return !!localStorage.getItem('leadops_admin_token');
+      } catch (e) {
+        return false;
+      }
+    }
+    return false;
+  });
 
   const resolveToken = async () => {
     try {
-      if (getToken) {
+      if (isSignedIn && getToken) {
         const t = await getToken();
         if (t) return t;
       }
@@ -131,10 +149,12 @@ export default function AdminPage() {
   };
 
   useEffect(() => {
-    loadAdminData();
-    const interval = setInterval(loadAdminData, 20000);
-    return () => clearInterval(interval);
-  }, []);
+    if (isSignedIn || masterAuth) {
+      loadAdminData();
+      const interval = setInterval(loadAdminData, 20000);
+      return () => clearInterval(interval);
+    }
+  }, [isSignedIn, masterAuth]);
 
   // Filtered Leads
   const filteredLeads = useMemo(() => {
@@ -372,6 +392,60 @@ export default function AdminPage() {
       }, 0);
   }, [pipeline]);
 
+  // Authentication Gate
+  if (isLoaded && !isSignedIn && !masterAuth) {
+    return (
+      <main style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '50px 16px' }}>
+        <div style={{ maxWidth: '440px', width: '100%', textAlign: 'center' }}>
+          <div style={{ marginBottom: '24px' }}>
+            <div style={{ fontSize: '42px', marginBottom: '8px' }}>⚡</div>
+            <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#fff', letterSpacing: '-0.5px', marginBottom: '8px' }}>
+              LeadOps Mission Control
+            </h1>
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+              Sign in with your administrator account to access live lead streams, dev swarms, and daily automated delivery.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '24px' }}>
+            <SignIn routing="hash" />
+          </div>
+
+          <div style={{ padding: '20px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', textAlign: 'left' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <span style={{ color: 'var(--cyan)', fontWeight: 700, fontSize: '13px' }}>⚡ Founder Direct Access</span>
+              <span className="badge-tag badge-purple" style={{ fontSize: '10px' }}>BYPASS</span>
+            </div>
+            <p style={{ fontSize: '12px', color: 'var(--text-dim)', marginBottom: '14px' }}>
+              Unlock directly with your master operational token:
+            </p>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="password"
+                id="founderPasscodeInput"
+                placeholder="Enter Master Token"
+                defaultValue={localStorage.getItem('leadops_admin_token') || '0baac74dfda043fdaf84c5d0b38e259b'}
+                style={{ flex: 1, padding: '9px 12px', background: '#070d18', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', color: '#fff', fontSize: '12px', fontFamily: 'var(--mono)' }}
+              />
+              <button
+                className="btn btn-primary"
+                style={{ padding: '9px 18px', fontSize: '12px', whiteSpace: 'nowrap' }}
+                onClick={() => {
+                  const val = document.getElementById('founderPasscodeInput')?.value || '0baac74dfda043fdaf84c5d0b38e259b';
+                  localStorage.setItem('leadops_admin_token', val.trim());
+                  setMasterAuth(true);
+                  showToast('Founder Master Access Activated!', 'success');
+                }}
+              >
+                Unlock ➔
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main style={{ padding: '36px 0 90px' }}>
       <div className="container">
@@ -393,7 +467,22 @@ export default function AdminPage() {
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-dim)', marginRight: '6px' }}>
+              {user?.primaryEmailAddress?.emailAddress ? `👤 ${user.primaryEmailAddress.emailAddress}` : '⚡ Founder Key Active'}
+            </span>
+            {masterAuth && !isSignedIn && (
+              <button
+                className="btn btn-outline"
+                style={{ fontSize: '11px', padding: '6px 12px' }}
+                onClick={() => {
+                  localStorage.removeItem('leadops_admin_token');
+                  setMasterAuth(false);
+                }}
+              >
+                Lock Console
+              </button>
+            )}
             <button
               className="btn btn-outline"
               style={{
