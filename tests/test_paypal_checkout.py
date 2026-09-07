@@ -78,6 +78,45 @@ class PayPalCheckoutTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             checkout.create_final_order(lead)
 
+    def test_creates_deposit_order_with_vault_attributes(self):
+        client = Client()
+        lead = Lead("lead-vault-setup", "weekly", state=State.SOW_GENERATED)
+
+        result = PayPalCheckout(client, "id", "secret").create_setup_order(lead)
+
+        self.assertEqual(result["order_id"], "ORDER-123")
+        payload = client.calls[-1][1]["json"]
+        self.assertIn("payment_source", payload)
+        self.assertIn("paypal", payload["payment_source"])
+        vault_config = payload["payment_source"]["paypal"]["attributes"]["vault"]
+        self.assertEqual(vault_config["store_in_vault"], "ON_SUCCESS")
+        self.assertEqual(vault_config["usage_type"], "MERCHANT")
+
+    def test_capture_final_milestone_vault_success(self):
+        client = Client()
+        lead = Lead("lead-vault-final", "daily", state=State.ESCROW_PREVIEW, paypal_vault_id="TOKEN-VAULT-999")
+
+        checkout = PayPalCheckout(client, "id", "secret")
+        result = checkout.capture_final_milestone_vault(lead)
+
+        self.assertEqual(result["purpose"], "final_vault_captured")
+        self.assertEqual(result["order_id"], "ORDER-123")
+        payload = client.calls[-1][1]["json"]
+        self.assertIn("payment_source", payload)
+        self.assertEqual(payload["payment_source"]["token"]["id"], "TOKEN-VAULT-999")
+        self.assertEqual(payload["payment_source"]["token"]["type"], "PAYMENT_METHOD_TOKEN")
+        self.assertEqual(payload["purchase_units"][0]["amount"]["value"], "250.00")
+
+    def test_capture_final_milestone_vault_fallback_when_no_token(self):
+        client = Client()
+        lead = Lead("lead-no-vault", "weekly", state=State.ESCROW_PREVIEW, paypal_vault_id="")
+
+        checkout = PayPalCheckout(client, "id", "secret")
+        result = checkout.capture_final_milestone_vault(lead)
+
+        self.assertEqual(result["purpose"], "final")
+        self.assertEqual(result["order_id"], "ORDER-123")
+
 
 if __name__ == "__main__":
     unittest.main()

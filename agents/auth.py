@@ -395,3 +395,25 @@ def require_admin(user: ClerkUser | None = Depends(get_current_user_optional)) -
     return user
 
 
+def generate_mobile_action_token(action: str, target_id: str = "") -> str:
+    """Generate HMAC-SHA256 token for 1-click mobile operator approvals from phone notifications."""
+    import hashlib
+    import hmac
+    secret = os.environ.get("LEADOPS_API_TOKEN", "leadops_founder_secure_action_secret")
+    msg = f"{action}:{target_id}".encode("utf-8")
+    return hmac.new(secret.encode("utf-8"), msg, hashlib.sha256).hexdigest()[:24]
+
+
+def verify_mobile_action_token(token: str, action: str, target_id: str = "") -> bool:
+    """Verify that a mobile 1-click action token is valid."""
+    import hmac
+    if not token:
+        return False
+    master_key = os.environ.get("LEADOPS_API_TOKEN", "")
+    if master_key and token == master_key:
+        return True
+    expected = generate_mobile_action_token(action, target_id)
+    return hmac.compare_digest(token, expected)
+
+
+

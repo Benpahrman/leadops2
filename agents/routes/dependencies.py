@@ -37,6 +37,9 @@ def get_configured_token(request: Request) -> str:
 def get_llm_engine(request: Request) -> LLMAgentEngine:
     return request.app.state.llm_engine
 
+def get_inbound_watcher(request: Request):
+    return getattr(request.app.state, "inbound_email_watcher", None)
+
 def check_dashboard_access(lead_id_or_slug: str, user: ClerkUser | None, storage_backend) -> None:
     if user and (
         getattr(user, "is_admin", False)

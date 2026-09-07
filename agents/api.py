@@ -32,7 +32,12 @@ async def lifespan(app: FastAPI):
     scout_supervisor = getattr(app.state, "scout_supervisor", None)
     if scout_supervisor:
         scout_supervisor.start()
+    inbound_watcher = getattr(app.state, "inbound_email_watcher", None)
+    if inbound_watcher and os.environ.get("INBOUND_WATCHER_ENABLED", "true").lower() == "true":
+        inbound_watcher.start()
     yield
+    if inbound_watcher:
+        await inbound_watcher.stop()
     if scout_supervisor:
         await scout_supervisor.stop()
     # Gracefully close all active WebSockets on server shutdown
@@ -40,6 +45,7 @@ async def lifespan(app: FastAPI):
         await progress_manager.close_all()
     except Exception as e:
         logger.warning(f"WebSocket shutdown notice: {e}")
+
 
 
 def create_app(
@@ -106,6 +112,21 @@ def create_app(
         enabled=os.environ.get("SCOUT_AUTOMATION_ENABLED", "true").lower() == "true",
     )
 
+    # Native Email Subsystem & Inbound Watcher
+    from .email.config import EmailSettings
+    from .email.client import EmailClient
+    from .email.warmup import WarmupManager
+    from .email.inbound_watcher import InboundEmailWatcher
+
+    email_settings = EmailSettings.from_environment()
+    email_client = EmailClient(settings=email_settings)
+    warmup_manager = WarmupManager(settings=email_settings, storage_backend=storage_backend)
+    inbound_email_watcher = InboundEmailWatcher(
+        email_client=email_client,
+        storage_backend=storage_backend,
+        settings=email_settings,
+    )
+
     # Attach services to app.state so routes can access them
     app.state.storage_backend = storage_backend
     app.state.portal_service = portal_service
@@ -116,9 +137,14 @@ def create_app(
     app.state.configured_token = configured_token
     app.state.llm_engine = llm_engine
     app.state.scout_supervisor = scout_supervisor
+    app.state.email_settings = email_settings
+    app.state.email_client = email_client
+    app.state.warmup_manager = warmup_manager
+    app.state.inbound_email_watcher = inbound_email_watcher
 
     # Bootstrap default demo lead
     bootstrap_demo_lead(storage_backend, portal_service)
+
 
     # Register decoupled routes
     app.include_router(portal.router)
@@ -129,6 +155,11 @@ def create_app(
     app.include_router(payments.router)
     app.include_router(system.router)
     app.include_router(websocket.router)
+
+    # Mount compiled React SPA static assets (/assets/...)
+    dist_assets_dir = Path(__file__).parent.parent / "frontend" / "dist" / "assets"
+    if dist_assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(dist_assets_dir)), name="react-assets")
 
     # Mount static assets (shared CSS, favicon, client scripts)
     static_dir = Path(__file__).parent / "static"

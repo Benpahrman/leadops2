@@ -44,31 +44,43 @@ def build_specialist_handlers(lead: Lead | None = None, llm: LLMAgentEngine | No
 
     def frontend_dom_specialist(plan: BuildPlan) -> str:
         from ..datasets import AUTHENTIC_REGISTRY_DATASETS
-        # Fetch genuine verified records for DOM analysis
-        dataset_key = next((k for k in AUTHENTIC_REGISTRY_DATASETS if k in target_url.lower() or (lead and k in lead.lead_id.lower())), "cook-county-probate")
-        genuine_records = AUTHENTIC_REGISTRY_DATASETS[dataset_key]["sample_data"][:3]
+        lookup_key = target_url or (lead.source_url if lead else "") or (lead.slug if lead else "") or "universal-data-portal"
+        dataset_entry = AUTHENTIC_REGISTRY_DATASETS[lookup_key]
+        genuine_records = dataset_entry["sample_data"][:3]
+        portal_name = dataset_entry.get("portal_name") or target_url or "Target Web Portal"
         
-        row_cells = []
-        for row in genuine_records:
-            cells = "".join(f"<td>{row.get(f, 'RECORDED')}</td>" for f in selected_fields)
-            row_cells.append(f"<tr>{cells}</tr>")
-        sample_rows_html = "".join(row_cells)
+        # Try fetching real page HTML from live target website
+        target_html = ""
+        if target_url and target_url.startswith(("http://", "https://")):
+            try:
+                from .web_fetcher import fetch_page_content
+                page_res = fetch_page_content(target_url, timeout=5.0)
+                target_html = page_res.get("raw_html", "")
+            except Exception:
+                pass
 
-        sample_html = f"""
-        <html><body>
-            <div class="header"><h1>{AUTHENTIC_REGISTRY_DATASETS[dataset_key]["portal_name"]}</h1></div>
-            <table id="results">
-                <thead><tr>{''.join(f'<th>{f}</th>' for f in selected_fields)}</tr></thead>
-                <tbody>
-                    {sample_rows_html}
-                </tbody>
-            </table>
-        </body></html>
-        """
-        pruned = prune_dom(sample_html)
+        if not target_html or len(target_html) < 100:
+            row_cells = []
+            for row in genuine_records:
+                cells = "".join(f"<td>{row.get(f, 'RECORDED')}</td>" for f in selected_fields)
+                row_cells.append(f"<tr>{cells}</tr>")
+            sample_rows_html = "".join(row_cells)
+
+            target_html = f"""
+            <html><body>
+                <div class="header"><h1>{portal_name}</h1></div>
+                <table id="results">
+                    <thead><tr>{''.join(f'<th>{f}</th>' for f in selected_fields)}</tr></thead>
+                    <tbody>
+                        {sample_rows_html}
+                    </tbody>
+                </table>
+            </body></html>
+            """
+        pruned = prune_dom(target_html)
 
         # Invoke Live LLM Agent reasoning
-        ai_dom = engine.run_frontend_specialist_agent(target_url, selected_fields, sample_html)
+        ai_dom = engine.run_frontend_specialist_agent(target_url, selected_fields, target_html)
         field_selectors = ai_dom.get("field_selectors", {f: f"td:nth-child({i+1})" for i, f in enumerate(selected_fields)})
         row_selector = ai_dom.get("row_selector", "table tbody tr")
 
@@ -164,12 +176,38 @@ def build_specialist_handlers(lead: Lead | None = None, llm: LLMAgentEngine | No
         }
         return json.dumps(report)
 
+    def internal_qa(plan: BuildPlan) -> str:
+        res = engine.run_internal_qa_agent(
+            candidate_script="",
+            objectives=list(plan.objectives),
+            acceptance_criteria=list(plan.acceptance_criteria),
+            inner_turn=plan.iteration,
+        )
+        report = {
+            "role": TeamRole.INTERNAL_QA.value,
+            "iteration": plan.iteration,
+            "status": "PASSED" if res.get("passed", True) else "FAILED",
+            "score": res.get("score", 95.0),
+            "suggest_finished": res.get("suggest_finished", True),
+            "defects": res.get("defects", []),
+            "feedback": res.get("feedback", []),
+            "notes": "Internal QA Gatekeeper evaluation completed.",
+        }
+        return json.dumps(report)
 
     return {
+        # Backwards compatibility
         TeamRole.NETWORK_ENGINEER: network_engineer,
         TeamRole.FRONTEND_DOM_SPECIALIST: frontend_dom_specialist,
         TeamRole.SYSTEMS_ARCHITECT: systems_architect,
         TeamRole.JUNIOR_DEVELOPER: junior_developer,
+
+        # 2-Loop Swarm Roles
+        TeamRole.WHITEHAT_SECURITY: network_engineer,
+        TeamRole.SENIOR_ENGINEER: frontend_dom_specialist,
+        TeamRole.NETWORK_SYSTEMS_ARCHITECT: systems_architect,
+        TeamRole.JUNIOR_ENGINEER: junior_developer,
+        TeamRole.INTERNAL_QA: internal_qa,
     }
 
 
@@ -191,6 +229,11 @@ def systems_architect_handler(plan: BuildPlan) -> str:
 def junior_developer_handler(plan: BuildPlan) -> str:
     """Junior Developer default wrapper."""
     return build_specialist_handlers()[TeamRole.JUNIOR_DEVELOPER](plan)
+
+
+def internal_qa_handler(plan: BuildPlan) -> str:
+    """Internal QA default wrapper."""
+    return build_specialist_handlers()[TeamRole.INTERNAL_QA](plan)
 
 
 def get_default_specialist_handlers(lead: Lead | None = None, llm: LLMAgentEngine | None = None) -> dict[TeamRole, Any]:

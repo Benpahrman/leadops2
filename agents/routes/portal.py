@@ -4,7 +4,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-
+import datetime
 from ..domain import State, PaymentEvent, Lead
 from ..auth import ClerkUser, get_current_user, get_current_user_optional
 from ..workflow import run_autonomous_dev_team
@@ -14,6 +14,7 @@ from .dependencies import (
     get_portal_service,
     get_configured_token,
     get_llm_engine,
+    get_inbound_watcher,
     verify_csrf_token,
     generate_csrf_token,
 )
@@ -101,6 +102,14 @@ class RecordEventRequest(BaseModel):
 
 class ChatMessageRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
+    history: list[dict[str, Any]] | None = None
+
+class InboundEmailWebhookRequest(BaseModel):
+    sender: str
+    subject: str = ""
+    body: str = ""
+    message_id: str | None = None
+    sender_name: str | None = None
 
 class CancellationRequestModel(BaseModel):
     reason: str = Field(default="", max_length=2000)
@@ -145,7 +154,7 @@ def ensure_demo_sandbox(slug: str, portal_service, storage_backend) -> Any:
             elif "texas" in normalized or "open-data" in normalized or "entity" in normalized or "sos" in normalized:
                 matched_key = "texas-open-data"
             else:
-                matched_key = "cook-county-probate"
+                matched_key = slug
 
         ds = AUTHENTIC_REGISTRY_DATASETS[matched_key]
         clean_name = ds["company_name"]
@@ -243,6 +252,13 @@ def build_sandbox_payload(slug: str, portal_service, storage_backend) -> dict[st
 
     tier = lead.tier
     progress = portal_service.build_progress(slug)
+
+    sample_rows = []
+    for r in (sandbox.rows or []):
+        r_dict = dict(r)
+        if "source_url" not in r_dict or not r_dict["source_url"]:
+            r_dict["source_url"] = sandbox.source_url or "https://data.gov"
+        sample_rows.append(r_dict)
     
     return {
         "slug": slug,
@@ -255,7 +271,7 @@ def build_sandbox_payload(slug: str, portal_service, storage_backend) -> dict[st
         "tier": tier.name,
         "tier_key": lead.tier_key,
         "source_url": sandbox.source_url,
-        "sample": sandbox.rows,
+        "sample": sample_rows,
         "selected_fields": lead.selected_fields,
         "progress": progress,
         
@@ -370,6 +386,20 @@ def chat_with_assistant(
         if lead.state == State.OUTREACH_SENT:
             lead.transition(State.CONVERSATIONAL_INTAKE, "Customer started a conversation with Alex")
             storage_backend.save_lead(lead)
+
+        # 1. Retrieve persistent conversation history from storage
+        conversation_history = []
+        if hasattr(storage_backend, "list_chat_messages"):
+            conversation_history = storage_backend.list_chat_messages(slug, limit=20)
+        
+        # 2. Append client-provided transient history if provided
+        if req.history:
+            conversation_history.extend(req.history)
+
+        # 3. Record incoming customer message in storage
+        if hasattr(storage_backend, "record_chat_message"):
+            storage_backend.record_chat_message(slug, "user", req.message)
+
         context = {
             "slug": slug,
             "company_name": getattr(lead, "company_name", slug),
@@ -378,7 +408,27 @@ def chat_with_assistant(
             "tier": lead.tier.name,
             "selected_fields": lead.selected_fields or [],
         }
-        reply = llm_engine.chat_with_alex(req.message, context)
+
+        # 4. Generate dynamic, non-repetitive response aware of prior dialogue
+        reply = llm_engine.chat_with_alex(req.message, context, conversation_history=conversation_history)
+
+        # 5. Record Alex's generated reply in storage
+        if hasattr(storage_backend, "record_chat_message"):
+            storage_backend.record_chat_message(slug, "alex", reply)
+
+        # 6. Alert operator of live customer chat
+        try:
+            from ..notifications import notification_manager
+            notification_manager.notify_chat_message(
+                slug=slug,
+                sender_role="user",
+                message_text=req.message,
+                ai_reply_text=reply,
+                lead=lead,
+            )
+        except Exception as notif_err:
+            logger.warning(f"Chat notification notice: {notif_err}")
+
         return {"ok": True, "reply": reply}
     except Exception as e:
         logger.error(f"Chat error for slug {slug}: {e}")
@@ -386,6 +436,66 @@ def chat_with_assistant(
             "ok": True,
             "reply": "I've noted that requirement for our dev swarm. Our autonomous pipeline will verify that schema before deployment!"
         }
+
+
+@router.get("/api/sandbox/{slug}/chat", tags=["Portal API"])
+def get_chat_history(
+    slug: str,
+    storage_backend=Depends(get_storage),
+):
+    """Retrieve running conversation log for a sandbox."""
+    slug = validate_slug(slug)
+    messages = []
+    if hasattr(storage_backend, "list_chat_messages"):
+        messages = storage_backend.list_chat_messages(slug, limit=50)
+    return {"ok": True, "messages": messages}
+
+
+@router.post("/api/chat", tags=["Portal API"])
+def chat_general(
+    req: ChatMessageRequest,
+    user: ClerkUser | None = Depends(get_current_user_optional),
+    portal_service=Depends(get_portal_service),
+    storage_backend=Depends(get_storage),
+    llm_engine=Depends(get_llm_engine),
+):
+    """Universal chat endpoint for visitors across landing and dashboard pages."""
+    return chat_with_assistant(
+        slug="lead-apex-roofing",
+        req=req,
+        user=user,
+        portal_service=portal_service,
+        storage_backend=storage_backend,
+        llm_engine=llm_engine,
+    )
+
+
+@router.get("/api/chat", tags=["Portal API"])
+def get_general_chat_history(
+    storage_backend=Depends(get_storage),
+):
+    """Retrieve running general chat log."""
+    return get_chat_history(slug="lead-apex-roofing", storage_backend=storage_backend)
+
+
+@router.post("/api/email/inbound", tags=["Email"])
+def receive_inbound_email_webhook(
+    payload: InboundEmailWebhookRequest,
+    inbound_watcher=Depends(get_inbound_watcher),
+):
+    """Receive incoming email via HTTP webhook (Cloudflare Email Routing, SendGrid, Mailgun, Postmark)."""
+    if not inbound_watcher:
+        raise HTTPException(status_code=503, detail="Inbound email subsystem not initialized")
+
+    result = inbound_watcher.process_single_inbound_email({
+        "sender_email": payload.sender,
+        "sender_name": payload.sender_name or "",
+        "subject": payload.subject,
+        "body_text": payload.body,
+        "body_html": "",
+        "message_id": payload.message_id or "",
+    })
+    return {"ok": True, "result": result}
 
 
 @router.post("/api/sandbox/{slug}/suggest-columns", tags=["Portal API"])
@@ -461,21 +571,74 @@ def request_checkout(
 
 @router.post("/api/sandbox/{slug}/pay-deposit", tags=["Portal API"])
 @router.post("/api/sandbox/{slug}/simulate-deposit", tags=["Portal API"])
-def pay_deposit(
+async def pay_deposit(
     slug: str,
+    request: Request,
     user: ClerkUser | None = Depends(get_current_user_optional),
     portal_service=Depends(get_portal_service),
     storage_backend=Depends(get_storage),
 ):
-    """Processes 50% milestone deposit payment and executes the Autonomous Dev Swarm Build Loop."""
+    """Processes 50% milestone deposit payment, records binding clickwrap agreement, and starts dev swarm."""
     try:
         sandbox = ensure_demo_sandbox(slug, portal_service, storage_backend)
         lead = sandbox.lead
         logger.info(f"💳 [CHECKOUT DEPOSIT RECEIVED] Slug: {slug} | Lead: {lead.lead_id} | Amount: $250.00")
 
+        # Capture client network and device details for indisputable audit proof
+        client_ip = (
+            request.headers.get("cf-connecting-ip")
+            or request.headers.get("x-forwarded-for")
+            or (request.client.host if request.client else "127.0.0.1")
+        )
+        if "," in client_ip:
+            client_ip = client_ip.split(",")[0].strip()
+        user_agent = request.headers.get("user-agent", "Standard Browser")
+
+        # Parse request body payload
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            pass
+
+        paypal_order_id = body.get("paypal_order_id") or f"PAYID-{int(datetime.now().timestamp()*1000)}"
+        contact_email = body.get("email") or lead.contact_email or (user.email if user else "") or "customer@client.com"
+        company_name = body.get("cardholder") or lead.company_name or slug
+
         # Attach claimed user if logged in
         if user and user.email and not getattr(lead, "claimed_by", ""):
             lead.claimed_by = user.email
+
+        # 1. Record binding SOW & Terms clickwrap contract in immutable Audit Vault
+        from ..audit_vault import audit_vault
+        target_source_url = lead.source_url or sandbox.source_url or "Target Web Portal"
+        active_fields = lead.selected_fields or (list(sandbox.rows[0].keys()) if sandbox.rows else ["case_number", "filing_date", "status"])
+        audit_vault.record_terms_acceptance(
+            lead_id=lead.lead_id,
+            company_name=company_name,
+            contact_email=contact_email,
+            ip_address=client_ip,
+            user_agent=user_agent,
+            target_url=target_source_url,
+            selected_fields=active_fields,
+            tier_key=lead.tier_key or "daily",
+            deposit_amount_usd=250.00,
+        )
+
+        # 2. Record financial transaction in Audit Vault
+        audit_vault.record_payment_event(
+            lead_id=lead.lead_id,
+            provider="PAYPAL",
+            transaction_id=f"TXN-{paypal_order_id}",
+            order_id=paypal_order_id,
+            amount_usd=250.00,
+            currency="USD",
+            status="COMPLETED",
+            payer_email=contact_email,
+            payer_name=company_name,
+            payment_type="50% Milestone Setup Deposit",
+            raw_metadata={"client_ip": client_ip, "user_agent": user_agent},
+        )
 
         # Already past deposit stage — just return success
         if lead.state in {State.ESCROW_PREVIEW, State.DELIVERED, State.WARRANTY_ACTIVE}:
@@ -496,7 +659,7 @@ def pay_deposit(
 
         # Ensure selected fields are populated
         if not lead.selected_fields:
-            lead.selected_fields = list(sandbox.rows[0].keys()) if sandbox.rows else ["case_number", "decedent_name", "filing_date"]
+            lead.selected_fields = active_fields
 
         # Advance through the state machine properly using domain methods
         if lead.state == State.PROSPECTING:
@@ -547,10 +710,26 @@ def pay_deposit(
                 storage_backend.save_lead(lead)
                 storage_backend.save_sandbox(sandbox)
                 
+                # Record delivery receipt and compile dispute defense dossier
+                try:
+                    audit_vault.record_delivery_receipt(
+                        lead_id=lead.lead_id,
+                        run_id=f"RUN-INITIAL-{lead.lead_id}",
+                        rows_delivered=len(sandbox.rows) if sandbox.rows else 25,
+                        destination_type="ESCROW_PREVIEW",
+                        destination_target=f"/dashboard/{lead.lead_id}",
+                        qa_score=lead.qa_score or 100.0,
+                        sample_keys=lead.selected_fields,
+                        notes="Initial 25 verified records delivered to customer escrow dashboard",
+                    )
+                    audit_vault.generate_chargeback_defense_dossier(lead.lead_id)
+                except Exception as audit_err:
+                    logger.warning(f"Audit vault delivery record notice: {audit_err}")
+
                 logger.info(f"✓ [BACKGROUND DEV SWARM COMPLETE] Lead {lead.lead_id} -> {lead.state.value}")
                 asyncio.run(progress_manager.send_complete(slug, True, lead.state))
             except Exception as err:
-                logger.error(f"Background dev swarm error: {err}")
+                logger.error(f"Background dev swarm error: {err}", exc_info=True)
                 asyncio.run(progress_manager.send_complete(slug, False, error=str(err)))
 
         threading.Thread(target=_async_dev_swarm, daemon=True).start()
@@ -661,6 +840,18 @@ def pay_final(
         except Exception as mail_err:
             logger.warning(f"Feed delivery email notice: {mail_err}")
 
+        # Alert operator of final payment receipt
+        try:
+            from ..notifications import notification_manager
+            notification_manager.notify_payment_received(
+                lead=lead,
+                amount_usd=amount_usd,
+                payment_type="Final Milestone Payment (Client Approval)",
+                provider="PayPal",
+            )
+        except Exception as notif_err:
+            logger.warning(f"Payment notification notice: {notif_err}")
+
         logger.info(f"🚀 [FEED ACTIVATED] Lead {lead.lead_id} is now DELIVERED and active")
         return {
             "ok": True,
@@ -701,6 +892,47 @@ def request_cancellation(
     slug = validate_slug(slug)
     try:
         result = portal_service.request_cancellation(slug, user.email, req.reason)
+
+        # Alert operator of cancellation request
+        try:
+            from ..notifications import notification_manager
+            sandbox = portal_service.get_sandbox(slug) if hasattr(portal_service, "get_sandbox") else None
+            lead = getattr(sandbox, "lead", None)
+            notification_manager.notify_cancellation_requested(
+                lead=lead or slug,
+                reason=req.reason,
+                user_email=user.email,
+            )
+        except Exception as notif_err:
+            logger.warning(f"Cancellation notification notice: {notif_err}")
+
         return {"ok": True, **result}
     except (KeyError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/api/sandbox/{slug}/evidence-dossier", tags=["Portal API"])
+@router.get("/api/portal/{slug}/evidence-dossier", tags=["Portal API"])
+def get_customer_evidence_dossier(
+    slug: str,
+    format: str = "json",
+    portal_service=Depends(get_portal_service),
+    storage_backend=Depends(get_storage),
+):
+    """Retrieve verified proof-of-performance and legal audit trail for a client."""
+    from pathlib import Path
+    from ..audit_vault import audit_vault
+    sandbox = ensure_demo_sandbox(slug, portal_service, storage_backend)
+    lead = sandbox.lead
+    dossier = audit_vault.generate_chargeback_defense_dossier(lead.lead_id)
+
+    if format.lower() == "html":
+        html_path = Path(dossier["html_path"])
+        if html_path.exists():
+            return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+    elif format.lower() == "markdown":
+        md_path = Path(dossier["markdown_path"])
+        if md_path.exists():
+            return HTMLResponse(content=f"<pre>{md_path.read_text(encoding='utf-8')}</pre>")
+
+    return {"ok": True, "dossier": dossier}

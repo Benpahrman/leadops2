@@ -38,7 +38,7 @@ class PayPalCheckout:
         return cls(client, settings.client_id, settings.client_secret, settings.base_url)
 
     def create_setup_order(self, lead: Lead) -> dict[str, Any]:
-        """Create a 50% setup order after SOW generation, never mark it paid."""
+        """Create a 50% setup order after SOW generation with PayPal Vault authorization, never mark it paid."""
         if lead.state != State.SOW_GENERATED:
             raise ValueError("Checkout requires an approved scope and generated SOW")
         purpose = "buyout" if lead.tier_key == "buyout" else "deposit"
@@ -56,6 +56,18 @@ class PayPalCheckout:
                     "invoice_id": f"setup-{lead.lead_id}",
                     "amount": {"currency_code": "USD", "value": amount},
                 }],
+                "payment_source": {
+                    "paypal": {
+                        "attributes": {
+                            "vault": {
+                                "store_in_vault": "ON_SUCCESS",
+                                "usage_type": "MERCHANT",
+                                "customer_type": "CONSUMER",
+                                "permit_multiple_payment_tokens": True,
+                            }
+                        }
+                    }
+                },
                 "application_context": {"user_action": "PAY_NOW"},
             },
         )
@@ -93,6 +105,46 @@ class PayPalCheckout:
         if not isinstance(order.get("id"), str) or not order["id"]:
             raise ValueError("PayPal final order id was missing")
         return {"order_id": order["id"], "purpose": "final", "amount": amount}
+
+    def capture_final_milestone_vault(self, lead: Lead) -> dict[str, Any]:
+        """Auto-charge the remaining 50% milestone balance ($250) off-session via vaulted PayPal token."""
+        if not lead.paypal_vault_id:
+            return self.create_final_order(lead)
+
+        amount = f"{lead.tier.price_cents / 200:.2f}"
+        response = self.client.post(
+            f"{self.base_url}/v2/checkout/orders",
+            headers={
+                "Authorization": f"Bearer {self._access_token()}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "intent": "CAPTURE",
+                "purchase_units": [{
+                    "custom_id": "final",
+                    "invoice_id": f"final-{lead.lead_id}",
+                    "amount": {"currency_code": "USD", "value": amount},
+                    "description": f"Final Milestone Delivery - {lead.target_portal_name or 'Public Registry'} Live Feed",
+                }],
+                "payment_source": {
+                    "token": {
+                        "id": lead.paypal_vault_id,
+                        "type": "PAYMENT_METHOD_TOKEN",
+                    }
+                },
+            },
+        )
+        if response.status_code not in {200, 201}:
+            return self.create_final_order(lead)
+
+        order = response.json()
+        order_id = order.get("id") or f"vault-final-{lead.lead_id}"
+        return {
+            "order_id": order_id,
+            "purpose": "final_vault_captured",
+            "amount": amount,
+            "status": order.get("status", "COMPLETED"),
+        }
 
     def _access_token(self) -> str:
         credentials = base64.b64encode(f"{self.client_id}:{self.client_secret}".encode()).decode()

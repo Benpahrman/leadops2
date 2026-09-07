@@ -1,7 +1,9 @@
 """Autonomous background Scout discovery runner for continuous lead prospecting."""
 
 import asyncio
+import os
 import random
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -193,7 +195,7 @@ class ScoutBackgroundWorker:
             for l in existing_leads
         }
         existing_domains = {
-            getattr(l, "website", "").lower().replace("https://", "").replace("http://", "").replace("www.", "").strip("/ ")
+            getattr(l, "website", "").lower().replace("https://", "").replace("http://", "").replace("www.", "").strip("/ ").split("/")[0]
             for l in existing_leads
             if getattr(l, "website", "")
         }
@@ -309,6 +311,11 @@ class ScoutBackgroundWorker:
         if discovered_name.lower().strip() in existing_companies:
             domain_part = company_website.split("//")[-1].split("/")[0].replace("www.", "").split(".")[0]
             discovered_name = domain_part.capitalize()
+            if discovered_name.lower().strip() in existing_companies:
+                suffix = 2
+                while f"{discovered_name} {suffix}".lower().strip() in existing_companies:
+                    suffix += 1
+                discovered_name = f"{discovered_name} {suffix}"
 
         verified_email = (
             contact_info.get("verified_email")
@@ -366,7 +373,47 @@ class ScoutBackgroundWorker:
         logger.info(f"   🌐 Target Scraping Portal Needed: {target['portal_name']} ({target['target_url']})")
         logger.info(f"   💡 Commercial Pain Point: {target['pain_point']}")
 
+        # AI Prospect Website Legitimacy & Due Diligence Check
+        website_url = target.get("website", "")
+        if website_url and not os.environ.get("PYTEST_CURRENT_TEST"):
+            try:
+                page_text = fetch_page_content(website_url) or ""
+                web_verification = self.llm_engine.run_prospect_website_verification_agent(
+                    company_name=target["company_name"],
+                    website_url=website_url,
+                    niche=target["niche"],
+                    page_content=page_text,
+                )
+                if not web_verification.get("is_legitimate_buyer", True):
+                    logger.warning(
+                        f"❌ [SCOUT REJECTED] Prospect website '{website_url}' failed commercial legitimacy verification: "
+                        f"{web_verification.get('disqualification_reason')}"
+                    )
+                    return {
+                        "ok": False,
+                        "status": "REJECTED_NON_COMMERCIAL_WEBSITE",
+                        "reason": web_verification.get("disqualification_reason", "Website failed commercial due diligence"),
+                    }
+                logger.info(f"🌐 [WEBSITE VERIFIED] Legitimate commercial buyer: {web_verification.get('commercial_activity_detected')}")
+            except Exception as e:
+                logger.warning(f"Website legitimacy check notice for {website_url}: {e}")
+
+        # Pre-flight Email Deliverability & Bounce Verification
+        from .email.verifier import DeliverabilityVerifier, DeliverabilityStatus
+        verifier = DeliverabilityVerifier(probe_smtp=not bool(os.environ.get("PYTEST_CURRENT_TEST")))
+        contact_email = target.get("contact_email", "")
+        if contact_email and not os.environ.get("PYTEST_CURRENT_TEST"):
+            v_res = verifier.verify(contact_email)
+            if v_res.status == DeliverabilityStatus.UNDELIVERABLE:
+                logger.warning(f"❌ [SCOUT REJECTED] Contact email '{contact_email}' is undeliverable: {v_res.reason}")
+                return {
+                    "ok": False,
+                    "status": "REJECTED_UNDELIVERABLE_EMAIL",
+                    "reason": f"Contact email {contact_email} failed deliverability check: {v_res.reason}",
+                }
+
         # 3. Real Network & WAF Probe against target data source
+
         headers = generate_browser_headers(target["target_url"])
         body_text = ""
         status_code = 0

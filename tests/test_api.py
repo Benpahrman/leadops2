@@ -40,7 +40,7 @@ def test_health_check(client):
 def test_get_portal_html(client):
     res = client.get("/p/test-company-test-lead-1")
     assert res.status_code == 200
-    assert ("OmniLeadFeeder Live Sandbox" in res.text or "LeadOps Live Sandbox" in res.text)
+    assert "root" in res.text
     assert "test-company-test-lead-1" in res.text
 
 
@@ -119,7 +119,8 @@ def test_dashboard_api_routes(client):
     # 1. View dashboard HTML
     res = client.get("/dashboard/test-lead-1")
     assert res.status_code == 200
-    assert ("OmniLeadFeeder Customer Dashboard" in res.text or "LeadOps Customer Dashboard" in res.text)
+    assert "root" in res.text
+    assert "test-lead-1" in res.text
 
     # 2. Get dashboard state
     res = client.get("/api/dashboard/test-lead-1", headers=headers)
@@ -225,11 +226,8 @@ def test_portal_email_restriction(client):
 def test_get_landing_page(client):
     res = client.get("/")
     assert res.status_code == 200
-    assert "Turn Slow, Manual County Portals Into" in res.text
-    assert "Weekly Sync" in res.text
-    assert "Daily Sync" in res.text
-    assert "Full Code Buyout" in res.text
-    assert "Escrow Protected Deposits" in res.text
+    assert "root" in res.text
+    assert "OmniLeadFeeder" in res.text
 
 
 def test_search_sandboxes(client):
@@ -412,6 +410,93 @@ def test_suggest_columns_endpoint(client):
     data = res.json()
     assert data["ok"] is True
     assert len(data["suggestions"]) > 0
+
+
+def test_sandbox_live_source_verification_links(client):
+    """Verify that sandboxes pull genuine public records with canonical 1-click verification URLs on every row."""
+    res = client.get("/api/sandbox/austin-commercial-permits")
+    assert res.status_code == 200
+    data = res.json()
+    assert "sample" in data
+    assert len(data["sample"]) > 0
+    assert "source_url" in data
+    assert data["source_url"].startswith("http")
+
+    # Verify every single row carries its verifiable source_url
+    for row in data["sample"]:
+        assert "source_url" in row
+        assert row["source_url"].startswith("http")
+        assert len(row["source_url"]) > 10
+
+
+def test_chat_endpoints_flow(client):
+    """Verify live consultative chat with Alex on both slug sandbox and universal /api/chat."""
+    # 1. Sandbox slug chat
+    slug = "test-company-test-lead-1"
+    res1 = client.post(f"/api/sandbox/{slug}/chat", json={"message": "Can you add custom parcel number and owner address columns?"})
+    assert res1.status_code == 200
+    data1 = res1.json()
+    assert data1["ok"] is True
+    assert "reply" in data1
+    assert len(data1["reply"]) > 10
+
+    # 2. Universal /api/chat
+    res2 = client.post("/api/chat", json={"message": "How does webhook delivery to our CRM work?"})
+    assert res2.status_code == 200
+    data2 = res2.json()
+    assert data2["ok"] is True
+    assert "reply" in data2
+    assert len(data2["reply"]) > 10
+
+
+def test_inbound_email_webhook_flow(client):
+    """Verify incoming email webhook processing, intent classification, and lead state transition."""
+    res = client.post("/api/email/inbound", json={
+        "sender": "prospect@example.com",
+        "subject": "Can we see a demo of Travis County filings?",
+        "body": "Hi Alex, saw your note. Do you have live data for Travis County commercial filings?",
+        "sender_name": "Dave Miller",
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert "result" in data
+    assert data["result"]["sender"] == "prospect@example.com"
+    assert data["result"]["intent"] in {"INTERESTED", "QUESTION"}
+
+
+def test_chat_persistent_conversation_log_and_history(client):
+    """Verify multi-turn conversational memory and persistent logs across chat interactions."""
+    slug = "test-company-test-lead-1"
+
+    # Turn 1: Client specifies tool stack
+    res1 = client.post(f"/api/sandbox/{slug}/chat", json={
+        "message": "We manage all our leads in HubSpot."
+    })
+    assert res1.status_code == 200
+    assert res1.json()["ok"] is True
+
+    # Turn 2: Client asks about delivery time
+    res2 = client.post(f"/api/sandbox/{slug}/chat", json={
+        "message": "Can we get records synced by 6:00 AM UTC?"
+    })
+    assert res2.status_code == 200
+    assert res2.json()["ok"] is True
+
+    # Turn 3: Fetch persistent conversation log
+    history_res = client.get(f"/api/sandbox/{slug}/chat")
+    assert history_res.status_code == 200
+    history_data = history_res.json()
+    assert history_data["ok"] is True
+    assert len(history_data["messages"]) >= 4  # 2 user messages + 2 Alex replies
+
+    # Verify messages have sender and message fields
+    senders = [m["sender"] for m in history_data["messages"]]
+    assert "user" in senders
+    assert "alex" in senders
+    assert any("HubSpot" in m["message"] for m in history_data["messages"])
+
+
 
 
 

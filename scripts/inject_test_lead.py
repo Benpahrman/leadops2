@@ -12,11 +12,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from agents.domain import Lead, State, TIERS
 from agents.portal import PortalService
-from agents.storage import SqliteStorageBackend
+from agents.storage import create_storage_backend
 
 def inject_ben_test_lead():
-    db_path = "leadops.db"
-    storage = SqliteStorageBackend(db_path=db_path)
+    storage = create_storage_backend()
     portal = PortalService(storage=storage)
 
     lead_id = f"lead-pahrman-intel-{int(time.time())}"
@@ -105,7 +104,7 @@ def inject_ben_test_lead():
     storage.save_lead(lead)
 
     print("==================================================================")
-    print("      🎉 LIVE TEST LEAD INJECTED FOR BEN PAHRMAN 🎉")
+    print("      LIVE TEST LEAD INJECTED FOR BEN PAHRMAN")
     print("==================================================================")
     print(f" Company:     {company_name}")
     print(f" Recipient:   {contact_email}")
@@ -114,9 +113,11 @@ def inject_ben_test_lead():
     print(f" Portal Slug: {slug}")
     print("------------------------------------------------------------------")
     print(" 🔗 Clickable Links:")
-    print(f"  • Customer Portal (FastAPI): http://127.0.0.1:8000/p/{slug}")
-    print(f"  • Customer Dashboard (Vite): http://127.0.0.1:5173/?slug={slug}")
-    print(f"  • Founder Mission Control:   http://127.0.0.1:5173")
+    print(f"  • Production Portal:         https://www.omnileadfeeder.tech/p/{slug}")
+    print(f"  • Production Dashboard:      https://www.omnileadfeeder.tech/?slug={slug}")
+    print(f"  • Local Portal (FastAPI):    http://127.0.0.1:8000/p/{slug}")
+    print(f"  • Local Dashboard (Vite):    http://127.0.0.1:5173/?slug={slug}")
+    print(f"  • Founder Mission Control:   https://www.omnileadfeeder.tech")
     print("==================================================================")
     return slug
 

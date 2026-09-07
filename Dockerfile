@@ -25,10 +25,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
+# React SPA Frontend Builder
+FROM node:20-alpine AS frontend-builder
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
 # Final runtime image
 FROM base AS runner
 
 COPY --from=builder /install /usr/local
+COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 
 # Create non-root user
 RUN groupadd -g 10001 leadops && \

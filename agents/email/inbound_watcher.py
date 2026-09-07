@@ -1,0 +1,247 @@
+"""Inbound email listener and autonomous reply dispatcher for Cloudflare-routed Gmail messages."""
+
+import asyncio
+import logging
+from datetime import datetime, timezone
+from typing import Any
+
+from .ai_review import InboundReplyAgent
+from .client import EmailClient
+from .config import EmailSettings
+from agents.domain import State, Lead
+from agents.notifications import NotificationManager
+
+logger = logging.getLogger("leadops.email.inbound")
+
+
+class InboundEmailWatcher:
+    """Monitors company Gmail via IMAP for prospect replies, invokes Inbound AI Reply Agent, and advances lead lifecycle."""
+
+    def __init__(
+        self,
+        email_client: EmailClient | None = None,
+        storage_backend: Any = None,
+        settings: EmailSettings | None = None,
+        inbound_reply_agent: InboundReplyAgent | None = None,
+        notification_manager: NotificationManager | None = None,
+    ) -> None:
+        self.settings = settings or EmailSettings.from_environment()
+        self.client = email_client or EmailClient(self.settings)
+        self.storage = storage_backend
+        self.reply_agent = inbound_reply_agent or InboundReplyAgent()
+        self.notifier = notification_manager or NotificationManager()
+        self.is_running = False
+        self._task: asyncio.Task[None] | None = None
+
+    def poll_and_process_once(self) -> list[dict[str, Any]]:
+        """Poll Gmail IMAP once, process all unseen incoming replies, and return processed event logs."""
+        try:
+            unseen = self.client.fetch_unseen_emails(mark_as_read=True)
+        except Exception as exc:
+            logger.warning(f"Failed to fetch unseen emails: {exc}")
+            return []
+
+        results: list[dict[str, Any]] = []
+        for msg in unseen:
+            processed = self.process_single_inbound_email(msg)
+            results.append(processed)
+        return results
+
+    def process_single_inbound_email(self, msg: dict[str, Any]) -> dict[str, Any]:
+        """Process an individual inbound message (from IMAP poll or HTTP webhook)."""
+        import time
+        sender = msg.get("sender_email", "").lower().strip()
+        sender_name = (msg.get("sender_name") or "").strip()
+        subject = msg.get("subject", "")
+        body = msg.get("body_text") or msg.get("body_html") or ""
+
+        logger.info(f"📥 [INBOUND EMAIL RECEIVED] From: {sender} | Subject: '{subject}'")
+
+        # 1. Match sender to an existing Lead in storage
+        lead = None
+        if self.storage and hasattr(self.storage, "list_leads"):
+            leads = self.storage.list_leads()
+            for l in leads:
+                if l.contact_email and l.contact_email.lower().strip() == sender:
+                    lead = l
+                    break
+
+        # 2. Extract and infer jurisdiction, portal name, and matching sandbox
+        text_lower = f"{subject} {body}".lower()
+        if "travis" in text_lower or "austin" in text_lower:
+            detected_slug = "austin-commercial-permits"
+            detected_portal = "Travis County Commercial Filings"
+        elif "harris" in text_lower or "houston" in text_lower:
+            detected_slug = "harris-civil-court-filings"
+            detected_portal = "Harris County Civil Court Records"
+        elif "dallas" in text_lower:
+            detected_slug = "dallas-county-probate-records"
+            detected_portal = "Dallas County Probate Court"
+        elif "bexar" in text_lower or "san antonio" in text_lower:
+            detected_slug = "bexar-property-tax-liens"
+            detected_portal = "Bexar County Property Tax Liens"
+        else:
+            detected_slug = getattr(lead, "slug", "") or "lead-apex-roofing"
+            detected_portal = getattr(lead, "target_portal_name", "") or "County Public Records"
+
+        # Resolve contact name
+        full_name = getattr(lead, "contact_name", "") or sender_name or ""
+        first_name = full_name.split()[0].title() if full_name else "there"
+
+        # Resolve company name
+        company_name = getattr(lead, "company_name", "")
+        if not company_name:
+            domain = sender.split("@")[-1] if "@" in sender else ""
+            if domain and domain not in ("gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "example.com", "icloud.com"):
+                company_name = domain.split(".")[0].title()
+            else:
+                company_name = full_name or "your team"
+
+        lead_context = {
+            "company_name": company_name,
+            "contact_name": first_name,
+            "target_portal_name": getattr(lead, "target_portal_name", "") or detected_portal,
+        }
+
+        base_url = "https://omnileadfeeder.tech"
+        if lead and getattr(lead, "slug", ""):
+            sandbox_url = f"{base_url}/p/{lead.slug}"
+        elif lead and getattr(lead, "lead_id", ""):
+            sandbox_url = f"{base_url}/dashboard/{lead.lead_id}"
+        else:
+            sandbox_url = f"{base_url}/p/{detected_slug}"
+
+        prior_emails = []
+        initial_outreach = None
+        if lead:
+            if self.storage and hasattr(self.storage, "list_inbound_emails"):
+                prior_emails = self.storage.list_inbound_emails(lead.lead_id)
+            if getattr(lead, "outreach_subject", ""):
+                initial_outreach = {
+                    "subject": lead.outreach_subject,
+                    "body": getattr(lead, "outreach_body", ""),
+                }
+        elif self.storage and hasattr(self.storage, "save_lead"):
+            # Auto-provision new lead record in storage for unregistered prospect
+            lead_id = f"lead-{sender.split('@')[0]}-{int(time.time())}"
+            lead = Lead(
+                lead_id=lead_id,
+                tier_key="weekly",
+                state=State.CONVERSATIONAL_INTAKE,
+                company_name=company_name,
+                contact_name=full_name or first_name,
+                contact_email=sender,
+                target_portal_name=detected_portal,
+                slug=detected_slug,
+            )
+            self.storage.save_lead(lead)
+
+        # 2. Invoke Inbound Reply Agent with conversation memory
+        ai_eval = self.reply_agent.process_inbound_reply(
+            inbound_text=body,
+            inbound_subject=subject,
+            lead_context=lead_context,
+            sandbox_url=sandbox_url,
+            conversation_history=prior_emails,
+            initial_outreach=initial_outreach,
+        )
+
+        intent = ai_eval.get("intent", "INTERESTED")
+        draft_reply = ai_eval.get("draft_reply_text", "")
+        draft_subj = ai_eval.get("draft_subject", f"Re: {subject}")
+
+        # 3. Handle Lead State Machine Transitions
+        if lead:
+            if intent == "OPT_OUT":
+                lead.transition(State.ARCHIVED, f"Opt-out received via email from {sender}")
+            elif lead.state == State.OUTREACH_SENT and intent in {"INTERESTED", "QUESTION"}:
+                lead.transition(State.CONVERSATIONAL_INTAKE, f"Prospect replied to outreach: {ai_eval.get('summary')}")
+            
+            if hasattr(self.storage, "save_lead"):
+                self.storage.save_lead(lead)
+
+        # 4. Save Inbound Record into Storage
+        if self.storage and hasattr(self.storage, "record_inbound_email"):
+            try:
+                self.storage.record_inbound_email(
+                    message_id=msg.get("message_id", ""),
+                    sender_email=sender,
+                    sender_name=msg.get("sender_name", ""),
+                    subject=subject,
+                    body=body,
+                    intent=intent,
+                    draft_reply=draft_reply,
+                    lead_id=lead.lead_id if lead else "",
+                )
+            except Exception as e:
+                logger.warning(f"Could not persist inbound email record: {e}")
+
+        # 5. Dispatch automated response if autonomous mode is permitted
+        dispatched = False
+        if ai_eval.get("should_auto_send", False) and draft_reply:
+            try:
+                self.client.send_email(
+                    to_email=sender,
+                    to_name=msg.get("sender_name") or "there",
+                    subject=draft_subj,
+                    text_body=draft_reply,
+                    in_reply_to=msg.get("message_id"),
+                    references=msg.get("message_id"),
+                )
+                dispatched = True
+                logger.info(f"🤖 [AI AUTO-REPLY SENT] Dispatched reply to {sender} for intent '{intent}'")
+            except Exception as send_err:
+                logger.error(f"Failed to auto-send reply to {sender}: {send_err}")
+
+        # 6. Notify Operator via Discord / Telegram
+        try:
+            self.notifier.notify_inbound_reply_received(
+                sender_email=sender,
+                sender_name=msg.get("sender_name") or "there",
+                company_name=getattr(lead, "company_name", "") or msg.get("sender_name") or sender,
+                subject=subject,
+                reply_snippet=body[:300],
+                ai_intent=intent,
+                ai_sentiment=ai_eval.get("sentiment", "NEUTRAL"),
+                ai_draft_reply=draft_reply,
+            )
+        except Exception as notify_err:
+            logger.warning(f"Failed to send inbound reply notification: {notify_err}")
+
+        return {
+            "sender": sender,
+            "subject": subject,
+            "intent": intent,
+            "lead_id": lead.lead_id if lead else None,
+            "reply_dispatched": dispatched,
+            "ai_eval": ai_eval,
+            "received_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    async def _poll_loop(self) -> None:
+        """Asynchronous continuous polling loop."""
+        self.is_running = True
+        logger.info(f"🔄 [INBOUND WATCHER STARTED] Polling every {self.settings.imap_poll_interval_seconds}s for Cloudflare-routed replies.")
+        while self.is_running:
+            try:
+                self.poll_and_process_once()
+            except Exception as exc:
+                logger.error(f"Inbound watcher poll error: {exc}")
+            await asyncio.sleep(self.settings.imap_poll_interval_seconds)
+
+    def start(self) -> None:
+        """Start watcher in background asyncio event loop."""
+        if self._task is None or self._task.done():
+            self._task = asyncio.create_task(self._poll_loop())
+
+    async def stop(self) -> None:
+        """Gracefully terminate background polling."""
+        self.is_running = False
+        if self._task and not self._task.done():
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+        self._task = None
+        logger.info("🛑 [INBOUND WATCHER STOPPED]")

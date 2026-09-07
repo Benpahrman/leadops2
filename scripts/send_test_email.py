@@ -7,10 +7,11 @@ import dotenv
 sys.path.insert(0, str(Path(__file__).parent.parent))
 dotenv.load_dotenv()
 
-from agents.pitcher import SendPulseClient
+from agents.email.client import EmailClient
 
 def main():
-    client = SendPulseClient()
+    client = EmailClient()
+
     recipient = "benpahrman@gmail.com"
     subject = "Automated Record Feed for Pahrman Asset Intelligence [Interactive Sandbox Ready]"
     
@@ -61,7 +62,8 @@ Once you approve the schema, lock in your 50% milestone deposit ($250) to deploy
 Best,
 Alex | LeadOps Automation Engineering"""
 
-    print(f"Sending live email to {recipient} via SendPulse (Sender: {client.settings.from_email})...")
+    print(f"Sending live email to {recipient} via native Gmail SMTP (Sender: {client.settings.from_email})...")
+
     res = client.send_email(
         to_email=recipient,
         to_name="Ben Pahrman",

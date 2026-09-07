@@ -195,3 +195,6 @@ class SelfHealingEngine:
             logger.warning(f"Could not save post_mortem.json: {e}")
 
         return healed_script, report
+
+
+self_healing_engine = SelfHealingEngine()

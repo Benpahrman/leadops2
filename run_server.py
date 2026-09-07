@@ -83,31 +83,27 @@ def run_daily_automation(
     
     leads = storage.list_leads()
     
-    # Send operator morning briefing
+    # Send operator morning briefing across Discord, Telegram, and Email
     try:
-        # Get pipeline stats
-        all_leads = storage.list_leads()
-        sandboxes = portal.list_sandboxes() if hasattr(portal, 'list_sandboxes') else []
-        
-        active_builds = sum(1 for l in all_leads if l.state == State.DEV_BUILDING)
-        escrow_ready = sum(1 for l in all_leads if l.state == State.ESCROW_PREVIEW)
-        delivered_today = 0  # Would need delivery tracking
-        
-        # Send to admin emails
+        from agents.notifications import notification_manager
+        briefing_stats = notification_manager.notify_morning_briefing(storage, portal)
+
+        # Also dispatch via email to global admin emails
         from agents.auth import GLOBAL_ADMIN_EMAILS
         for admin_email in GLOBAL_ADMIN_EMAILS:
-            # Create a mock lead for the briefing
             briefing_lead = Lead("admin-briefing", "daily", company_name="LeadOps Portfolio", contact_email=admin_email)
             send_lifecycle_email(briefing_lead, "operator_briefing", base_url=base_url, extra_variables={
-                "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-                "total_leads": len(all_leads),
-                "active_builds": active_builds,
-                "escrow_ready": escrow_ready,
-                "delivered_today": delivered_today,
-                "alerts": "None",
-                "sla_tickets": 0,
+                "date": briefing_stats.get("date", datetime.now(timezone.utc).strftime("%Y-%m-%d")),
+                "total_leads": briefing_stats["operations"]["total_leads"],
+                "active_builds": briefing_stats["pipeline"]["building"],
+                "escrow_ready": briefing_stats["pipeline"]["escrow_preview"],
+                "delivered_today": briefing_stats["pipeline"]["delivered"],
+                "mrr": f"${briefing_stats['accounting']['mrr']:,.2f}",
+                "total_cash": f"${briefing_stats['accounting']['total_cash_collected']:,.2f}",
+                "alerts": f"{briefing_stats['operations']['open_tickets']} open tickets",
+                "sla_tickets": briefing_stats["operations"]["urgent_tickets"],
             })
-        log.info("📬 [OPERATOR BRIEFING] Sent daily briefing")
+        log.info("📬 [OPERATOR BRIEFING] Sent daily morning briefing with full accounting to Discord, Telegram & Email")
     except Exception as e:
         log.warning(f"Could not send operator briefing: {e}")
     
@@ -120,12 +116,12 @@ def run_daily_automation(
             if lead.state in {State.WARRANTY_ACTIVE, State.DELIVERED} or lead.subscription_active:
                 try:
                     def test_fetcher():
-                        matched = "cook-county-probate"
+                        lookup_target = (lead.source_url if lead else "") or (lead.slug if lead else "") or "universal-data-portal"
                         for k in AUTHENTIC_REGISTRY_DATASETS:
                             if k in (lead.slug or "").lower():
-                                matched = k
+                                lookup_target = k
                                 break
-                        return list(AUTHENTIC_REGISTRY_DATASETS[matched]["sample_data"])
+                        return list(AUTHENTIC_REGISTRY_DATASETS[lookup_target]["sample_data"])
                     
                     incident = monitor.inspect_feed(lead, lead.source_url or "https://registry.gov", lead.selected_fields or ["case_number"], test_fetcher)
                     if incident:
@@ -200,12 +196,12 @@ def run_daily_automation(
 
                 # Fall back to dataset sample if no extractor or no output
                 if not extracted_rows:
-                    matched = "cook-county-probate"
+                    lookup_target = (lead.source_url if lead else "") or (lead.slug if lead else "") or "universal-data-portal"
                     for k in AUTHENTIC_REGISTRY_DATASETS:
                         if k in (lead.slug or "").lower():
-                            matched = k
+                            lookup_target = k
                             break
-                    extracted_rows = list(AUTHENTIC_REGISTRY_DATASETS[matched]["sample_data"])
+                    extracted_rows = list(AUTHENTIC_REGISTRY_DATASETS[lookup_target]["sample_data"])
 
                 if not extracted_rows:
                     raise ValueError("No rows extracted from any source")
@@ -230,6 +226,24 @@ def run_daily_automation(
                     category="DELIVERY", title=f"Batch #{(lead.delivery_count or 0) + 1} delivered",
                     details=f"{rows_delivered} rows to {delivery_destination}", status="SUCCESS", lead_id=lead.lead_id,
                 )
+
+                try:
+                    import hashlib
+                    from agents.audit_vault import audit_vault
+                    batch_hash = hashlib.sha256(_json.dumps(extracted_rows, sort_keys=True).encode()).hexdigest()
+                    audit_vault.record_delivery_receipt(
+                        lead_id=lead.lead_id,
+                        run_id=f"RUN-DAILY-{(lead.delivery_count or 0) + 1}",
+                        rows_delivered=rows_delivered,
+                        destination_type=delivery_destination,
+                        destination_target=str(output_dir / "latest.csv"),
+                        data_sha256=batch_hash,
+                        qa_score=lead.qa_score or 100.0,
+                        sample_keys=lead.selected_fields or (list(extracted_rows[0].keys()) if extracted_rows else []),
+                        notes=f"Scheduled daily sync batch #{(lead.delivery_count or 0) + 1} delivered",
+                    )
+                except Exception as audit_err:
+                    log.warning(f"Audit vault daily delivery record notice: {audit_err}")
 
                 lead.delivery_count = (getattr(lead, "delivery_count", 0) or 0) + 1
                 lead.last_delivery_at = datetime.now(timezone.utc).isoformat()
@@ -388,16 +402,32 @@ def run_daily_automation(
 def run_continuous_scout_loop(
     storage: SqliteStorageBackend,
     portal: PortalService,
-    interval_seconds: int = 900,
+    min_interval_seconds: int = 1800,  # 30 minutes
+    max_interval_seconds: int = 3600,  # 60 minutes
     stop_event: threading.Event | None = None,
 ) -> None:
-    """Continuous background thread that autonomously discovers new target enterprises and seeds prospective sandboxes 24/7."""
+    """Continuous background thread that autonomously discovers new target enterprises and seeds prospective sandboxes 24/7.
+    Runs randomly 30-60 minutes apart in production (1800-3600s), and respects mobile pause/resume controls."""
+    import random
     from agents.logging_config import get_logger
     log = get_logger("scout_continuous")
-    log.info(f"🚀 [SCOUT DAEMON] Continuous background prospecting active — scouting every {interval_seconds // 60}m")
+
+    min_sec = int(os.environ.get("PROSPECTOR_MIN_INTERVAL_SECONDS", str(min_interval_seconds)))
+    max_sec = int(os.environ.get("PROSPECTOR_MAX_INTERVAL_SECONDS", str(max_interval_seconds)))
+    log.info(f"🚀 [SCOUT DAEMON] Continuous background prospecting active — randomized intervals between {min_sec // 60}m and {max_sec // 60}m")
     
     worker = ScoutBackgroundWorker(storage=storage, portal=portal)
     while not (stop_event and stop_event.is_set()):
+        # Check if paused via mobile operator quick-action
+        is_paused = os.environ.get("PROSPECTOR_PAUSED", "false").lower() in ("true", "1", "yes")
+        if is_paused:
+            log.info("⏸️ [SCOUT DAEMON] Prospector is paused by operator. Standing by...")
+            if stop_event:
+                stop_event.wait(30)
+            else:
+                time.sleep(30)
+            continue
+
         try:
             candidate = worker.discover_next_candidate()
             if candidate and candidate.get("ok"):
@@ -405,10 +435,14 @@ def run_continuous_scout_loop(
         except Exception as e:
             log.warning(f"Scout continuous discovery iteration: {e}")
         
+        # Calculate random sleep duration between 30 and 60 minutes
+        sleep_duration = random.randint(min_sec, max_sec)
+        log.info(f"⏳ [SCOUT DAEMON] Next prospecting discovery window in {sleep_duration // 60} minutes ({sleep_duration}s)")
+
         if stop_event:
-            stop_event.wait(interval_seconds)
+            stop_event.wait(sleep_duration)
         else:
-            time.sleep(interval_seconds)
+            time.sleep(sleep_duration)
 
 
 def main():
@@ -422,15 +456,15 @@ def main():
     print("           ⚡ LEADOPS LIVE PRODUCTION ENGINE & SERVER ⚡          ")
     print("==================================================================")
 
-    # 1. Start Continuous Scout Thread & Retainer Drift Monitor (non-blocking)
+    # 1. Start Continuous Scout Thread (randomized 30-60 min intervals)
     stop_event = threading.Event()
     scout_thread = threading.Thread(
         target=run_continuous_scout_loop,
-        args=(storage, portal, 900, stop_event),
+        args=(storage, portal, 1800, 3600, stop_event),
         daemon=True,
     )
     scout_thread.start()
-    print("✓ Continuous Scout Crawler: Active (15-minute recurring discovery sweep)")
+    print("✓ Continuous Scout Crawler: Active (randomized 30-60 min production interval)")
 
     monitor = RetainerMonitorWorker()
     dashboard_service = CustomerDashboardService(storage=storage)

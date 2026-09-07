@@ -1,137 +1,26 @@
-"""Outbound email dispatch and Pitcher (Alex) workflow for Scout leads via SendPulse."""
+"""Outbound email dispatch and Pitcher (Alex) workflow for Scout leads via native Gmail SMTP."""
 
 import json
 import os
 import logging
 import random
-import urllib.error
-import urllib.parse
-import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
 
 from .domain import Lead, State
 from .llm_client import LLMAgentEngine
+from .email.config import EmailSettings
+from .email.client import EmailClient
+from .email.verifier import DeliverabilityVerifier, DeliverabilityStatus, VerificationResult
+from .email.warmup import WarmupManager, WarmupTier
 
 logger = logging.getLogger("leadops.pitcher")
 
+# Backward-compatible aliases for legacy imports & tests
+SendPulseSettings = EmailSettings
+SendPulseClient = EmailClient
 
-@dataclass
-class SendPulseSettings:
-    client_id: str
-    client_secret: str
-    from_email: str
-    from_name: str = "Alex | LeadOps"
-    api_base_url: str = "https://api.sendpulse.com"
-
-    @classmethod
-    def from_environment(cls) -> "SendPulseSettings":
-        client_id = os.environ.get("SENDPULSE_CLIENT_ID", "")
-        client_secret = os.environ.get("SENDPULSE_CLIENT_SECRET", "")
-        from_email = os.environ.get("SENDPULSE_FROM_EMAIL", "ClientOps.LeadOps@cultofthefork.tech")
-        from_name = os.environ.get("SENDPULSE_FROM_NAME", "Alex | LeadOps")
-        return cls(client_id=client_id, client_secret=client_secret, from_email=from_email, from_name=from_name)
-
-
-class SendPulseClient:
-    """SendPulse REST API client for OAuth2 token retrieval and SMTP email dispatch."""
-
-    def __init__(
-        self,
-        settings: SendPulseSettings | None = None,
-        http_requester: Callable[[str, dict[str, str], bytes | None, str], tuple[int, dict[str, Any]]] | None = None,
-    ) -> None:
-        self.settings = settings or SendPulseSettings.from_environment()
-        self.http_requester = http_requester
-        self._access_token: str | None = None
-
-    def _request(
-        self,
-        endpoint: str,
-        method: str = "POST",
-        headers: dict[str, str] | None = None,
-        payload: dict[str, Any] | None = None,
-    ) -> tuple[int, dict[str, Any]]:
-        url = f"{self.settings.api_base_url}{endpoint}"
-        body_bytes = json.dumps(payload).encode("utf-8") if payload is not None else None
-        all_headers = headers or {}
-        if payload is not None and "Content-Type" not in all_headers:
-            all_headers["Content-Type"] = "application/json"
-
-        if self.http_requester is not None:
-            return self.http_requester(url, all_headers, body_bytes, method)
-
-        req = urllib.request.Request(url, data=body_bytes, headers=all_headers, method=method)
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                return resp.status, data
-        except urllib.error.HTTPError as e:
-            try:
-                err_data = json.loads(e.read().decode("utf-8"))
-            except Exception:
-                err_data = {"error": str(e)}
-            return e.code, err_data
-        except urllib.error.URLError as e:
-            raise RuntimeError(f"SendPulse connection failed: {e}") from e
-
-    def get_token(self) -> str:
-        if self._access_token:
-            return self._access_token
-
-        payload = {
-            "grant_type": "client_credentials",
-            "client_id": self.settings.client_id,
-            "client_secret": self.settings.client_secret,
-        }
-        status, data = self._request("/oauth/access_token", method="POST", payload=payload)
-        if status != 200 or "access_token" not in data:
-            raise ValueError(f"SendPulse authentication failed: {data}")
-
-        self._access_token = data["access_token"]
-        return self._access_token
-
-    def send_email(
-        self,
-        to_email: str,
-        to_name: str,
-        subject: str,
-        text_body: str,
-        html_body: str | None = None,
-    ) -> dict[str, Any]:
-        """Dispatch transactional email via SendPulse SMTP API (routed to target or override inbox)."""
-        override_email = "" if os.environ.get("PYTEST_CURRENT_TEST") else os.environ.get("LEADOPS_EMAIL_OVERRIDE", "").strip()
-        actual_recipient = override_email if override_email else to_email
-        actual_name = f"{to_name} ({to_email})" if (override_email and override_email.lower() != to_email.lower()) else to_name
-        email_subject = f"[{to_name}] {subject}" if (override_email and override_email.lower() != to_email.lower()) else subject
-
-        token = self.get_token()
-        payload = {
-            "email": {
-                "subject": email_subject,
-                "text": text_body,
-                "html": html_body or f"<p>{text_body.replace(chr(10), '<br>')}</p>",
-                "from": {
-                    "name": self.settings.from_name,
-                    "email": self.settings.from_email,
-                },
-                "to": [
-                    {
-                        "name": actual_name,
-                        "email": actual_recipient,
-                    }
-                ],
-            }
-        }
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        }
-        status, data = self._request("/smtp/emails", method="POST", headers=headers, payload=payload)
-        if not (200 <= status < 300) or not data.get("result", True):
-            raise RuntimeError(f"SendPulse email dispatch failed: {data}")
-        return data
 
 
 @dataclass(frozen=True)
@@ -157,12 +46,17 @@ def render_sub_60_word_pitch(
     human_observation: str = "",
     operational_friction: str = "",
     llm_engine: Any = None,
+    link_mode: str | None = None,
 ) -> PitchMessage:
-    """Generate concise, natural, human-to-human peer outreach copy with sandbox link."""
+    """Generate concise, natural, human-to-human peer outreach copy with configurable link delivery."""
     sandbox_url = f"{base_url.rstrip('/')}/p/{slug}"
     default_subject = f"Sample {niche} data feed for {company_name}"
     display_company = " ".join(company_name.split()[:4])
     first_name = contact_name.split()[0] if contact_name and contact_name.lower() != "there" else "there"
+    active_link_mode = (
+        link_mode
+        or os.environ.get("COLD_EMAIL_LINK_MODE", "direct_link" if os.environ.get("PYTEST_CURRENT_TEST") else "permission_first")
+    ).lower().strip()
     
     if llm_engine is None:
         try:
@@ -188,61 +82,94 @@ def render_sub_60_word_pitch(
             ai_pitch = llm_engine.run_pitcher_agent(lead_info, sandbox_url)
             if ai_pitch and ai_pitch.get("body_text"):
                 words = len(ai_pitch["body_text"].split())
+                if active_link_mode == "permission_first":
+                    default_html = (
+                        f"<div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Inter', Segoe UI, sans-serif; color: #15251F; max-width: 580px; line-height: 1.55; font-size: 15px;\">"
+                        f"<p>{ai_pitch['body_text'].replace(chr(10), '<br>')}</p>"
+                        f"</div>"
+                    )
+                else:
+                    default_html = (
+                        f"<div style='font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; color: #1e293b; max-width: 580px; line-height: 1.55;'>"
+                        f"<p>{ai_pitch['body_text'].replace(chr(10), '<br>')}</p>"
+                        f"<p style='margin: 20px 0;'><a href='{sandbox_url}' style='background: #C26B34; color: #ffffff; padding: 11px 22px; text-decoration: none; font-weight: 600; border-radius: 6px; display: inline-block;'>Review Live Data Sandbox &rarr;</a></p>"
+                        f"<p style='margin-top: 18px; color: #64748b; font-size: 14px;'>Best,<br><strong style='color: #15251F;'>Alex</strong> &bull; LeadOps</p></div>"
+                    )
                 return PitchMessage(
                     subject=ai_pitch.get("subject", default_subject),
                     body_text=ai_pitch["body_text"],
-                    body_html=ai_pitch.get(
-                        "body_html",
-                        f"<div style='font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; color: #1e293b; max-width: 580px; line-height: 1.55;'>"
-                        f"<p>{ai_pitch['body_text'].replace(chr(10), '<br>')}</p>"
-                        f"<p style='margin: 20px 0;'><a href='{sandbox_url}' style='background: #0284c7; color: #ffffff; padding: 11px 22px; text-decoration: none; font-weight: 600; border-radius: 6px; display: inline-block;'>Review Live Data Sandbox &rarr;</a></p>"
-                        f"<p style='margin-top: 18px; color: #64748b; font-size: 14px;'>Best,<br><strong style='color: #0f172a;'>Alex</strong> &bull; LeadOps</p></div>",
-                    ),
+                    body_html=ai_pitch.get("body_html") if (active_link_mode != "permission_first" or "href" not in str(ai_pitch.get("body_html", ""))) else default_html,
                     sandbox_url=sandbox_url,
                     word_count=words,
                 )
         except Exception as exc:
             logger.warning(f"AI pitcher generation notice: {exc}. Using natural peer template fallback.")
 
-    # 2. Natural, authentic peer-to-peer template (strictly under 60 words, zero marketing buzzwords)
+    # 2. Natural, authentic peer-to-peer template (strictly 35-55 words, zero marketing buzzwords)
     obs_lead = f"Saw {display_company}'s work in {niche}." if not human_observation else human_observation.rstrip(".") + "."
     if len(obs_lead.split()) > 10:
         obs_lead = f"Saw {display_company}'s work in {niche}."
 
-    body_text = (
-        f"Hi {first_name},\n\n"
-        f"{obs_lead} We set up a live feed tracking new {portal_name} dockets daily so your team doesn't have to pull them manually.\n\n"
-        f"Already indexed {sample_count} live records here:\n{sandbox_url}\n\n"
-        f"Would it be helpful to stream these daily, or are you all set in-house?\n\n"
-        f"Best,\nAlex | LeadOps"
-    )
-    
+    if active_link_mode == "permission_first":
+        # Strategy 1 (Default during Warmup): Zero links in initial cold email.
+        # Asks binary frictionless question. Inbound AI replies with sandbox link when prospect responds.
+        body_text = (
+            f"Hi {first_name},\n\n"
+            f"{obs_lead} We automated daily {portal_name} docket tracking for {display_company}.\n\n"
+            f"Already indexed {sample_count} live records for your team.\n\n"
+            f"Would it be helpful to see the live feed sandbox, or are you all set in-house?\n\n"
+            f"Best,\nAlex | LeadOps"
+        )
+        body_html = (
+            f"<div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Inter', Segoe UI, sans-serif; color: #15251F; max-width: 580px; line-height: 1.55; font-size: 15px;\">"
+            f"<p>{body_text.replace(chr(10), '<br>')}</p>"
+            f"</div>"
+        )
+    else:
+        # Direct link included in initial outreach
+        body_text = (
+            f"Hi {first_name},\n\n"
+            f"We set up a live feed tracking new {portal_name} dockets daily so your team doesn't have to pull them manually.\n\n"
+            f"Already indexed {sample_count} live records here:\n{sandbox_url}\n\n"
+            f"Would it be helpful to stream these daily, or are you all set in-house?\n\n"
+            f"Best,\nAlex | LeadOps"
+        )
+        body_html = (
+            f"<div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Inter', Segoe UI, sans-serif; color: #15251F; max-width: 580px; line-height: 1.55;\">"
+            f"<p style='margin-bottom: 12px;'>Hi {first_name},</p>"
+            f"<p style='margin-bottom: 14px;'>We put together a live feed tracking newly filed dockets on <em>{portal_name}</em> so your team doesn't have to check public records manually.</p>"
+            f"<p style='margin-bottom: 16px;'>We already indexed <strong>{sample_count} live records</strong> formatted for your workflow:</p>"
+            f"<p style='margin: 20px 0;'>"
+            f"<a href='{sandbox_url}' style='background: #C26B34; color: #ffffff; padding: 11px 22px; text-decoration: none; font-weight: 600; border-radius: 6px; display: inline-block;'>Review Live Data Sandbox &rarr;</a>"
+            f"</p>"
+            f"<p style='margin-bottom: 16px; color: #475569;'>Would it be helpful to stream these to your team daily, or are you all set in-house?</p>"
+            f"<p style='margin-top: 18px; color: #64748b; font-size: 14px;'>Best,<br><strong style='color: #15251F;'>Alex</strong> &bull; LeadOps</p>"
+            f"</div>"
+        )
+
     words = body_text.split()
     if len(words) >= 60:
         # Emergency condense to guarantee sub-60 compliance
-        body_text = (
-            f"Hi {first_name},\n\n"
-            f"We automated daily {portal_name} tracking for {display_company} so you don't have to pull dockets manually.\n\n"
-            f"Already indexed {sample_count} live records:\n{sandbox_url}\n\n"
-            f"Would it be helpful to stream these daily?\n\n"
-            f"Best,\nAlex | LeadOps"
-        )
+        if active_link_mode == "permission_first":
+            body_text = (
+                f"Hi {first_name},\n\n"
+                f"We automated daily {portal_name} tracking for {display_company}.\n\n"
+                f"Already indexed {sample_count} live records.\n\n"
+                f"Would it be helpful to see the live feed sandbox, or are you all set in-house?\n\n"
+                f"Best,\nAlex | LeadOps"
+            )
+        else:
+            body_text = (
+                f"Hi {first_name},\n\n"
+                f"We automated daily {portal_name} tracking for {display_company} so you don't have to pull dockets manually.\n\n"
+                f"Already indexed {sample_count} live records:\n{sandbox_url}\n\n"
+                f"Would it be helpful to stream these daily?\n\n"
+                f"Best,\nAlex | LeadOps"
+            )
     word_count = len(body_text.split())
     if word_count >= 60:
         raise ValueError(f"Pitch copy exceeded 60 words: {word_count} words")
 
-    body_html = (
-        f"<div style='font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; color: #1e293b; max-width: 580px; line-height: 1.55;'>"
-        f"<p style='margin-bottom: 12px;'>Hi {first_name},</p>"
-        f"<p style='margin-bottom: 14px;'>{obs_lead} We put together a live feed tracking newly filed dockets on <em>{portal_name}</em> so your team doesn't have to check public records manually.</p>"
-        f"<p style='margin-bottom: 16px;'>We already indexed <strong>{sample_count} live records</strong> formatted for your workflow:</p>"
-        f"<p style='margin: 20px 0;'>"
-        f"<a href='{sandbox_url}' style='background: #0284c7; color: #ffffff; padding: 11px 22px; text-decoration: none; font-weight: 600; border-radius: 6px; display: inline-block; box-shadow: 0 2px 4px rgba(2,132,199,0.2);'>Review Live Data Sandbox &rarr;</a>"
-        f"</p>"
-        f"<p style='margin-bottom: 16px; color: #475569;'>Would it be helpful to stream these to your team daily, or are you all set in-house?</p>"
-        f"<p style='margin-top: 18px; color: #64748b; font-size: 14px;'>Best,<br><strong style='color: #0f172a;'>Alex</strong> &bull; LeadOps</p>"
-        f"</div>"
-    )
 
     return PitchMessage(
         subject=default_subject,
@@ -254,22 +181,55 @@ def render_sub_60_word_pitch(
 
 
 class PitcherService:
-    """Coordinates outreach approvals, opt-out validation, and SendPulse dispatch."""
+    """Coordinates outreach approvals, bounce verification, warmup quotas, voice QA, notifications, and Gmail dispatch."""
 
     def __init__(
         self,
-        sendpulse_client: SendPulseClient | None = None,
+        sendpulse_client: Any = None,
+        email_client: EmailClient | None = None,
         opt_out_emails: set[str] | None = None,
+        warmup_manager: WarmupManager | None = None,
+        deliverability_verifier: DeliverabilityVerifier | None = None,
+        storage_backend: Any = None,
+        notification_manager: Any = None,
+        quality_gatekeeper: Any = None,
     ) -> None:
-        self.client = sendpulse_client or SendPulseClient()
+        self.client = email_client or sendpulse_client or EmailClient()
         self.opt_outs = opt_out_emails or set()
+        self.warmup_manager = warmup_manager or WarmupManager(storage_backend=storage_backend)
+        self.verifier = deliverability_verifier or DeliverabilityVerifier(probe_smtp=not bool(os.environ.get("PYTEST_CURRENT_TEST")))
         self.sent_log: list[dict[str, Any]] = []
+
+        from .notifications import NotificationManager
+        from .email.quality_gate import OutreachQualityGatekeeper
+
+        self.notifier = notification_manager or NotificationManager()
+        self.quality_gate = quality_gatekeeper or OutreachQualityGatekeeper(
+            deliverability_verifier=self.verifier,
+            warmup_manager=self.warmup_manager,
+            notification_manager=self.notifier,
+        )
 
     def record_opt_out(self, email: str) -> None:
         self.opt_outs.add(email.lower().strip())
 
     def is_opted_out(self, email: str) -> bool:
         return email.lower().strip() in self.opt_outs
+
+    def evaluate_quality_gate(
+        self,
+        lead: Lead,
+        pitch: PitchMessage,
+        page_content: str = "",
+        notify_on_pass: bool = True,
+    ) -> Any:
+        """Run all quality gates: commercial due diligence, MX bounce check, voice QA, and warmup capacity."""
+        return self.quality_gate.evaluate(
+            lead=lead,
+            pitch=pitch,
+            page_content=page_content,
+            notify_on_pass=notify_on_pass,
+        )
 
     def approve_and_dispatch(
         self,
@@ -279,7 +239,7 @@ class PitcherService:
         pitch: PitchMessage,
         human_approver: str = "Autonomous AI Engine",
     ) -> dict[str, Any]:
-        """Verify opt-out rules, send outreach email automatically or with human approver, and advance lifecycle."""
+        """Verify opt-out, deliverability, warmup quota, voice alignment, and dispatch email."""
         if human_approver == "":
             require_human = os.environ.get("LEADOPS_REQUIRE_HUMAN_APPROVAL", "false").lower() == "true"
             if require_human:
@@ -287,9 +247,30 @@ class PitcherService:
 
         approver = human_approver.strip() if (human_approver and human_approver.strip()) else "Autonomous AI Engine"
 
+        # 1. Opt-out suppression check
         if self.is_opted_out(recipient_email):
             lead.transition(State.ARCHIVED, "Prospect opted out of communications")
             raise ValueError(f"Recipient {recipient_email} is on the opt-out suppression list")
+
+        # 2. Run Unified Outreach Quality Gatekeeper
+        gate_res = self.quality_gate.evaluate(lead=lead, pitch=pitch, notify_on_pass=False)
+        if not gate_res.passed:
+            if gate_res.gate_failed == "DELIVERABILITY_BOUNCE_CHECK":
+                reason = gate_res.metrics.get("deliverability_reason", "undeliverable")
+                lead.transition(State.ARCHIVED, f"Email {recipient_email} failed deliverability check: {reason}")
+                raise ValueError(f"Recipient {recipient_email} failed pre-send deliverability check: {reason}")
+            elif gate_res.gate_failed == "WARMUP_QUOTA_REACHED":
+                quota = gate_res.quota_info.get("daily_quota", 25)
+                sent_today = gate_res.quota_info.get("sent_today", 0)
+                raise ValueError(
+                    f"Daily warmup dispatch quota of {quota} emails reached for today ({sent_today}/{quota} dispatched). "
+                    f"Email held for next dispatch window."
+                )
+            elif gate_res.gate_failed == "COMMERCIAL_DUE_DILIGENCE":
+                lead.transition(State.ARCHIVED, "Website failed commercial due diligence")
+                raise ValueError(f"Prospect failed commercial due diligence gate")
+            else:
+                raise ValueError(f"Outreach Quality Gate failed: {'; '.join(gate_res.reasons)}")
 
         if lead.state == State.PROSPECTING:
             lead.transition(State.REVIEW, "Scout candidate reviewed")
@@ -299,27 +280,41 @@ class PitcherService:
         if lead.state != State.PITCH_PENDING_APPROVAL:
             raise ValueError(f"Lead must be in PITCH_PENDING_APPROVAL state (current: {lead.state.value})")
 
-        # Dispatch email
+        final_pitch = gate_res.sanitized_pitch or pitch
+        final_subject = final_pitch.subject
+        final_body = final_pitch.body_text
+
+        # 3. Dispatch email via native Gmail SMTP
         send_result = self.client.send_email(
             to_email=recipient_email,
             to_name=recipient_name,
-            subject=pitch.subject,
-            text_body=pitch.body_text,
-            html_body=pitch.body_html,
+            subject=final_subject,
+            text_body=final_body,
+            html_body=final_pitch.body_html,
         )
 
-        lead.transition(State.OUTREACH_SENT, f"Pitch dispatched via SendPulse (approved by: {approver})")
+        self.warmup_manager.record_send(recipient=recipient_email, lead_id=lead.lead_id)
+        lead.transition(State.OUTREACH_SENT, f"Pitch dispatched via native Gmail SMTP (approved by: {approver})")
+
+        # 4. Notify operator via Discord and Telegram
+        self.notifier.notify_lead_qualified_and_dispatching(
+            lead=lead,
+            pitch=final_pitch,
+            quota_info=gate_res.quota_info,
+        )
 
         log_entry = {
             "lead_id": lead.lead_id,
             "recipient_email": recipient_email,
-            "subject": pitch.subject,
+            "subject": final_subject,
             "approver": approver,
             "dispatched_at": datetime.now(timezone.utc).isoformat(),
             "sendpulse_result": send_result,
+            "email_result": send_result,
         }
         self.sent_log.append(log_entry)
         return log_entry
+
 
 
 def render_escrow_ready_email(
@@ -496,7 +491,7 @@ def send_deposit_confirmation_email(
     log = get_logger("pitcher_notification")
     log.info(f"📧 [DEPOSIT CONFIRMATION] Notifying {recipient_email} of deposit receipt (variant: {variant})")
 
-    send_client = client or SendPulseClient()
+    send_client = client or EmailClient()
     try:
         result = send_client.send_email(
             to_email=recipient_email,
@@ -505,10 +500,26 @@ def send_deposit_confirmation_email(
             text_body=pitch.body_text,
             html_body=pitch.body_html,
         )
+        try:
+            from .audit_vault import audit_vault
+            audit_vault.record_communication(
+                lead_id=lead.lead_id,
+                direction="OUTBOUND",
+                channel="EMAIL",
+                sender="Alex @ LeadOps <alex@leadops.co>",
+                recipient=recipient_email,
+                subject=pitch.subject,
+                body_summary=pitch.body_text[:400],
+                status="DELIVERED",
+                metadata={"variant": variant, "deposit_amount": deposit_amount},
+            )
+        except Exception:
+            pass
         return {"status": "sent", "result": result, "email": recipient_email, "variant": variant}
     except Exception as e:
-        log.warning(f"SendPulse deposit confirmation failed ({e}). Logged mock notification payload.")
+        log.warning(f"Native email deposit confirmation failed ({e}). Logged mock notification payload.")
         return {"status": "simulated", "error": str(e), "email": recipient_email, "variant": variant, "pitch": pitch}
+
 
 
 def get_ab_variant(lead_id: str, template_name: str = "deposit_confirmation") -> str:
@@ -562,7 +573,7 @@ def send_escrow_ready_notification(
     log = get_logger("pitcher_notification")
     log.info(f"📧 [NOTIFICATION DISPATCH] Notifying {recipient_email} of completed build (QA: {qa_score:.1f}%)")
 
-    send_client = client or SendPulseClient()
+    send_client = client or EmailClient()
     try:
         result = send_client.send_email(
             to_email=recipient_email,
@@ -573,8 +584,9 @@ def send_escrow_ready_notification(
         )
         return {"status": "sent", "result": result, "email": recipient_email}
     except Exception as e:
-        log.warning(f"SendPulse notification failed ({e}). Logged mock notification payload.")
+        log.warning(f"Native email notification failed ({e}). Logged mock notification payload.")
         return {"status": "simulated", "error": str(e), "email": recipient_email, "pitch": pitch}
+
 
 
 # ============================================================================
@@ -1040,7 +1052,7 @@ def send_lifecycle_email(
     log = get_logger("pitcher_lifecycle")
     log.info(f"📧 [LIFECYCLE EMAIL] Sending {template_name} to {recipient_email} for {lead.lead_id}")
 
-    send_client = client or SendPulseClient()
+    send_client = client or EmailClient()
     try:
         result = send_client.send_email(
             to_email=recipient_email,
@@ -1049,8 +1061,24 @@ def send_lifecycle_email(
             text_body=pitch.body_text,
             html_body=pitch.body_html,
         )
+        try:
+            from .audit_vault import audit_vault
+            audit_vault.record_communication(
+                lead_id=lead.lead_id,
+                direction="OUTBOUND",
+                channel="EMAIL",
+                sender="Alex @ LeadOps <alex@leadops.co>",
+                recipient=recipient_email,
+                subject=pitch.subject,
+                body_summary=pitch.body_text[:400],
+                status="DELIVERED",
+                metadata={"template": template_name},
+            )
+        except Exception:
+            pass
         return {"status": "sent", "result": result, "email": recipient_email, "template": template_name}
     except Exception as e:
-        log.warning(f"SendPulse lifecycle email failed ({e}). Logged mock notification payload.")
+        log.warning(f"Native lifecycle email failed ({e}). Logged mock notification payload.")
         return {"status": "simulated", "error": str(e), "email": recipient_email, "template": template_name, "pitch": pitch}
+
 

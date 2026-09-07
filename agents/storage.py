@@ -51,7 +51,39 @@ class StorageBackend(Protocol):
 
     def list_email_templates(self) -> list[Any]: ...
 
+    # Native email module operations
+    def record_email_sent(self, inbox_id: str, recipient: str, lead_id: str, dispatched_at: str) -> None: ...
+
+    def get_email_sent_count_today(self, inbox_id: str) -> int: ...
+
+    def record_inbound_email(
+        self,
+        message_id: str,
+        sender_email: str,
+        sender_name: str,
+        subject: str,
+        body: str,
+        intent: str,
+        draft_reply: str,
+        lead_id: str = "",
+    ) -> None: ...
+
+    def list_inbound_emails(self, lead_id: str | None = None) -> list[dict[str, Any]]: ...
+
+    def record_chat_message(
+        self,
+        conversation_id: str,
+        sender: str,
+        message: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None: ...
+
+    def list_chat_messages(
+        self, conversation_id: str | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]: ...
+
     def backup_db(self, target_path: str | None = None) -> str: ...
+
 
 
 class InMemoryStorageBackend:
@@ -124,8 +156,86 @@ class InMemoryStorageBackend:
     def list_email_templates(self) -> list[Any]:
         return list(self.email_templates.values())
 
+    def record_email_sent(self, inbox_id: str, recipient: str, lead_id: str, dispatched_at: str) -> None:
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if not hasattr(self, "_sent_email_logs"):
+            self._sent_email_logs = []
+        self._sent_email_logs.append({
+            "inbox_id": inbox_id,
+            "recipient": recipient,
+            "lead_id": lead_id,
+            "dispatched_at": dispatched_at,
+            "sent_date": today_str,
+        })
+
+    def get_email_sent_count_today(self, inbox_id: str) -> int:
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if not hasattr(self, "_sent_email_logs"):
+            return 0
+        return sum(1 for e in self._sent_email_logs if e["inbox_id"] == inbox_id and e["sent_date"] == today_str)
+
+    def record_inbound_email(
+        self,
+        message_id: str,
+        sender_email: str,
+        sender_name: str,
+        subject: str,
+        body: str,
+        intent: str,
+        draft_reply: str,
+        lead_id: str = "",
+    ) -> None:
+        if not hasattr(self, "_inbound_emails"):
+            self._inbound_emails = []
+        self._inbound_emails.append({
+            "message_id": message_id,
+            "sender_email": sender_email,
+            "sender_name": sender_name,
+            "subject": subject,
+            "body": body,
+            "intent": intent,
+            "draft_reply": draft_reply,
+            "lead_id": lead_id,
+            "received_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    def list_inbound_emails(self, lead_id: str | None = None) -> list[dict[str, Any]]:
+        if not hasattr(self, "_inbound_emails"):
+            return []
+        if lead_id:
+            return [e for e in self._inbound_emails if e["lead_id"] == lead_id]
+        return list(self._inbound_emails)
+
+    def record_chat_message(
+        self,
+        conversation_id: str,
+        sender: str,
+        message: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        if not hasattr(self, "_chat_messages"):
+            self._chat_messages = []
+        self._chat_messages.append({
+            "conversation_id": conversation_id,
+            "sender": sender,
+            "message": message,
+            "metadata": metadata or {},
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    def list_chat_messages(
+        self, conversation_id: str | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        if not hasattr(self, "_chat_messages"):
+            return []
+        msgs = self._chat_messages
+        if conversation_id:
+            msgs = [m for m in msgs if m["conversation_id"] == conversation_id]
+        return msgs[-limit:]
+
     def backup_db(self, target_path: str | None = None) -> str:
         return target_path or "in_memory_backup.db"
+
 
 
 class SqliteStorageBackend:
@@ -182,7 +292,7 @@ class SqliteStorageBackend:
                 except sqlite3.OperationalError:
                     pass
             # Automation workflow columns
-            automation_text_cols = ["niche", "last_login_at", "created_at", "referred_by", "claimed_by", "paused_until"]
+            automation_text_cols = ["niche", "last_login_at", "created_at", "referred_by", "claimed_by", "paused_until", "paypal_vault_id", "subscription_id"]
             automation_int_cols = ["delivery_count", "upsell_sent", "referral_sent", "winback_stage", "heartbeat_count", "is_paused"]
             for col in automation_text_cols:
                 try:
@@ -231,11 +341,11 @@ class SqliteStorageBackend:
                     source_url, jurisdiction, slug, outreach_subject,
                     outreach_body, repo_url, niche, delivery_count,
                     last_login_at, created_at, upsell_sent, referral_sent,
-                    winback_stage, heartbeat_count, referred_by, claimed_by, is_paused, paused_until, updated_at
+                    winback_stage, heartbeat_count, referred_by, claimed_by, is_paused, paused_until, paypal_vault_id, subscription_id, updated_at
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 ON CONFLICT(lead_id) DO UPDATE SET
                     tier_key=excluded.tier_key,
@@ -272,6 +382,8 @@ class SqliteStorageBackend:
                     claimed_by=excluded.claimed_by,
                     is_paused=excluded.is_paused,
                     paused_until=excluded.paused_until,
+                    paypal_vault_id=excluded.paypal_vault_id,
+                    subscription_id=excluded.subscription_id,
                     updated_at=excluded.updated_at
                 """,
                 (
@@ -310,6 +422,8 @@ class SqliteStorageBackend:
                     getattr(lead, "claimed_by", "") or "",
                     1 if getattr(lead, "is_paused", False) else 0,
                     getattr(lead, "paused_until", "") or "",
+                    getattr(lead, "paypal_vault_id", "") or "",
+                    getattr(lead, "subscription_id", "") or "",
                     datetime.now(timezone.utc).isoformat(),
                 ),
             )
@@ -499,7 +613,74 @@ class SqliteStorageBackend:
                 )
                 """
             )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS daily_email_quota_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    inbox_id TEXT NOT NULL,
+                    recipient TEXT NOT NULL,
+                    lead_id TEXT DEFAULT '',
+                    dispatched_at TEXT NOT NULL,
+                    sent_date TEXT NOT NULL
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_email_quota_inbox_date ON daily_email_quota_logs (inbox_id, sent_date)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS inbound_emails (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    message_id TEXT NOT NULL,
+                    sender_email TEXT NOT NULL,
+                    sender_name TEXT DEFAULT '',
+                    subject TEXT DEFAULT '',
+                    body TEXT DEFAULT '',
+                    intent TEXT DEFAULT '',
+                    draft_reply TEXT DEFAULT '',
+                    lead_id TEXT DEFAULT '',
+                    received_at TEXT NOT NULL
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_inbound_emails_lead ON inbound_emails (lead_id)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS inbox_accounts (
+                    inbox_id TEXT PRIMARY KEY,
+                    email_address TEXT NOT NULL,
+                    warmup_start_date TEXT NOT NULL,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    conversation_id TEXT NOT NULL,
+                    sender TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    metadata_json TEXT DEFAULT '{}',
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_chat_messages_conv ON chat_messages (conversation_id, created_at)
+                """
+            )
             conn.commit()
+
 
     # Ticket operations
     def save_ticket(self, ticket: Any) -> None:
@@ -667,6 +848,121 @@ class SqliteStorageBackend:
             rows = cursor.fetchall()
             return [self._row_to_email_template(row) for row in rows]
 
+    def record_email_sent(self, inbox_id: str, recipient: str, lead_id: str, dispatched_at: str) -> None:
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO daily_email_quota_logs (inbox_id, recipient, lead_id, dispatched_at, sent_date)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (inbox_id, recipient, lead_id, dispatched_at, today_str),
+            )
+            conn.commit()
+
+    def get_email_sent_count_today(self, inbox_id: str) -> int:
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT COUNT(*) FROM daily_email_quota_logs
+                WHERE inbox_id = ? AND sent_date = ?
+                """,
+                (inbox_id, today_str),
+            )
+            row = cursor.fetchone()
+            return row[0] if row else 0
+
+    def record_inbound_email(
+        self,
+        message_id: str,
+        sender_email: str,
+        sender_name: str,
+        subject: str,
+        body: str,
+        intent: str,
+        draft_reply: str,
+        lead_id: str = "",
+    ) -> None:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO inbound_emails (
+                    message_id, sender_email, sender_name, subject, body,
+                    intent, draft_reply, lead_id, received_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    message_id,
+                    sender_email,
+                    sender_name,
+                    subject,
+                    body,
+                    intent,
+                    draft_reply,
+                    lead_id,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            conn.commit()
+
+    def list_inbound_emails(self, lead_id: str | None = None) -> list[dict[str, Any]]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            if lead_id:
+                cursor.execute("SELECT * FROM inbound_emails WHERE lead_id = ? ORDER BY received_at DESC", (lead_id,))
+            else:
+                cursor.execute("SELECT * FROM inbound_emails ORDER BY received_at DESC")
+            rows = cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    def record_chat_message(
+        self,
+        conversation_id: str,
+        sender: str,
+        message: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO chat_messages (
+                    conversation_id, sender, message, metadata_json, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    conversation_id,
+                    sender,
+                    message,
+                    json.dumps(metadata or {}),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            conn.commit()
+
+    def list_chat_messages(
+        self, conversation_id: str | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            if conversation_id:
+                cursor.execute(
+                    "SELECT * FROM chat_messages WHERE conversation_id = ? ORDER BY created_at ASC LIMIT ?",
+                    (conversation_id, limit),
+                )
+            else:
+                cursor.execute(
+                    "SELECT * FROM chat_messages ORDER BY created_at ASC LIMIT ?",
+                    (limit,),
+                )
+            rows = cursor.fetchall()
+            return [dict(r) for r in rows]
+
+
     @staticmethod
     def _row_to_ticket(row: sqlite3.Row):
         from .models import Ticket, TicketType, TicketStatus, TicketPriority
@@ -766,6 +1062,8 @@ class SqliteStorageBackend:
             claimed_by=get_col("claimed_by", ""),
             is_paused=bool(get_col("is_paused", 0)),
             paused_until=get_col("paused_until", ""),
+            paypal_vault_id=get_col("paypal_vault_id", ""),
+            subscription_id=get_col("subscription_id", ""),
         )
 
     def backup_db(self, target_path: str | None = None) -> str:
@@ -920,6 +1218,19 @@ class PostgresStorageBackend:
                     created_at VARCHAR(100) NOT NULL,
                     updated_at VARCHAR(100) NOT NULL
                 )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id SERIAL PRIMARY KEY,
+                    conversation_id VARCHAR(255) NOT NULL,
+                    sender VARCHAR(64) NOT NULL,
+                    message TEXT NOT NULL,
+                    metadata_json TEXT DEFAULT '{}',
+                    created_at VARCHAR(100) NOT NULL
+                )
+            """))
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_chat_messages_conv ON chat_messages (conversation_id, created_at)
             """))
 
     def save_lead(self, lead: Lead) -> None:
@@ -1319,6 +1630,120 @@ class PostgresStorageBackend:
             result = conn.execute(text("SELECT * FROM email_templates ORDER BY created_at DESC"))
             rows = result.mappings().fetchall()
             return [SqliteStorageBackend._row_to_email_template(r) for r in rows]
+
+    def record_email_sent(self, inbox_id: str, recipient: str, lead_id: str, dispatched_at: str) -> None:
+        from sqlalchemy import text
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        stmt = text("""
+            INSERT INTO daily_email_quota_logs (inbox_id, recipient, lead_id, dispatched_at, sent_date)
+            VALUES (:inbox_id, :recipient, :lead_id, :dispatched_at, :sent_date)
+        """)
+        with self.engine.begin() as conn:
+            conn.execute(stmt, {
+                "inbox_id": inbox_id,
+                "recipient": recipient,
+                "lead_id": lead_id,
+                "dispatched_at": dispatched_at,
+                "sent_date": today_str,
+            })
+
+    def get_email_sent_count_today(self, inbox_id: str) -> int:
+        from sqlalchemy import text
+        today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        with self.engine.connect() as conn:
+            result = conn.execute(
+                text("SELECT COUNT(*) FROM daily_email_quota_logs WHERE inbox_id = :inbox_id AND sent_date = :sent_date"),
+                {"inbox_id": inbox_id, "sent_date": today_str},
+            )
+            return result.scalar() or 0
+
+    def record_inbound_email(
+        self,
+        message_id: str,
+        sender_email: str,
+        sender_name: str,
+        subject: str,
+        body: str,
+        intent: str,
+        draft_reply: str,
+        lead_id: str = "",
+    ) -> None:
+        from sqlalchemy import text
+        stmt = text("""
+            INSERT INTO inbound_emails (
+                message_id, sender_email, sender_name, subject, body,
+                intent, draft_reply, lead_id, received_at
+            ) VALUES (
+                :message_id, :sender_email, :sender_name, :subject, :body,
+                :intent, :draft_reply, :lead_id, :received_at
+            )
+        """)
+        with self.engine.begin() as conn:
+            conn.execute(stmt, {
+                "message_id": message_id,
+                "sender_email": sender_email,
+                "sender_name": sender_name,
+                "subject": subject,
+                "body": body,
+                "intent": intent,
+                "draft_reply": draft_reply,
+                "lead_id": lead_id,
+                "received_at": datetime.now(timezone.utc).isoformat(),
+            })
+
+    def list_inbound_emails(self, lead_id: str | None = None) -> list[dict[str, Any]]:
+        from sqlalchemy import text
+        with self.engine.connect() as conn:
+            if lead_id:
+                result = conn.execute(
+                    text("SELECT * FROM inbound_emails WHERE lead_id = :lead_id ORDER BY received_at DESC"),
+                    {"lead_id": lead_id},
+                )
+            else:
+                result = conn.execute(text("SELECT * FROM inbound_emails ORDER BY received_at DESC"))
+            return [dict(r) for r in result.mappings().fetchall()]
+
+    def record_chat_message(
+        self,
+        conversation_id: str,
+        sender: str,
+        message: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        from sqlalchemy import text
+        stmt = text("""
+            INSERT INTO chat_messages (
+                conversation_id, sender, message, metadata_json, created_at
+            ) VALUES (
+                :conversation_id, :sender, :message, :metadata_json, :created_at
+            )
+        """)
+        with self.engine.begin() as conn:
+            conn.execute(stmt, {
+                "conversation_id": conversation_id,
+                "sender": sender,
+                "message": message,
+                "metadata_json": json.dumps(metadata or {}),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+
+    def list_chat_messages(
+        self, conversation_id: str | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        from sqlalchemy import text
+        with self.engine.connect() as conn:
+            if conversation_id:
+                result = conn.execute(
+                    text("SELECT * FROM chat_messages WHERE conversation_id = :conversation_id ORDER BY created_at ASC LIMIT :limit"),
+                    {"conversation_id": conversation_id, "limit": limit},
+                )
+            else:
+                result = conn.execute(
+                    text("SELECT * FROM chat_messages ORDER BY created_at ASC LIMIT :limit"),
+                    {"limit": limit},
+                )
+            return [dict(r) for r in result.mappings().fetchall()]
+
 
     def backup_db(self, target_path: str | None = None) -> str:
         return target_path or f"azure_pg_backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.sql"

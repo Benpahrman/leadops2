@@ -32,7 +32,7 @@ class LocalBuildRunner:
 
     def run(self, plan: BuildPlan) -> ArtifactManifest | None:
         self.jobs = [SpecialistJob(role) for role in plan.team_roles]
-        manifest = ArtifactManifest(plan.iteration)
+        manifest = ArtifactManifest(plan.iteration, required_roles=set(plan.team_roles))
         for idx, job in enumerate(self.jobs):
             job.status = JobStatus.RUNNING
             self.progress.publish(job.role.value, ProgressStatus.ACTIVE, "Work is in progress")

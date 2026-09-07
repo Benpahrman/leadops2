@@ -220,7 +220,7 @@ class PortalService:
                     "setup_deposit_cents": sandbox.lead.tier.price_cents // 2,
                     "final_balance_cents": sandbox.lead.tier.price_cents // 2,
                     "selected_fields": sandbox.lead.selected_fields,
-                    "approved_at": sandbox.lead.updated_at or str(sandbox.lead.created_at),
+                    "approved_at": getattr(sandbox.lead, "updated_at", "") or getattr(sandbox.lead, "created_at", "") or datetime.now(timezone.utc).isoformat(),
                 },
                 description="Approved Statement of Work & Milestone Escrow Terms"
             )

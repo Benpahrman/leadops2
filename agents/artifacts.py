@@ -3,7 +3,7 @@
 import hashlib
 from dataclasses import dataclass, field
 
-from .build_loop import TeamRole
+from .build_loop import TeamRole, DEFAULT_TEAM_ROLES
 
 
 @dataclass(frozen=True)
@@ -19,6 +19,7 @@ class BuildArtifact:
 class ArtifactManifest:
     iteration: int
     artifacts: list[BuildArtifact] = field(default_factory=list)
+    required_roles: set[TeamRole] | None = None
 
     def add(
         self,
@@ -37,9 +38,9 @@ class ArtifactManifest:
         return artifact
 
     def qa_handoff(self) -> dict[str, object]:
-        required_roles = set(TeamRole)
+        required = self.required_roles if self.required_roles is not None else set(DEFAULT_TEAM_ROLES)
         provided_roles = {artifact.role for artifact in self.artifacts}
-        missing_roles = sorted(role.value for role in required_roles - provided_roles)
+        missing_roles = sorted(role.value for role in required - provided_roles)
         return {
             "iteration": self.iteration,
             "artifacts": [

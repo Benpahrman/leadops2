@@ -138,10 +138,16 @@ class Lead:
     claimed_by: str = ""
     is_paused: bool = False
     paused_until: str = ""
+    paypal_vault_id: str = ""
+    subscription_id: str = ""
+    updated_at: str = ""
 
     def __post_init__(self) -> None:
+        now_str = datetime.now(timezone.utc).isoformat()
         if not self.created_at:
-            self.created_at = datetime.now(timezone.utc).isoformat()
+            self.created_at = now_str
+        if not self.updated_at:
+            self.updated_at = now_str
         raw = (self.tier_key or "").strip().lower()
         if raw in TIER_ALIASES:
             self.tier_key = TIER_ALIASES[raw]
