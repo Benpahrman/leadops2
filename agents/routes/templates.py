@@ -2,7 +2,7 @@ import os
 import re
 
 DEFAULT_DEV_PAYPAL_ID = "BAAG2_UJT4CA2NwILo-DEMXNRsmwUQxfE8JDUOTMIynLP5Zg4bbOSefutaIQ_Zkd7aBP2yXC7fhYgbR6J0"
-DEFAULT_DEV_CLERK_PK = "pk_test_ZmluZXItdG91Y2FuLTk2OTIuY2xlcmsuYWNjb3VudHMuZGV2JA"
+DEFAULT_DEV_CLERK_PK = "pk_live_Y2xlcmsub21uaWxlYWRmZWVkZXIudGVjaCQ"
 
 SPA_INDEX_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
@@ -19,7 +19,12 @@ def render_react_spa(lead_data: dict | None = None, slug: str | None = None) -> 
         or os.environ.get("PAYPAL_CLIENT_ID")
         or DEFAULT_DEV_PAYPAL_ID
     )
-    clerk_pk = os.environ.get("CLERK_PUBLISHABLE_KEY") or DEFAULT_DEV_CLERK_PK
+    clerk_pk = (
+        os.environ.get("VITE_CLERK_PUBLISHABLE_KEY")
+        or os.environ.get("CLERK_PUBLISHABLE_KEY")
+        or os.environ.get("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY")
+        or DEFAULT_DEV_CLERK_PK
+    )
 
     if not os.path.exists(SPA_INDEX_PATH):
         # Fallback minimal bootstrap if dist has not been compiled yet
