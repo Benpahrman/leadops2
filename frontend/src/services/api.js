@@ -221,6 +221,18 @@ export async function advanceLeadState(leadId, token = '') {
   return res.json();
 }
 
+export async function deleteLead(leadId, token = '') {
+  const headers = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/leads/${leadId}`, {
+    method: 'DELETE',
+    headers,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 export async function fetchSwarmProgress(leadId, token = '') {
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;

@@ -132,6 +132,17 @@ def advance_lead_state(
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
+@router.delete("/api/admin/leads/{lead_id}", tags=["Admin Operations"])
+def delete_lead(
+    lead_id: str,
+    _: ClerkUser = Depends(require_admin),
+    storage_backend=Depends(get_storage),
+):
+    success = storage_backend.delete_lead(lead_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Lead {lead_id} not found or already deleted.")
+    return {"ok": True, "message": f"Lead {lead_id} deleted successfully."}
+
 @router.post("/api/admin/scout/run", tags=["Admin Operations"])
 @router.post("/api/admin/scout/trigger-run", tags=["Admin Operations"])
 def trigger_scout_run(

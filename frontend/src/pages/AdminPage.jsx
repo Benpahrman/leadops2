@@ -17,6 +17,7 @@ import {
   triggerDailyDelivery,
   toggleEmergencyStop,
   fetchAuditTrail,
+  deleteLead,
 } from '../services/api';
 import { useToast } from '../context/ToastContext';
 
@@ -192,6 +193,25 @@ export default function AdminPage() {
       await loadAdminData();
     } catch (err) {
       showToast(`Purge failed: ${err.message}`, "error");
+    }
+  };
+
+  const handleDeleteLead = async (leadId, companyName) => {
+    const confirmed = window.confirm(
+      `⚠️ DELETE CONFIRMATION\n\nAre you sure you want to permanently delete lead:\n"${companyName || leadId}"?\n\nThis will remove the lead, associated sandboxes, and audit records.`
+    );
+    if (!confirmed) return;
+
+    setActionInProgress((p) => ({ ...p, [leadId]: true }));
+    try {
+      const token = await getToken();
+      await deleteLead(leadId, token);
+      showToast(`Lead "${companyName || leadId}" deleted successfully.`, 'success');
+      await loadAdminData();
+    } catch (err) {
+      showToast(`Failed to delete lead: ${err.message}`, 'error');
+    } finally {
+      setActionInProgress((p) => ({ ...p, [leadId]: false }));
     }
   };
 
@@ -708,6 +728,15 @@ export default function AdminPage() {
                                 title="View immutable event trail"
                               >
                                 📜 Audit
+                              </button>
+                              <button
+                                className="btn btn-outline"
+                                style={{ padding: '4px 8px', fontSize: '11px', color: '#ff6b6b', borderColor: 'rgba(239, 68, 68, 0.4)' }}
+                                onClick={() => handleDeleteLead(lead.lead_id, lead.company_name)}
+                                disabled={actionInProgress[lead.lead_id]}
+                                title="Permanently delete lead and sandbox"
+                              >
+                                🗑️ Delete
                               </button>
                             </div>
                           </td>

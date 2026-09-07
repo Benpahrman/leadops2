@@ -10,21 +10,12 @@ from sqlalchemy import text
 
 db_url = os.environ.get('DATABASE_URL')
 engine = sqlalchemy.create_engine(db_url)
-
-for t in ['sandboxes', 'leads', 'tickets', 'cancellation_requests', 'chat_messages']:
-    try:
-        with engine.begin() as conn:
-            cnt = conn.execute(text(f'SELECT count(*) FROM {t}')).scalar()
-            conn.execute(text(f'TRUNCATE TABLE {t} CASCADE'))
-            print(f'TRUNCATED {t}: was {cnt}')
-    except Exception as e:
-        print(f'Error on {t}: {e}')
-
-with engine.connect() as conn:
-    l_cnt = conn.execute(text('SELECT count(*) FROM leads')).scalar()
-    s_cnt = conn.execute(text('SELECT count(*) FROM sandboxes')).scalar()
-print(f'FINAL_REMAINING_LEADS: {l_cnt}')
-print(f'FINAL_REMAINING_SANDBOXES: {s_cnt}')
+target_id = 'lead-pahrman-asset-intelligence-lead-pahrman-intel-1788803960'
+with engine.begin() as conn:
+    conn.execute(text('DELETE FROM sandboxes WHERE lead_id = :lid OR slug LIKE :pat'), {'lid': target_id, 'pat': '%pahrman%'})
+    conn.execute(text('DELETE FROM leads WHERE lead_id = :lid OR lead_id LIKE :pat'), {'lid': target_id, 'pat': '%pahrman%'})
+    rows = conn.execute(text('SELECT lead_id, company_name, state FROM leads')).fetchall()
+print('DELETED_PAHRMAN. REMAINING_AZURE_LEADS:', [(r[0], r[1], r[2]) for r in rows])
 """
     b64 = base64.b64encode(py_code.encode()).decode()
     runner = f"python3 -c import\\ base64;exec(base64.b64decode('{b64}'))"

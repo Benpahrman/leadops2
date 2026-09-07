@@ -86,6 +86,8 @@ class StorageBackend(Protocol):
 
     def purge_all_data(self) -> dict[str, int]: ...
 
+    def delete_lead(self, lead_id: str) -> bool: ...
+
 
 
 class InMemoryStorageBackend:
@@ -258,6 +260,16 @@ class InMemoryStorageBackend:
         if hasattr(self, "_emails_sent"):
             self._emails_sent.clear()
         return counts
+
+    def delete_lead(self, lead_id: str) -> bool:
+        deleted = False
+        if lead_id in self.leads:
+            del self.leads[lead_id]
+            deleted = True
+        to_del = [slug for slug, sb in self.sandboxes.items() if getattr(sb, "lead_id", "") == lead_id or getattr(getattr(sb, "lead", None), "lead_id", "") == lead_id]
+        for slug in to_del:
+            del self.sandboxes[slug]
+        return deleted
 
 
 
@@ -1126,6 +1138,15 @@ class SqliteStorageBackend:
             conn.commit()
             return counts
 
+    def delete_lead(self, lead_id: str) -> bool:
+        """Delete a single lead and any corresponding sandboxes."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM sandboxes WHERE lead_id = ? OR slug LIKE ?", (lead_id, f"%{lead_id}%"))
+            cursor.execute("DELETE FROM leads WHERE lead_id = ?", (lead_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
 
 class PostgresStorageBackend:
     """Production-grade PostgreSQL storage backend for Azure Database for PostgreSQL (Flexible Server)."""
@@ -1805,6 +1826,14 @@ class PostgresStorageBackend:
                 except Exception:
                     pass
         return counts
+
+    def delete_lead(self, lead_id: str) -> bool:
+        """Delete a single lead and any associated sandboxes in PostgreSQL."""
+        from sqlalchemy import text
+        with self.engine.begin() as conn:
+            conn.execute(text("DELETE FROM sandboxes WHERE lead_id = :lid OR slug LIKE :pat"), {"lid": lead_id, "pat": f"%{lead_id}%"})
+            res = conn.execute(text("DELETE FROM leads WHERE lead_id = :lid"), {"lid": lead_id})
+            return res.rowcount > 0
 
 
 def create_storage_backend(database_url: str | None = None) -> StorageBackend:
