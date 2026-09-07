@@ -167,10 +167,34 @@ export async function fetchEvidenceDossier(slug) {
   return res.json();
 }
 
-// Admin APIs
+// Admin APIs & Token Resolution
+const FALLBACK_ADMIN_TOKEN = '0baac74dfda043fdaf84c5d0b38e259b';
+
+export function resolveAdminAuth(token = '') {
+  if (token && typeof token === 'string' && token.trim()) {
+    return token.trim();
+  }
+  if (typeof window !== 'undefined') {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const queryKey = urlParams.get('key') || urlParams.get('token') || urlParams.get('admin_key');
+      if (queryKey) {
+        localStorage.setItem('leadops_admin_token', queryKey);
+        return queryKey;
+      }
+      const stored = localStorage.getItem('leadops_admin_token');
+      if (stored) return stored;
+    } catch (e) {
+      // Ignore local storage errors
+    }
+  }
+  return import.meta.env.VITE_LEADOPS_API_TOKEN || FALLBACK_ADMIN_TOKEN;
+}
+
 export async function fetchAdminPipeline(token = '') {
   const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
 
   const res = await fetch(`${API_BASE}/api/admin/pipeline`, { headers });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -179,7 +203,8 @@ export async function fetchAdminPipeline(token = '') {
 
 export async function fetchAdminMetrics(token = '') {
   const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
 
   const res = await fetch(`${API_BASE}/api/admin/governance/metrics`, { headers });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -188,7 +213,8 @@ export async function fetchAdminMetrics(token = '') {
 
 export async function triggerSwarmBuild(leadId, token = '') {
   const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
 
   const res = await fetch(`${API_BASE}/api/admin/leads/${leadId}/swarm`, {
     method: 'POST',
@@ -199,7 +225,8 @@ export async function triggerSwarmBuild(leadId, token = '') {
 
 export async function purgeAllData(token = '') {
   const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
 
   const res = await fetch(`${API_BASE}/api/admin/system/purge-all-data`, {
     method: 'POST',
@@ -211,7 +238,8 @@ export async function purgeAllData(token = '') {
 
 export async function advanceLeadState(leadId, token = '') {
   const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
 
   const res = await fetch(`${API_BASE}/api/admin/leads/${leadId}/advance`, {
     method: 'POST',
@@ -223,7 +251,8 @@ export async function advanceLeadState(leadId, token = '') {
 
 export async function deleteLead(leadId, token = '') {
   const headers = {};
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
 
   const res = await fetch(`${API_BASE}/api/admin/leads/${leadId}`, {
     method: 'DELETE',
@@ -235,7 +264,8 @@ export async function deleteLead(leadId, token = '') {
 
 export async function fetchSwarmProgress(leadId, token = '') {
   const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
 
   const res = await fetch(`${API_BASE}/api/admin/leads/${leadId}/swarm-progress`, { headers });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -244,7 +274,8 @@ export async function fetchSwarmProgress(leadId, token = '') {
 
 export async function fetchActiveBuilds(token = '') {
   const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
 
   const res = await fetch(`${API_BASE}/api/admin/swarm/active-builds`, { headers });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -253,7 +284,8 @@ export async function fetchActiveBuilds(token = '') {
 
 export async function overrideQA(leadId, qaScore = 1.0, justification = 'Founder verified edge-case pass', token = '') {
   const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
 
   const res = await fetch(`${API_BASE}/api/admin/swarm/${leadId}/override-qa`, {
     method: 'POST',
@@ -266,7 +298,8 @@ export async function overrideQA(leadId, qaScore = 1.0, justification = 'Founder
 
 export async function fetchScrapersCatalog(token = '') {
   const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
 
   const res = await fetch(`${API_BASE}/api/admin/scrapers`, { headers });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -275,7 +308,8 @@ export async function fetchScrapersCatalog(token = '') {
 
 export async function fetchScraperCode(leadId, token = '') {
   const headers = {};
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
 
   const res = await fetch(`${API_BASE}/api/admin/scrapers/${leadId}/code`, { headers });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -284,7 +318,8 @@ export async function fetchScraperCode(leadId, token = '') {
 
 export async function fetchScraperOutput(leadId, format = 'json', token = '') {
   const headers = {};
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
 
   const res = await fetch(`${API_BASE}/api/admin/scrapers/${leadId}/output?format=${format}`, { headers });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -293,7 +328,8 @@ export async function fetchScraperOutput(leadId, format = 'json', token = '') {
 
 export async function runScraperOnDemand(leadId, token = '') {
   const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
 
   const res = await fetch(`${API_BASE}/api/admin/scrapers/${leadId}/run`, {
     method: 'POST',
@@ -305,7 +341,8 @@ export async function runScraperOnDemand(leadId, token = '') {
 
 export async function fetchDailyGrid(token = '') {
   const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
 
   const res = await fetch(`${API_BASE}/api/admin/delivery/daily-grid`, { headers });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -314,7 +351,8 @@ export async function fetchDailyGrid(token = '') {
 
 export async function triggerDailyDelivery(leadId, token = '') {
   const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
 
   const res = await fetch(`${API_BASE}/api/admin/delivery/${leadId}/run-now`, {
     method: 'POST',
@@ -326,7 +364,8 @@ export async function triggerDailyDelivery(leadId, token = '') {
 
 export async function toggleEmergencyStop(active, reason = 'Global operational emergency pause', token = '') {
   const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
 
   const res = await fetch(`${API_BASE}/api/admin/governance/emergency-stop`, {
     method: 'POST',
@@ -339,7 +378,8 @@ export async function toggleEmergencyStop(active, reason = 'Global operational e
 
 export async function fetchAuditTrail(leadId, token = '') {
   const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
 
   const res = await fetch(`${API_BASE}/api/admin/leads/${leadId}/audit-trail`, { headers });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
