@@ -23,7 +23,13 @@ from .datasets import AUTHENTIC_REGISTRY_DATASETS
 import httpx
 from .logging_config import get_logger
 from .tools.waf_prober import generate_browser_headers
-from .tools.web_search import search_web
+from .tools.web_search import (
+    search_web,
+    search_company_intelligence,
+    search_job_board_intent,
+    find_linkedin_decision_maker,
+    search_public_data_portals,
+)
 from .tools.web_fetcher import extract_contact_info_from_url, fetch_page_content
 from .llm_client import LLMAgentEngine, is_disallowed_buyer
 
@@ -200,78 +206,141 @@ class ScoutBackgroundWorker:
             if getattr(l, "website", "")
         }
         
-        # 1. Select Market Vertical from authentic datasets, prioritizing unprospected niches
-        prospected_verticals = {
-            (getattr(l, "niche", "") or "").lower() for l in existing_leads
-        } | {
-            (getattr(l, "target_portal_name", "") or "").lower() for l in existing_leads
-        }
-        unprospected_verticals = [
-            v for v, cat in VERTICAL_CATALOG.items()
-            if cat["niche"].lower() not in prospected_verticals and cat["portal_name"].lower() not in prospected_verticals
+        # 1. Step 1: Check for High-Intent Job Board Requisitions (SMBs hiring for manual data entry, permit coordinators, etc.)
+        job_board_hit = None
+        job_intent = None
+        job_queries = [
+            "Permit Coordinator",
+            "Data Entry Construction",
+            "Legal Data Entry Clerk",
+            "Docket Clerk",
+            "Records Coordinator",
+            "Title Coordinator",
+            "Data Entry Specialist",
         ]
-        if unprospected_verticals:
-            chosen_vertical = random.choice(unprospected_verticals)
-        else:
-            chosen_vertical = random.choice(list(VERTICAL_CATALOG.keys()))
-
-        catalog_entry = VERTICAL_CATALOG[chosen_vertical]
-        dataset_entry = AUTHENTIC_REGISTRY_DATASETS[catalog_entry["dataset_key"]]
-        
-        logger.info(f"🧠 [SCOUT LIVE DISCOVERY] Analyzing vertical: '{chosen_vertical}' (existing entities: {len(existing_companies)})")
-
-        # 2. Step 1: Live Web Search for Commercial Buyers
-        queries = catalog_entry.get("buyer_search_queries", [f"commercial {catalog_entry['niche']} {catalog_entry['jurisdiction']}"])
-        company_hits: list[dict[str, str]] = []
-        for q in queries:
-            raw_hits = search_web(q, max_results=5)
-            for h in raw_hits:
-                title = h.get("title", "")
-                url = h.get("url", "")
-                norm_title = title.lower().strip()
-                parsed_host = url.lower().replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0]
-
-                if is_disallowed_buyer(title, url, ""):
+        random_job_query = random.choice(job_queries)
+        try:
+            job_hits = search_job_board_intent(random_job_query)
+            for jh in job_hits:
+                c_name = jh.get("company_name", "").strip()
+                if not c_name or c_name.lower() in existing_companies or any(c in c_name.lower() for c in existing_companies if len(c) > 4):
                     continue
-                if any(w in norm_title for w in ["definition", "meaning", "synonyms", "pronunciation", "what is"]):
+                if is_disallowed_buyer(c_name, jh.get("job_url", ""), ""):
                     continue
-                if norm_title in existing_companies or any(c in norm_title for c in existing_companies if len(c) > 4):
-                    continue
-                if parsed_host and parsed_host in existing_domains:
-                    continue
-                company_hits.append(h)
-            if company_hits:
+                job_board_hit = jh
+                job_intent = jh
                 break
+        except Exception as jb_exc:
+            logger.debug(f"Job board intent search probe notice: {jb_exc}")
 
-        # Check other verticals if primary vertical search had no fresh commercial entities
-        if not company_hits:
-            for other_v, other_entry in VERTICAL_CATALOG.items():
-                if other_v == chosen_vertical:
-                    continue
-                for q in other_entry.get("buyer_search_queries", []):
-                    raw_hits = search_web(q, max_results=5)
-                    for h in raw_hits:
-                        title = h.get("title", "")
-                        url = h.get("url", "")
-                        norm_title = title.lower().strip()
-                        parsed_host = url.lower().replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0]
+        company_hits: list[dict[str, str]] = []
+        chosen_vertical = None
+        catalog_entry = None
+        dataset_entry = None
+        detected_niche = ""
+        detected_location = ""
+        discovered_name = ""
+        company_website = ""
 
-                        if is_disallowed_buyer(title, url, ""):
-                            continue
-                        if any(w in norm_title for w in ["definition", "meaning", "synonyms", "pronunciation", "what is"]):
-                            continue
-                        if norm_title in existing_companies or any(c in norm_title for c in existing_companies if len(c) > 4):
-                            continue
-                        if parsed_host and parsed_host in existing_domains:
-                            continue
-                        company_hits.append(h)
-                    if company_hits:
-                        chosen_vertical = other_v
-                        catalog_entry = other_entry
-                        dataset_entry = AUTHENTIC_REGISTRY_DATASETS[catalog_entry["dataset_key"]]
-                        break
+        if job_board_hit:
+            logger.info(f"📋 [JOB BOARD HIT SELECTED] Hiring Company: {job_board_hit['company_name']} | Role: {job_board_hit['job_title']} | Loc: {job_board_hit['location']}")
+            discovered_name = job_board_hit["company_name"]
+            detected_location = job_board_hit["location"]
+            jt_lower = job_board_hit["job_title"].lower()
+            if "permit" in jt_lower or "construction" in jt_lower:
+                detected_niche = "Commercial Construction & Building Permitting"
+                catalog_key = "Commercial Construction & Regional Building Permits"
+            elif "legal" in jt_lower or "docket" in jt_lower:
+                detected_niche = "Legal Practice & Court Docket Administration"
+                catalog_key = "County Probate Court Dockets & Estate Asset Administration"
+            elif "title" in jt_lower or "escrow" in jt_lower:
+                detected_niche = "Real Estate Title, Liens & Deed Recording"
+                catalog_key = "Trustee Foreclosure Postings, Deeds of Trust & Lis Pendens"
+            else:
+                detected_niche = "Commercial Operations & Public Records Tracking"
+                catalog_key = "Texas Statewide Corporate Entities & Commercial Registry"
+            chosen_vertical = catalog_key
+            catalog_entry = VERTICAL_CATALOG.get(catalog_key, list(VERTICAL_CATALOG.values())[0])
+            dataset_entry = AUTHENTIC_REGISTRY_DATASETS[catalog_entry["dataset_key"]]
+
+            # Find company domain via search
+            intel = search_company_intelligence(discovered_name)
+            company_website = intel.get("website", "")
+            company_hits = [{"title": discovered_name, "url": company_website, "snippet": job_board_hit.get("snippet", "")}]
+        else:
+            # Mode B: Select Market Vertical from authentic catalog prioritizing unprospected niches
+            prospected_verticals = {
+                (getattr(l, "niche", "") or "").lower() for l in existing_leads
+            } | {
+                (getattr(l, "target_portal_name", "") or "").lower() for l in existing_leads
+            }
+            unprospected_verticals = [
+                v for v, cat in VERTICAL_CATALOG.items()
+                if cat["niche"].lower() not in prospected_verticals and cat["portal_name"].lower() not in prospected_verticals
+            ]
+            if unprospected_verticals:
+                chosen_vertical = random.choice(unprospected_verticals)
+            else:
+                chosen_vertical = random.choice(list(VERTICAL_CATALOG.keys()))
+
+            catalog_entry = VERTICAL_CATALOG[chosen_vertical]
+            dataset_entry = AUTHENTIC_REGISTRY_DATASETS[catalog_entry["dataset_key"]]
+            detected_niche = catalog_entry["niche"]
+            detected_location = catalog_entry["jurisdiction"]
+            
+            logger.info(f"🧠 [SCOUT LIVE DISCOVERY] Analyzing vertical: '{chosen_vertical}' (existing entities: {len(existing_companies)})")
+
+            queries = catalog_entry.get("buyer_search_queries", [f"commercial {catalog_entry['niche']} {catalog_entry['jurisdiction']}"])
+            for q in queries:
+                raw_hits = search_web(q, max_results=5)
+                for h in raw_hits:
+                    title = h.get("title", "")
+                    url = h.get("url", "")
+                    norm_title = title.lower().strip()
+                    parsed_host = url.lower().replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0]
+
+                    if is_disallowed_buyer(title, url, ""):
+                        continue
+                    if any(w in norm_title for w in ["definition", "meaning", "synonyms", "pronunciation", "what is"]):
+                        continue
+                    if norm_title in existing_companies or any(c in norm_title for c in existing_companies if len(c) > 4):
+                        continue
+                    if parsed_host and parsed_host in existing_domains:
+                        continue
+                    company_hits.append(h)
                 if company_hits:
                     break
+
+            if not company_hits:
+                for other_v, other_entry in VERTICAL_CATALOG.items():
+                    if other_v == chosen_vertical:
+                        continue
+                    for q in other_entry.get("buyer_search_queries", []):
+                        raw_hits = search_web(q, max_results=5)
+                        for h in raw_hits:
+                            title = h.get("title", "")
+                            url = h.get("url", "")
+                            norm_title = title.lower().strip()
+                            parsed_host = url.lower().replace("https://", "").replace("http://", "").replace("www.", "").split("/")[0]
+
+                            if is_disallowed_buyer(title, url, ""):
+                                continue
+                            if any(w in norm_title for w in ["definition", "meaning", "synonyms", "pronunciation", "what is"]):
+                                continue
+                            if norm_title in existing_companies or any(c in norm_title for c in existing_companies if len(c) > 4):
+                                continue
+                            if parsed_host and parsed_host in existing_domains:
+                                continue
+                            company_hits.append(h)
+                        if company_hits:
+                            chosen_vertical = other_v
+                            catalog_entry = other_entry
+                            dataset_entry = AUTHENTIC_REGISTRY_DATASETS[catalog_entry["dataset_key"]]
+                            detected_niche = catalog_entry["niche"]
+                            detected_location = catalog_entry["jurisdiction"]
+                            break
+                    if company_hits:
+                        break
 
         if not company_hits:
             logger.warning(f"❌ [SCOUT SEARCH] Zero unprospected commercial buyers found via live web search.")
@@ -281,47 +350,59 @@ class ScoutBackgroundWorker:
                 "reason": f"Live web search did not find new commercial buyers across market verticals.",
             }
 
-        # 3. Step 2: Live Web Visit to corporate domain to extract verified contact channels
+        # 2. Step 2: Live Web Visit to corporate domain to extract verified contact channels
         candidate_hit = company_hits[0]
         company_website = candidate_hit.get("url", "")
         logger.info(f"🌐 [SCOUT WEB VISIT] Visiting corporate website: {company_website} ({candidate_hit.get('title')})")
-        contact_info = extract_contact_info_from_url(company_website)
-        page_content = fetch_page_content(company_website, timeout=6.0)
+        contact_info = extract_contact_info_from_url(company_website) if company_website else {}
 
-        # 4. Step 3: Invoke LLM Discovery Intelligence Agent
+        # 3. Step 3: Invoke LLM Discovery Intelligence Agent
         llm_candidate = self.llm_engine.run_scout_discovery_agent(
             chosen_vertical,
             AUTHENTIC_REGISTRY_DATASETS,
             existing_companies=existing_companies,
         )
 
-        raw_title = candidate_hit.get("title", "")
-        clean_title = re.split(r"[:\|\-–•]", raw_title)[0].strip()
-        clean_title = re.sub(r"(?i)\s*(official site|home page|online|welcome to)\s*", "", clean_title).strip()
-        if len(clean_title) < 3 or any(w in clean_title.lower() for w in ["top", "best", "the", "find", "search", "free", "how to"]):
-            domain_part = company_website.split("//")[-1].split("/")[0].replace("www.", "").split(".")[0]
-            if len(domain_part) >= 3:
-                clean_title = domain_part.capitalize()
-        fallback_name = " ".join(clean_title.split()[:4]) or "Commercial Enterprise"
+        if not discovered_name:
+            raw_title = candidate_hit.get("title", "")
+            clean_title = re.split(r"[:\|\-–•]", raw_title)[0].strip()
+            clean_title = re.sub(r"(?i)\s*(official site|home page|online|welcome to)\s*", "", clean_title).strip()
+            if len(clean_title) < 3 or any(w in clean_title.lower() for w in ["top", "best", "the", "find", "search", "free", "how to"]):
+                domain_part = company_website.split("//")[-1].split("/")[0].replace("www.", "").split(".")[0]
+                if len(domain_part) >= 3:
+                    clean_title = domain_part.capitalize()
+            fallback_name = " ".join(clean_title.split()[:4]) or "Commercial Enterprise"
 
-        discovered_name = llm_candidate.get("company_name")
-        if not discovered_name or discovered_name.lower().strip() in existing_companies or is_disallowed_buyer(discovered_name, company_website, ""):
-            discovered_name = fallback_name
+            discovered_name = llm_candidate.get("company_name")
+            if not discovered_name or discovered_name.lower().strip() in existing_companies or is_disallowed_buyer(discovered_name, company_website, ""):
+                discovered_name = fallback_name
 
-        if discovered_name.lower().strip() in existing_companies:
-            domain_part = company_website.split("//")[-1].split("/")[0].replace("www.", "").split(".")[0]
-            discovered_name = domain_part.capitalize()
             if discovered_name.lower().strip() in existing_companies:
-                suffix = 2
-                while f"{discovered_name} {suffix}".lower().strip() in existing_companies:
-                    suffix += 1
-                discovered_name = f"{discovered_name} {suffix}"
+                domain_part = company_website.split("//")[-1].split("/")[0].replace("www.", "").split(".")[0]
+                discovered_name = domain_part.capitalize()
+                if discovered_name.lower().strip() in existing_companies:
+                    suffix = 2
+                    while f"{discovered_name} {suffix}".lower().strip() in existing_companies:
+                        suffix += 1
+                    discovered_name = f"{discovered_name} {suffix}"
+
+        # 4. Step 4: Search LinkedIn for Real Executive Decision-Maker
+        logger.info(f"👔 [LINKEDIN SEARCH] Searching LinkedIn for decision maker at {discovered_name}...")
+        linkedin_contact = find_linkedin_decision_maker(discovered_name, domain_hint=company_website)
+        
+        # 5. Step 5: Dynamic Portal Classification (identifies the authentic portal anywhere in the US)
+        portal_info = self.llm_engine.classify_target_portal(
+            company_name=discovered_name,
+            niche=detected_niche or catalog_entry["niche"],
+            location=detected_location or catalog_entry["jurisdiction"],
+            job_intent=job_intent,
+        )
 
         verified_email = (
             contact_info.get("verified_email")
             or llm_candidate.get("contact_email")
             or (contact_info.get("emails")[0] if contact_info.get("emails") else None)
-            or f"contact@{company_website.split('//')[-1].split('/')[0].replace('www.', '')}"
+            or f"contact@{company_website.split('//')[-1].split('/')[0].replace('www.', '') if company_website else 'company.com'}"
         )
         verified_phone = (
             contact_info.get("verified_phone")
@@ -329,10 +410,21 @@ class ScoutBackgroundWorker:
             or (contact_info.get("phones")[0] if contact_info.get("phones") else None)
             or "(512) 555-0100"
         )
-        contact_name = llm_candidate.get("contact_name") or "Operations Director"
-        contact_role = llm_candidate.get("contact_role") or "Director of Preconstruction & Operations"
-        pain_point = llm_candidate.get("pain_point") or catalog_entry["pain_point"]
-        website = company_website or llm_candidate.get("website", "")
+        
+        # Priority for contact name & role: LinkedIn > Extracted Web > LLM Candidate > Default
+        contact_name = (
+            (linkedin_contact and linkedin_contact.get("name"))
+            or (contact_info.get("decision_makers") and contact_info["decision_makers"][0].get("name"))
+            or llm_candidate.get("contact_name")
+            or "Operations Director"
+        )
+        contact_role = (
+            (linkedin_contact and linkedin_contact.get("role"))
+            or (contact_info.get("decision_makers") and contact_info["decision_makers"][0].get("role"))
+            or llm_candidate.get("contact_role")
+            or "Director of Preconstruction & Operations"
+        )
+        linkedin_url = (linkedin_contact and linkedin_contact.get("linkedin_url")) or ""
 
         target = {
             "company_name": discovered_name,
@@ -340,17 +432,19 @@ class ScoutBackgroundWorker:
             "contact_role": contact_role,
             "contact_email": verified_email,
             "contact_phone": verified_phone,
-            "website": website,
-            "niche": catalog_entry["niche"],
-            "pain_point": pain_point,
-            "target_url": catalog_entry["target_url"],
-            "portal_name": catalog_entry["portal_name"],
-            "jurisdiction": catalog_entry["jurisdiction"],
-            "suggested_fields": llm_candidate.get("live_extracted_fields") or dataset_entry["selected_fields"],
-            "tier_key": llm_candidate.get("tier_key") or catalog_entry["tier_key"],
+            "linkedin_url": linkedin_url,
+            "website": company_website or llm_candidate.get("website", ""),
+            "niche": portal_info.get("niche") or catalog_entry["niche"],
+            "pain_point": portal_info.get("pain_point") or catalog_entry["pain_point"],
+            "target_url": portal_info.get("target_url") or catalog_entry["target_url"],
+            "portal_name": portal_info.get("portal_name") or catalog_entry["portal_name"],
+            "jurisdiction": portal_info.get("jurisdiction") or catalog_entry["jurisdiction"],
+            "suggested_fields": portal_info.get("suggested_fields") or llm_candidate.get("live_extracted_fields") or dataset_entry["selected_fields"],
+            "tier_key": portal_info.get("tier_key") or llm_candidate.get("tier_key") or catalog_entry["tier_key"],
             "sample_data": llm_candidate.get("live_extracted_records") or dataset_entry["sample_data"],
             "pitch_subject": llm_candidate.get("pitch_subject"),
             "pitch_body": llm_candidate.get("pitch_body"),
+            "job_intent": job_intent,
         }
 
         clean_company = re.sub(r"[^a-z0-9]+", "-", target["company_name"].lower()).strip("-")
@@ -491,11 +585,18 @@ class ScoutBackgroundWorker:
             niche=target["niche"],
             sample_records=target["sample_data"],
             contact_data=contact_info,
+            linkedin_data=linkedin_contact,
         )
         if enrichment.get("verified_email"):
             target["contact_email"] = enrichment["verified_email"]
         if enrichment.get("verified_phone"):
             target["contact_phone"] = enrichment["verified_phone"]
+        if enrichment.get("decision_maker_name") and (target.get("contact_name") in ["Operations Director", "Executive Leadership", "", None] or enrichment.get("decision_maker_name") != "Executive Leadership"):
+            target["contact_name"] = enrichment["decision_maker_name"]
+        if enrichment.get("decision_maker_role") and (target.get("contact_role") in ["Director of Preconstruction & Operations", "Director of Operations / Preconstruction", "", None] or enrichment.get("decision_maker_role") != "Director of Operations / Preconstruction"):
+            target["contact_role"] = enrichment["decision_maker_role"]
+        if enrichment.get("linkedin_url"):
+            target["linkedin_url"] = enrichment["linkedin_url"]
         if enrichment.get("cleaned_sample_records"):
             target["sample_data"] = enrichment["cleaned_sample_records"]
         if enrichment.get("business_specialty"):
@@ -534,12 +635,19 @@ class ScoutBackgroundWorker:
             lead.contact_role = target["contact_role"]
             lead.contact_email = target["contact_email"]
             lead.contact_phone = target["contact_phone"]
+            lead.decision_maker_linkedin = target.get("linkedin_url", "")
             lead.target_portal_name = target["portal_name"]
+            lead.jurisdiction = target.get("jurisdiction", "")
+            lead.source_url = target.get("target_url", "")
             lead.niche = target["niche"]
             
             # Update research metadata with authentic human market investigation & qualification scoring
             if hasattr(lead, "research") and isinstance(lead.research, dict):
                 lead.research.update({
+                    "linkedin_url": target.get("linkedin_url", ""),
+                    "decision_maker_name": target["contact_name"],
+                    "decision_maker_role": target["contact_role"],
+                    "job_intent": target.get("job_intent"),
                     "business_specialty": target.get("business_specialty", ""),
                     "human_observation": target.get("human_observation", ""),
                     "operational_friction": target.get("operational_friction", ""),
@@ -552,21 +660,42 @@ class ScoutBackgroundWorker:
                 })
             
             # Generate natural, human-to-human peer pitch email using AI Pitcher Agent
-            from .pitcher import render_sub_60_word_pitch
-            pitch = render_sub_60_word_pitch(
-                company_name=target["company_name"],
-                niche=target["niche"],
-                portal_name=target["portal_name"],
-                sample_count=len(target["sample_data"]),
-                slug=candidate.slug,
-                contact_name=(target.get("contact_name") or "").strip().split()[0] if (target.get("contact_name") or "").strip() else "there",
-                contact_role=target["contact_role"],
-                pain_point=target["pain_point"],
-                business_specialty=target.get("business_specialty", ""),
-                human_observation=target.get("human_observation", ""),
-                operational_friction=target.get("operational_friction", ""),
-                llm_engine=self.llm_engine,
-            )
+            if target.get("job_intent"):
+                job = target["job_intent"]
+                first_name = (target.get("contact_name") or "").strip().split()[0] if (target.get("contact_name") or "").strip() else "there"
+                from .pitcher import PitchMessage
+                sandbox_link = f"https://www.omnileadfeeder.tech/sandbox/{candidate.slug}"
+                body_txt = (
+                    f"Hi {first_name},\n\n"
+                    f"Saw that {target['company_name']} is currently hiring for a {job.get('job_title', 'data coordinator')} in {job.get('location', target['jurisdiction'])} to handle filings and manual record lookups.\n\n"
+                    f"Before bringing on full-time payroll to pull records by hand, we set up a live feed tracking new {target['portal_name']} filings daily at 6:00 AM.\n\n"
+                    f"Already indexed live records for {target['company_name']} here:\n{sandbox_link}\n\n"
+                    f"Would it be helpful to stream these over, or are you all set in-house?\n\n"
+                    f"Best,\nAlex | LeadOps"
+                )
+                pitch = PitchMessage(
+                    subject=f"quick note re: {job.get('job_title', 'open role')} at {target['company_name']}",
+                    body_text=body_txt,
+                    body_html=body_txt.replace("\n", "<br>"),
+                    sandbox_url=sandbox_link,
+                    word_count=len(body_txt.split()),
+                )
+            else:
+                from .pitcher import render_sub_60_word_pitch
+                pitch = render_sub_60_word_pitch(
+                    company_name=target["company_name"],
+                    niche=target["niche"],
+                    portal_name=target["portal_name"],
+                    sample_count=len(target["sample_data"]),
+                    slug=candidate.slug,
+                    contact_name=(target.get("contact_name") or "").strip().split()[0] if (target.get("contact_name") or "").strip() else "there",
+                    contact_role=target["contact_role"],
+                    pain_point=target["pain_point"],
+                    business_specialty=target.get("business_specialty", ""),
+                    human_observation=target.get("human_observation", ""),
+                    operational_friction=target.get("operational_friction", ""),
+                    llm_engine=self.llm_engine,
+                )
             lead.outreach_subject = pitch.subject
             lead.outreach_body = pitch.body_text
             self.storage.save_lead(lead)

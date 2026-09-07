@@ -204,15 +204,31 @@ class NotificationManager:
                 week = quota_info.get("warmup_week", 1)
                 quota_str = f"Week {week} ({sent}/{quota} dispatched today)"
 
+            linkedin_url = getattr(lead, "decision_maker_linkedin", "") or (getattr(lead, "research", {}).get("linkedin_url", "") if isinstance(getattr(lead, "research", None), dict) else "")
+            job_info = getattr(lead, "research", {}).get("job_intent") if isinstance(getattr(lead, "research", None), dict) else None
+
             # 1. Discord Embed
             if self.discord:
+                contact_display = f"{contact}\n`{email}`"
+                if linkedin_url:
+                    contact_display += f"\n[👔 LinkedIn Profile]({linkedin_url})"
+
                 fields = [
-                    {"name": "👤 Contact", "value": f"{contact}\n`{email}`", "inline": True},
+                    {"name": "👤 Contact", "value": contact_display, "inline": True},
                     {"name": "🏢 Company & Niche", "value": f"**{company}**\n_{niche}_", "inline": True},
                     {"name": "🏛️ Target Portal", "value": f"`{portal}`", "inline": True},
+                ]
+                if job_info:
+                    fields.append({
+                        "name": "📋 Active Hiring Pain Signal",
+                        "value": f"Currently hiring: **{job_info.get('job_title', 'Manual Role')}** in {job_info.get('location', 'local market')}",
+                        "inline": False,
+                    })
+
+                fields.extend([
                     {"name": "✉️ Subject Line", "value": f"_{subject}_", "inline": False},
                     {"name": "📏 Copy Metrics", "value": f"{words} words • 0 links • Plaintext", "inline": True},
-                ]
+                ])
                 if quota_str:
                     fields.append({"name": "⚡ Warmup Status", "value": quota_str, "inline": True})
 

@@ -1362,6 +1362,7 @@ class LLMAgentEngine:
         niche: str,
         sample_records: list[dict[str, Any]],
         contact_data: dict[str, Any] | None = None,
+        linkedin_data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """AI Research & Lead Enrichment Agent: Enriches corporate intelligence, operational insights, and sample data."""
         from .tools.web_search import search_company_intelligence
@@ -1372,6 +1373,16 @@ class LLMAgentEngine:
         # 1. Enrich corporate contacts via web tools (reuse scraped contacts if already available)
         if contact_data is None:
             contact_data = extract_contact_info_from_url(website) if website else {}
+        if linkedin_data:
+            contact_data["linkedin_executive"] = linkedin_data
+            if not contact_data.get("decision_makers"):
+                contact_data["decision_makers"] = []
+            contact_data["decision_makers"].insert(0, {
+                "name": linkedin_data.get("name", ""),
+                "role": linkedin_data.get("role", ""),
+                "linkedin_url": linkedin_data.get("linkedin_url", ""),
+            })
+
         intel = search_company_intelligence(company_name, domain_hint=website) if not website else {"search_hits": []}
 
         # 2. Quality-check sample data
@@ -1388,12 +1399,14 @@ class LLMAgentEngine:
             "Your mission is to perform deep, authentic business investigation on the target company. "
             "Avoid generic summaries or surface-level placeholders. Uncover their exact commercial specialization, "
             "their active geographic territory, and the specific operational friction of manual public record lookups in their business. "
+            "If a LinkedIn profile or real executive name is provided in contact extraction, ALWAYS bind their actual name and role. "
             "\nReturn ONLY a valid JSON object matching this schema:\n"
             "{\n"
             "'verified_email': str,\n"
             "'verified_phone': str,\n"
             "'decision_maker_name': str,\n"
             "'decision_maker_role': str,\n"
+            "'linkedin_url': str,\n"
             "'business_specialty': str,\n"
             "'human_observation': str,\n"
             "'operational_friction': str,\n"
@@ -1413,6 +1426,7 @@ class LLMAgentEngine:
             f"Website: {website}\n"
             f"Niche: {niche}\n"
             f"Contact Extraction: {json.dumps(contact_data, indent=2)}\n"
+            f"LinkedIn Profile Data: {json.dumps(linkedin_data or {}, indent=2)}\n"
             f"Search Intel: {json.dumps(intel.get('search_hits', []), indent=2)}\n"
             f"Sample Record Count: {len(cleaned_records)}\n"
             f"Sample Records Preview: {json.dumps(cleaned_records[:3], indent=2)}"
@@ -1424,15 +1438,24 @@ class LLMAgentEngine:
                 end = res.rfind("}") + 1
                 parsed = json.loads(res[start:end])
                 parsed["cleaned_sample_records"] = cleaned_records
+                if linkedin_data and not parsed.get("linkedin_url"):
+                    parsed["linkedin_url"] = linkedin_data.get("linkedin_url", "")
+                if linkedin_data and (not parsed.get("decision_maker_name") or "Executive" in parsed.get("decision_maker_name", "")):
+                    parsed["decision_maker_name"] = linkedin_data.get("name", "")
+                    parsed["decision_maker_role"] = linkedin_data.get("role", "")
                 return parsed
             except (json.JSONDecodeError, ValueError):
                 pass
 
+        default_name = (linkedin_data or {}).get("name") or "Executive Leadership"
+        default_role = (linkedin_data or {}).get("role") or "Director of Operations / Preconstruction"
+        default_linkedin = (linkedin_data or {}).get("linkedin_url", "")
         return {
             "verified_email": contact_data.get("verified_email", f"contact@{company_name.lower().replace(' ', '')}.com"),
             "verified_phone": contact_data.get("verified_phone", ""),
-            "decision_maker_name": "Executive Leadership",
-            "decision_maker_role": "Director of Operations / Preconstruction",
+            "decision_maker_name": default_name,
+            "decision_maker_role": default_role,
+            "linkedin_url": default_linkedin,
             "business_specialty": f"Commercial {niche} operations and client service",
             "human_observation": f"Active enterprise operating in the {niche} sector",
             "operational_friction": f"Checking public records manually each day consumes hours of staff time",
@@ -1441,6 +1464,96 @@ class LLMAgentEngine:
             "qa_verdict": "PASSED",
             "cleaned_sample_records": cleaned_records,
             "enrichment_notes": ["Corporate metadata enriched and sample data rows verified."],
+        }
+
+    def classify_target_portal(
+        self,
+        company_name: str,
+        niche: str,
+        location: str,
+        job_intent: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Dynamically identifies and classifies the exact municipal/county/state public records portal an SMB needs."""
+        import urllib.parse
+        from .tools.web_search import search_web
+        
+        logger.info(f"🏛️ [DYNAMIC PORTAL CLASSIFIER] Classifying target registry for {company_name} in {location} ({niche})")
+        
+        # 1. Clean location & trade queries
+        clean_loc = re.sub(r"[^a-zA-Z0-9,\s]", "", location).strip() or "Texas"
+        clean_niche = re.sub(r"[^a-zA-Z0-9\s]", "", niche).strip() or "Commercial Permits"
+        search_query = f"{clean_loc} official {clean_niche} public records search online database portal"
+        portal_hits = search_web(search_query, max_results=4)
+        
+        valid_portal_url = ""
+        valid_portal_name = ""
+        for h in portal_hits:
+            u = h.get("url", "")
+            t = h.get("title", "")
+            if any(k in u.lower() for k in [".gov", "county", "city", "clerk", "court", "portal", "records", "permits"]):
+                valid_portal_url = u
+                valid_portal_name = t
+                break
+        if not valid_portal_url and portal_hits:
+            valid_portal_url = portal_hits[0].get("url", "")
+            valid_portal_name = portal_hits[0].get("title", "")
+
+        system_prompt = (
+            "You are the Principal Municipal Data Architect at LeadOps. "
+            "Given an SMB company's trade, location, and operational hiring signals, "
+            "determine the EXACT government agency, municipal department, or county court portal "
+            "whose public filings they must manually inspect or pull records from every day. "
+            "Do NOT restrict to pre-registered catalogs. Classify the authentic local portal anywhere in the country.\n"
+            "Return ONLY a valid JSON object matching this schema:\n"
+            "{\n"
+            "'portal_name': str,\n"
+            "'target_url': str,\n"
+            "'jurisdiction': str,\n"
+            "'niche': str,\n"
+            "'pain_point': str,\n"
+            "'suggested_fields': list[str],\n"
+            "'tier_key': 'daily' | 'weekly' | 'ai'\n"
+            "}\n"
+            "Example:\n"
+            "- portal_name: 'City of Albuquerque Building Safety & Permitting Division'\n"
+            "- target_url: 'https://buildingpermits.cabq.gov/'\n"
+            "- jurisdiction: 'Albuquerque, Bernalillo County, NM'\n"
+            "- niche: 'Commercial Construction & Permitting'\n"
+            "- pain_point: 'Tracking newly issued commercial permits and inspection sign-offs manually wastes staff hours.'\n"
+            "- suggested_fields: ['Permit Number', 'Issue Date', 'Project Description', 'Contractor', 'Valuation', 'Status']\n"
+            "- tier_key: 'daily'"
+        )
+        user_prompt = (
+            f"Company: {company_name}\n"
+            f"Location: {location}\n"
+            f"Niche / Trade: {niche}\n"
+            f"Active Job Posting: {json.dumps(job_intent or {}, indent=2)}\n"
+            f"Top Web Search Portal Hits:\n{json.dumps(portal_hits, indent=2)}\n"
+            f"Suggested Best Official Match: {valid_portal_name} ({valid_portal_url})"
+        )
+        res = self.generate_completion(system_prompt, user_prompt, temperature=0.2, max_tokens=800)
+        if res and "{" in res and "}" in res:
+            try:
+                start = res.find("{")
+                end = res.rfind("}") + 1
+                parsed = json.loads(res[start:end])
+                if parsed.get("portal_name") and parsed.get("target_url"):
+                    if not parsed["target_url"].startswith("http"):
+                        parsed["target_url"] = valid_portal_url or f"https://www.google.com/search?q={urllib.parse.quote_plus(parsed['portal_name'])}"
+                    return parsed
+            except Exception:
+                pass
+
+        city_state = location.split(",")[0].strip() if "," in location else location.strip()
+        default_portal_name = f"{city_state} Official {niche} Registry"
+        return {
+            "portal_name": valid_portal_name or default_portal_name,
+            "target_url": valid_portal_url or f"https://www.{re.sub(r'[^a-zA-Z0-9]+', '', city_state).lower()}.gov",
+            "jurisdiction": location,
+            "niche": niche,
+            "pain_point": f"Manual daily lookups of newly filed records in {location} slows down operations and delays customer workflows.",
+            "suggested_fields": ["Record ID", "Filing Date", "Entity / Party Name", "Document Type", "Status", "Jurisdiction"],
+            "tier_key": "daily",
         }
 
     def run_web_scout_brainstorm_agent(self, custom_keyword: Optional[str] = None) -> dict[str, Any]:

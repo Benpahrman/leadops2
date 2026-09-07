@@ -327,7 +327,7 @@ class SqliteStorageBackend:
                 except sqlite3.OperationalError:
                     pass
             # Automation workflow columns
-            automation_text_cols = ["niche", "last_login_at", "created_at", "referred_by", "claimed_by", "paused_until", "paypal_vault_id", "subscription_id"]
+            automation_text_cols = ["niche", "last_login_at", "created_at", "referred_by", "claimed_by", "paused_until", "paypal_vault_id", "subscription_id", "decision_maker_linkedin"]
             automation_int_cols = ["delivery_count", "upsell_sent", "referral_sent", "winback_stage", "heartbeat_count", "is_paused"]
             for col in automation_text_cols:
                 try:
@@ -376,11 +376,11 @@ class SqliteStorageBackend:
                     source_url, jurisdiction, slug, outreach_subject,
                     outreach_body, repo_url, niche, delivery_count,
                     last_login_at, created_at, upsell_sent, referral_sent,
-                    winback_stage, heartbeat_count, referred_by, claimed_by, is_paused, paused_until, paypal_vault_id, subscription_id, updated_at
+                    winback_stage, heartbeat_count, referred_by, claimed_by, is_paused, paused_until, paypal_vault_id, subscription_id, decision_maker_linkedin, updated_at
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 ON CONFLICT(lead_id) DO UPDATE SET
                     tier_key=excluded.tier_key,
@@ -419,6 +419,7 @@ class SqliteStorageBackend:
                     paused_until=excluded.paused_until,
                     paypal_vault_id=excluded.paypal_vault_id,
                     subscription_id=excluded.subscription_id,
+                    decision_maker_linkedin=excluded.decision_maker_linkedin,
                     updated_at=excluded.updated_at
                 """,
                 (
@@ -459,6 +460,7 @@ class SqliteStorageBackend:
                     getattr(lead, "paused_until", "") or "",
                     getattr(lead, "paypal_vault_id", "") or "",
                     getattr(lead, "subscription_id", "") or "",
+                    getattr(lead, "decision_maker_linkedin", "") or "",
                     datetime.now(timezone.utc).isoformat(),
                 ),
             )
@@ -1099,6 +1101,7 @@ class SqliteStorageBackend:
             paused_until=get_col("paused_until", ""),
             paypal_vault_id=get_col("paypal_vault_id", ""),
             subscription_id=get_col("subscription_id", ""),
+            decision_maker_linkedin=get_col("decision_maker_linkedin", ""),
         )
 
     def backup_db(self, target_path: str | None = None) -> str:
@@ -1214,6 +1217,7 @@ class PostgresStorageBackend:
                 "contact_role": "VARCHAR(255) DEFAULT ''",
                 "contact_phone": "VARCHAR(100) DEFAULT ''",
                 "target_portal_name": "VARCHAR(255) DEFAULT ''",
+                "decision_maker_linkedin": "VARCHAR(500) DEFAULT ''",
             }.items():
                 conn.execute(text(f"ALTER TABLE leads ADD COLUMN IF NOT EXISTS {column} {definition}"))
             conn.execute(text("""
@@ -1306,7 +1310,7 @@ class PostgresStorageBackend:
                 source_url, jurisdiction, slug, outreach_subject,
                 outreach_body, repo_url, niche, delivery_count,
                 last_login_at, created_at, upsell_sent, referral_sent,
-                winback_stage, heartbeat_count, referred_by, claimed_by, is_paused, paused_until, updated_at
+                winback_stage, heartbeat_count, referred_by, claimed_by, is_paused, paused_until, decision_maker_linkedin, updated_at
             ) VALUES (
                 :lead_id, :tier_key, :state, :selected_fields, :qa_score,
                 :preview_rows, :deposit_paid, :final_paid, :subscription_active,
@@ -1315,7 +1319,7 @@ class PostgresStorageBackend:
                 :source_url, :jurisdiction, :slug, :outreach_subject,
                 :outreach_body, :repo_url, :niche, :delivery_count,
                 :last_login_at, :created_at, :upsell_sent, :referral_sent,
-                :winback_stage, :heartbeat_count, :referred_by, :claimed_by, :is_paused, :paused_until, :updated_at
+                :winback_stage, :heartbeat_count, :referred_by, :claimed_by, :is_paused, :paused_until, :decision_maker_linkedin, :updated_at
             )
             ON CONFLICT (lead_id) DO UPDATE SET
                 tier_key = EXCLUDED.tier_key,
@@ -1352,6 +1356,7 @@ class PostgresStorageBackend:
                 claimed_by = EXCLUDED.claimed_by,
                 is_paused = EXCLUDED.is_paused,
                 paused_until = EXCLUDED.paused_until,
+                decision_maker_linkedin = EXCLUDED.decision_maker_linkedin,
                 updated_at = EXCLUDED.updated_at
         """)
         params = {
@@ -1390,6 +1395,7 @@ class PostgresStorageBackend:
             "claimed_by": getattr(lead, "claimed_by", "") or "",
             "is_paused": 1 if getattr(lead, "is_paused", False) else 0,
             "paused_until": getattr(lead, "paused_until", "") or "",
+            "decision_maker_linkedin": getattr(lead, "decision_maker_linkedin", "") or "",
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         with self.engine.begin() as conn:

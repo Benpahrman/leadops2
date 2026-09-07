@@ -34,33 +34,65 @@ def fetch_page_content(url: str, timeout: float = 6.0) -> dict[str, Any]:
             desc_match = re.search(r'<meta[^>]*name=["\']description["\'][^>]*content=["\'](.*?)["\']', html, re.IGNORECASE | re.DOTALL)
             meta_desc = desc_match.group(1).strip() if desc_match else ""
             
-            # Extract emails
+            # Extract mailto links
+            mailto_matches = re.findall(r'href=["\']mailto:([^"\'?]+)', html, re.IGNORECASE)
+            # Extract emails from text and mailto links
             email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
-            emails = list(set(re.findall(email_pattern, html)))
-            # Filter out obvious asset extensions
-            clean_emails = [e for e in emails if not e.endswith(('.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.css', '.js'))]
-            
-            # Extract phone numbers
+            all_raw_emails = list(set(re.findall(email_pattern, html) + mailto_matches))
+            clean_emails = [
+                e.strip().lower() for e in all_raw_emails
+                if not e.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.css', '.js', '.woff', '.woff2'))
+                and "example" not in e.lower() and "w3.org" not in e.lower() and "schema.org" not in e.lower()
+            ]
+
+            # Extract tel links and phone patterns
+            tel_matches = re.findall(r'href=["\']tel:([^"\']+)["\']', html, re.IGNORECASE)
+            clean_tels = [re.sub(r'[^0-9+()\-.\s]', '', t).strip() for t in tel_matches if len(t.strip()) >= 10]
             phone_pattern = r'\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}'
-            phones = list(set(re.findall(phone_pattern, html)))
-            
+            phones = list(set(clean_tels + re.findall(phone_pattern, html)))
+
+            # Extract Schema.org JSON-LD LocalBusiness metadata
+            schema_meta = {}
+            for json_str in re.findall(r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', html, re.DOTALL | re.IGNORECASE):
+                try:
+                    import json
+                    parsed_json = json.loads(json_str.strip())
+                    items = parsed_json if isinstance(parsed_json, list) else [parsed_json]
+                    for item in items:
+                        if isinstance(item, dict):
+                            if "@graph" in item and isinstance(item["@graph"], list):
+                                items.extend(item["@graph"])
+                            t = str(item.get("@type", "")).lower()
+                            if any(k in t for k in ["business", "service", "contractor", "legal", "organization", "corporation"]):
+                                if item.get("telephone"):
+                                    phones.insert(0, str(item["telephone"]))
+                                if item.get("email"):
+                                    clean_emails.insert(0, str(item["email"]).lower())
+                                if item.get("name"):
+                                    schema_meta["business_name"] = str(item["name"])
+                                if item.get("address") and isinstance(item["address"], dict):
+                                    schema_meta["address"] = f"{item['address'].get('addressLocality', '')}, {item['address'].get('addressRegion', '')}".strip(", ")
+                except Exception:
+                    pass
+
             # Clean body text
             body_clean = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
             body_clean = re.sub(r'<style[^>]*>.*?</style>', '', body_clean, flags=re.DOTALL | re.IGNORECASE)
             body_clean = re.sub(r'<[^>]+>', ' ', body_clean)
             body_clean = re.sub(r'\s+', ' ', body_clean).strip()
-            
-            logger.info(f"✓ [WEB FETCHER TOOL] Successfully fetched {url} (HTTP {status_code}, {len(html)} bytes, {len(clean_emails)} emails)")
+
+            logger.info(f"✓ [WEB FETCHER TOOL] Successfully fetched {url} (HTTP {status_code}, {len(clean_emails)} emails, {len(phones)} phones)")
             return {
                 "ok": True,
                 "url": str(resp.url),
                 "status_code": status_code,
                 "title": title,
                 "description": meta_desc,
-                "emails": clean_emails[:5],
-                "phones": phones[:3],
-                "content_snippet": body_clean[:2000],
-                "raw_html": html[:15000],
+                "emails": clean_emails[:8],
+                "phones": phones[:4],
+                "schema_meta": schema_meta,
+                "content_snippet": body_clean[:3000],
+                "raw_html": html[:25000],
             }
     except Exception as e:
         logger.warning(f"Web fetcher failed on {url}: {e}")
@@ -73,37 +105,81 @@ def fetch_page_content(url: str, timeout: float = 6.0) -> dict[str, Any]:
             "description": "",
             "emails": [],
             "phones": [],
+            "schema_meta": {},
             "content_snippet": "",
             "raw_html": "",
         }
 
 
 def extract_contact_info_from_url(website_url: str) -> dict[str, Any]:
-    """Scan root and common contact paths (/contact, /about, /team) to extract verified contact info."""
+    """Deep scan root, contact paths, and team/leadership pages to extract verified SMB contacts & decision makers."""
     base_result = fetch_page_content(website_url)
     all_emails = list(base_result.get("emails", []))
     all_phones = list(base_result.get("phones", []))
-    
-    if base_result.get("ok") and not all_emails:
-        for path in ["/contact", "/about", "/team", "/contact-us", "/about-us"]:
-            sub_url = urljoin(website_url, path)
-            sub_res = fetch_page_content(sub_url, timeout=2.5)
-            if sub_res.get("ok"):
-                all_emails.extend(sub_res.get("emails", []))
-                all_phones.extend(sub_res.get("phones", []))
-                if all_emails:
-                    break
-                    
+    schema_meta = dict(base_result.get("schema_meta", {}))
+    decision_makers: list[dict[str, str]] = []
+
+    subpaths = [
+        "/contact", "/contact-us", "/about", "/about-us",
+        "/our-team", "/team", "/leadership", "/attorneys",
+        "/partners", "/staff", "/people", "/get-in-touch"
+    ]
+
+    for path in subpaths:
+        if len(all_emails) >= 2 and len(decision_makers) >= 1:
+            break
+        sub_url = urljoin(website_url, path)
+        sub_res = fetch_page_content(sub_url, timeout=3.5)
+        if sub_res.get("ok"):
+            all_emails.extend(sub_res.get("emails", []))
+            all_phones.extend(sub_res.get("phones", []))
+            if sub_res.get("schema_meta"):
+                schema_meta.update(sub_res["schema_meta"])
+
+            # Scan page snippet for executive decision maker names & titles
+            snippet = sub_res.get("content_snippet", "")
+            roles = [
+                "Managing Partner", "President", "Founder", "Co-Founder",
+                "Principal", "Owner", "Chief Executive Officer", "CEO",
+                "Director of Operations", "Operations Director", "Vice President",
+                "General Counsel", "Managing Director"
+            ]
+            for role in roles:
+                # Match pattern: "John Smith - President" or "President: John Smith"
+                pattern1 = rf'([A-Z][a-z]+(?:\s+[A-Z][a-z]+){{1,2}})\s*[-:—,\|]\s*(?:{role})'
+                pattern2 = rf'(?:{role})\s*[-:—,\|]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+){{1,2}})'
+                for m in re.finditer(pattern1, snippet):
+                    name = m.group(1).strip()
+                    if name and not any(d["name"] == name for d in decision_makers) and len(name.split()) <= 3:
+                        decision_makers.append({"name": name, "role": role})
+                for m in re.finditer(pattern2, snippet):
+                    name = m.group(1).strip()
+                    if name and not any(d["name"] == name for d in decision_makers) and len(name.split()) <= 3:
+                        decision_makers.append({"name": name, "role": role})
+
     parsed = urlparse(website_url)
     domain_name = parsed.netloc.replace("www.", "")
-    fallback_email = f"contact@{domain_name}" if domain_name else "info@company.com"
     
+    # Filter emails matching company domain as highest priority
+    company_domain_emails = [e for e in all_emails if domain_name and domain_name in e]
+    general_clean_emails = [e for e in all_emails if "noreply" not in e and "privacy" not in e and "support" not in e]
+    
+    verified_email = (
+        company_domain_emails[0]
+        if company_domain_emails
+        else (general_clean_emails[0] if general_clean_emails else (all_emails[0] if all_emails else f"contact@{domain_name}"))
+    )
+
     return {
         "website": website_url,
-        "verified_email": all_emails[0] if all_emails else fallback_email,
-        "all_emails": list(set(all_emails)),
+        "verified_email": verified_email,
+        "all_emails": list(dict.fromkeys(company_domain_emails + general_clean_emails + all_emails)),
         "verified_phone": all_phones[0] if all_phones else "",
+        "all_phones": list(dict.fromkeys(all_phones)),
         "title": base_result.get("title", ""),
+        "business_name": schema_meta.get("business_name", ""),
+        "address": schema_meta.get("address", ""),
+        "decision_makers": decision_makers[:3],
     }
 
 
