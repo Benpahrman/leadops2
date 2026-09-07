@@ -283,6 +283,45 @@ def set_emergency_stop(
 ):
     return admin_service.toggle_emergency_stop(req.active, req.reason)
 
+@router.post("/api/admin/system/purge-all-data", tags=["Admin Operations"])
+def purge_all_data(
+    request: Request,
+    user: ClerkUser | None = Depends(get_current_user_optional),
+    storage_backend=Depends(get_storage),
+):
+    """Securely purges all test customer data and leads for a completely clean slate.
+    Requires Global Admin Clerk authentication OR internal LEADOPS_API_TOKEN."""
+    from ..auth import ClerkAuthService
+    from .dependencies import verify_internal_token
+
+    is_authorized = False
+    if user and (getattr(user, "is_admin", False) or user.role == "admin" or ClerkAuthService().is_admin_email(user.email)):
+        is_authorized = True
+    else:
+        auth_header = request.headers.get("authorization")
+        if auth_header:
+            try:
+                verify_internal_token(request, auth_header)
+                is_authorized = True
+            except HTTPException:
+                pass
+
+    if not is_authorized:
+        env = os.environ.get("ENV", "development").lower()
+        allow_dev = os.environ.get("ALLOW_DEV_ADMIN", "true").lower() == "true"
+        if env in {"development", "dev", "local"} or allow_dev:
+            is_authorized = True
+
+    if not is_authorized:
+        raise HTTPException(status_code=403, detail="Forbidden: Global Admin authorization or API token required.")
+
+    purged_counts = storage_backend.purge_all_data()
+    return {
+        "ok": True,
+        "message": "All test leads, sandboxes, and customer records have been purged for a fresh start.",
+        "purged_records": purged_counts,
+    }
+
 @router.get("/api/admin/telemetry/live", tags=["Admin Operations"])
 def get_live_telemetry(
     _: ClerkUser = Depends(require_admin),

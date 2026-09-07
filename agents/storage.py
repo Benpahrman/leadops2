@@ -84,6 +84,8 @@ class StorageBackend(Protocol):
 
     def backup_db(self, target_path: str | None = None) -> str: ...
 
+    def purge_all_data(self) -> dict[str, int]: ...
+
 
 
 class InMemoryStorageBackend:
@@ -235,6 +237,27 @@ class InMemoryStorageBackend:
 
     def backup_db(self, target_path: str | None = None) -> str:
         return target_path or "in_memory_backup.db"
+
+    def purge_all_data(self) -> dict[str, int]:
+        counts = {
+            "leads": len(self.leads),
+            "sandboxes": len(self.sandboxes),
+            "tickets": len(self.tickets),
+            "cancellation_requests": len(self.cancellation_requests),
+            "webhook_events": len(self.webhook_events),
+        }
+        self.leads.clear()
+        self.sandboxes.clear()
+        self.tickets.clear()
+        self.cancellation_requests.clear()
+        self.webhook_events.clear()
+        if hasattr(self, "_chat_messages"):
+            self._chat_messages.clear()
+        if hasattr(self, "_inbound_emails"):
+            self._inbound_emails.clear()
+        if hasattr(self, "_emails_sent"):
+            self._emails_sent.clear()
+        return counts
 
 
 
@@ -1085,6 +1108,24 @@ class SqliteStorageBackend:
             dest_conn.close()
         return target_path
 
+    def purge_all_data(self) -> dict[str, int]:
+        """Purge all leads, sandboxes, tickets, and operational records for a clean fresh slate."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            counts = {}
+            for table in [
+                "sandboxes", "leads", "tickets", "cancellation_requests",
+                "chat_messages", "emails_sent", "inbound_emails", "webhook_events"
+            ]:
+                try:
+                    cursor.execute(f"SELECT count(*) FROM {table}")
+                    counts[table] = cursor.fetchone()[0]
+                    cursor.execute(f"DELETE FROM {table}")
+                except sqlite3.OperationalError:
+                    pass
+            conn.commit()
+            return counts
+
 
 class PostgresStorageBackend:
     """Production-grade PostgreSQL storage backend for Azure Database for PostgreSQL (Flexible Server)."""
@@ -1747,6 +1788,23 @@ class PostgresStorageBackend:
 
     def backup_db(self, target_path: str | None = None) -> str:
         return target_path or f"azure_pg_backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.sql"
+
+    def purge_all_data(self) -> dict[str, int]:
+        """Purge all leads, sandboxes, tickets, and operational records in PostgreSQL."""
+        from sqlalchemy import text
+        counts = {}
+        with self.engine.begin() as conn:
+            for table in [
+                "sandboxes", "leads", "tickets", "cancellation_requests",
+                "chat_messages", "emails_sent", "inbound_emails", "webhook_events"
+            ]:
+                try:
+                    cnt = conn.execute(text(f"SELECT count(*) FROM {table}")).scalar()
+                    counts[table] = int(cnt or 0)
+                    conn.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
+                except Exception:
+                    pass
+        return counts
 
 
 def create_storage_backend(database_url: str | None = None) -> StorageBackend:
