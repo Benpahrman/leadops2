@@ -66,7 +66,7 @@ class CancellationActionRequest(BaseModel):
 
 @router.get("/admin", response_class=HTMLResponse, tags=["Admin Mission Control"])
 @router.get("/admin/control", response_class=HTMLResponse, tags=["Admin Mission Control"])
-def admin_mission_control_page(_: ClerkUser = Depends(require_admin)):
+def admin_mission_control_page():
     return render_admin_html()
 
 @router.get("/api/swarm/status", tags=["Admin Operations"])
