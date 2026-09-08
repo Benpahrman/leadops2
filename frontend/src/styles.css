@@ -696,3 +696,208 @@ input[type="range"]::-webkit-slider-thumb {
   max-height: 480px;
   white-space: pre;
 }
+
+/* ==========================================================
+   Sandbox Executive Terminal Styles (KPIs, Drawer, Table)
+   ========================================================== */
+
+.sandbox-hero {
+  background: linear-gradient(180deg, #111e33 0%, #0c1527 100%);
+  border: 1px solid #233859;
+  border-radius: var(--radius-lg);
+  padding: 32px 28px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  margin-bottom: 24px;
+  position: relative;
+  overflow: hidden;
+}
+
+.sandbox-hero::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #38bdf8, #10b981, #6366f1);
+}
+
+.sandbox-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.sandbox-kpi-card {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid #1e2e4a;
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  backdrop-filter: blur(12px);
+  transition: border-color 0.2s, transform 0.2s;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.sandbox-kpi-card:hover {
+  border-color: #38bdf8;
+  transform: translateY(-2px);
+}
+
+.sandbox-kpi-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.sandbox-kpi-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-family: var(--mono);
+}
+
+.sandbox-kpi-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -0.5px;
+}
+
+.sandbox-kpi-subtext {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Enhanced Data Table Styles */
+.table-interactive tr {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.table-interactive tr:hover td {
+  background: rgba(56, 189, 248, 0.05) !important;
+}
+
+th.sortable-th {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s;
+}
+
+th.sortable-th:hover {
+  color: #fff;
+}
+
+.badge-verified-docket {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--mono);
+}
+
+/* Pagination Bar */
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-top: 1px solid var(--border);
+  background: #0b1526;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.pagination-btn {
+  background: var(--card-alt);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  border-color: var(--cyan);
+  color: #fff;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Slide-out Record Inspector Drawer */
+.record-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 9, 18, 0.7);
+  backdrop-filter: blur(6px);
+  z-index: 9999;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.record-drawer {
+  width: 100%;
+  max-width: 560px;
+  background: #0c1527;
+  border-left: 1px solid var(--border-light);
+  height: 100vh;
+  overflow-y: auto;
+  padding: 32px 28px;
+  box-shadow: -10px 0 40px rgba(0, 0, 0, 0.75);
+  display: flex;
+  flex-direction: column;
+  animation: drawerSlide 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes drawerSlide {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.drawer-field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid #1a273d;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+
+.drawer-field-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-family: var(--mono);
+}
+
+.drawer-field-value {
+  font-size: 13px;
+  color: #fff;
+  word-break: break-word;
+}
+

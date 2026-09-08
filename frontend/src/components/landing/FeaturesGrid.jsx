@@ -13,8 +13,8 @@ const features = [
   },
   {
     icon: '🛡️',
-    title: '50% Milestone Escrow Guarantee',
-    text: 'Deposit $250.00 to initiate your custom extractor. Funds remain locked in escrow until the QA Gatekeeper validates 25 live sample rows with 100% accuracy.',
+    title: '100% Escrow Guarantee ($99 Setup Sprint)',
+    text: 'Authorize your $99 setup sprint deposit locked safely in escrow (100% credited to Month 1). Funds remain protected until live rows pass >=95% QA verification.',
   },
   {
     icon: '🚀',

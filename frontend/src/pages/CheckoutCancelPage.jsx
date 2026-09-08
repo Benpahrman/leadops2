@@ -28,9 +28,9 @@ export default function CheckoutCancelPage() {
             🛡️ Remember Our 100% Escrow Protection:
           </h3>
           <ul style={{ fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.6, paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <li><b>Zero Financial Risk:</b> The $250.00 setup deposit remains locked in third-party escrow during the build.</li>
-            <li><b>QA Gatekeeper Standard:</b> If the 7-agent dev swarm doesn't deliver &gt;=95.0% live verified rows, your deposit is automatically refunded in full.</li>
-            <li><b>Final Balance Due Only on Pass:</b> The remaining $250 is payable only after you verify the stream meets your expectations.</li>
+            <li><b>Zero Financial Risk:</b> The $99.00 setup sprint deposit remains locked in third-party escrow (100% credited to Month 1).</li>
+            <li><b>QA Gatekeeper Standard:</b> If our 7-agent dev swarm doesn't deliver &gt;=95.0% live verified rows, your deposit is automatically refunded in full.</li>
+            <li><b>Final Balance Due Only on Pass:</b> The net balance of $151 is payable only after you verify the stream meets your expectations.</li>
           </ul>
         </div>
 
