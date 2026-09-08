@@ -28,12 +28,18 @@ export default function HeroSection() {
         <div style={{ display: 'flex', justifyContent: 'center', gap: '14px', flexWrap: 'wrap' }}>
           <button
             className="btn btn-primary btn-lg"
+            onClick={() => navigate('/get-started?plan=production')}
+          >
+            Build Custom Pipeline ➔
+          </button>
+          <button
+            className="btn btn-outline btn-lg"
             onClick={() => navigate('/p/lead-apex-roofing')}
           >
-            Explore Live Sample Sandbox ➔
+            Explore Sample Sandbox
           </button>
-          <a href="#roi-calculator" className="btn btn-outline btn-lg">
-            Calculate Your ROI
+          <a href="#roi-calculator" className="btn btn-outline btn-lg" style={{ borderColor: 'rgba(255,255,255,0.15)', color: 'var(--text-muted)' }}>
+            Calculate ROI
           </a>
         </div>
 

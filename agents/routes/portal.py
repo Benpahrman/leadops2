@@ -509,6 +509,89 @@ def receive_inbound_email_webhook(
     return {"ok": True, "result": result}
 
 
+class PipelineInitializeRequest(BaseModel):
+    company_name: str
+    contact_email: str
+    target_url: str = ""
+    jurisdiction: str = ""
+    data_goal: str = ""
+    tier_key: str = "daily"
+    preferred_destination: str = "Google Sheets"
+
+
+@router.post("/api/pipeline/initialize", tags=["Portal API"])
+def initialize_custom_pipeline(
+    req: PipelineInitializeRequest,
+    storage_backend=Depends(get_storage),
+    portal_service=Depends(get_portal_service),
+):
+    """Register a new prospect company, initialize their scraper pipeline, and generate a verified sandbox."""
+    import re
+    clean_company = req.company_name.strip()
+    if not clean_company:
+        raise HTTPException(status_code=400, detail="Company name is required")
+    if not req.contact_email or "@" not in req.contact_email:
+        raise HTTPException(status_code=400, detail="Valid work email is required")
+
+    # Generate a unique clean slug from company name
+    slug_base = re.sub(r"[^a-z0-9]+", "-", clean_company.lower()).strip("-")
+    if not slug_base:
+        slug_base = "custom-feed"
+    slug = f"lead-{slug_base}"
+    lead_id = slug
+
+    # Check if lead already exists or create new one
+    lead = storage_backend.get_lead(lead_id) if storage_backend else None
+    if not lead:
+        lead = Lead(
+            lead_id=lead_id,
+            tier_key=req.tier_key or "daily",
+            company_name=clean_company,
+            contact_email=req.contact_email.lower().strip(),
+            jurisdiction=req.jurisdiction.strip() or f"{clean_company} Public Registry",
+            source_url=req.target_url.strip() or "https://data.cityofchicago.org",
+            slug=slug,
+            state=State.REVIEW,
+            custom_goal=req.data_goal.strip(),
+            preferred_destination=req.preferred_destination,
+        )
+        if storage_backend:
+            storage_backend.save_lead(lead)
+    else:
+        lead.company_name = clean_company
+        lead.contact_email = req.contact_email.lower().strip()
+        if req.jurisdiction:
+            lead.jurisdiction = req.jurisdiction.strip()
+        if req.target_url:
+            lead.source_url = req.target_url.strip()
+        if req.tier_key:
+            lead.tier_key = req.tier_key
+        if storage_backend:
+            storage_backend.save_lead(lead)
+
+    # Ensure a verified sandbox exists with authentic government records
+    sandbox = ensure_demo_sandbox(slug, portal_service, storage_backend)
+
+    if sandbox:
+        sandbox.lead = lead
+        if req.target_url:
+            sandbox.source_url = req.target_url.strip()
+        if storage_backend:
+            storage_backend.save_sandbox(sandbox)
+            storage_backend.save_lead(lead)
+
+    return {
+        "ok": True,
+        "lead_id": lead.lead_id,
+        "slug": slug,
+        "sandbox_url": f"/p/{slug}",
+        "company_name": clean_company,
+        "tier": lead.tier.name,
+        "jurisdiction": lead.jurisdiction,
+        "source_url": sandbox.source_url if sandbox else lead.source_url,
+    }
+
+
 @router.post("/api/sandbox/{slug}/suggest-columns", tags=["Portal API"])
 def suggest_sandbox_columns(
     slug: str,

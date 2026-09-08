@@ -19,7 +19,11 @@ export default function Header() {
     <header className="site-header">
       <div className="container header-inner">
         <div className="brand-wrap" onClick={() => navigate('/')}>
-          <div className="brand-icon">⚡</div>
+          <div className="brand-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--primary)' }}>
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
+          </div>
           <span className="brand-title">OmniLeadFeeder</span>
           <span className="live-badge">
             <span className="live-dot"></span>
@@ -29,8 +33,9 @@ export default function Header() {
 
         <nav className="nav-links">
           <Link to="/" className="nav-link">Platform</Link>
-          <a href="/#roi-calculator" className="nav-link">ROI Calculator</a>
+          <Link to="/get-started" className="nav-link" style={{ color: 'var(--cyan)', fontWeight: 600 }}>Build Pipeline</Link>
           <Link to="/p/lead-apex-roofing" className="nav-link">Sample Sandbox</Link>
+          <a href="/#roi-calculator" className="nav-link">ROI Calculator</a>
           <a href="/#pricing" className="nav-link">Pricing</a>
         </nav>
 

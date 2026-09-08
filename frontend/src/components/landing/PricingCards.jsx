@@ -204,7 +204,7 @@ export default function PricingCards() {
                     fontSize: '13px',
                     boxShadow: p.highlight ? '0 4px 20px rgba(16, 185, 129, 0.35)' : 'none',
                   }}
-                  onClick={() => navigate('/p/lead-apex-roofing')}
+                  onClick={() => navigate(`/get-started?plan=${p.id}`)}
                 >
                   {p.cta} ➔
                 </button>
@@ -245,7 +245,7 @@ export default function PricingCards() {
           <button
             className="btn btn-outline"
             style={{ padding: '11px 22px', fontSize: '13px', fontWeight: 700, borderColor: 'var(--purple)', color: '#d8b4fe', background: 'rgba(168, 85, 247, 0.08)' }}
-            onClick={() => navigate('/p/lead-apex-roofing')}
+            onClick={() => navigate('/get-started?plan=buyout')}
           >
             Inquire Source Buyout ➔
           </button>

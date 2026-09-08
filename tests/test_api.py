@@ -620,6 +620,34 @@ def test_setup_sprint_deposit_and_final_credit_flow(client):
     assert sandbox.lead.subscription_active is True
 
 
+def test_pipeline_initialize(client):
+    payload = {
+        "company_name": "Acme Legal Research",
+        "contact_email": "ops@acmelegal.com",
+        "target_url": "https://data.austintexas.gov",
+        "jurisdiction": "Travis County, TX",
+        "data_goal": "Extract all commercial building permits filed in last 30 days",
+        "tier_key": "daily",
+        "preferred_destination": "Google Sheets",
+    }
+    res = client.post("/api/pipeline/initialize", json=payload)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert data["company_name"] == "Acme Legal Research"
+    assert "slug" in data
+    assert "lead_id" in data
+    assert data["sandbox_url"].startswith("/p/")
+
+    # Fetch the newly provisioned sandbox
+    slug = data["slug"]
+    sandbox_res = client.get(f"/api/sandbox/{slug}")
+    assert sandbox_res.status_code == 200
+    sandbox_data = sandbox_res.json()
+    assert sandbox_data["company_name"] == "Acme Legal Research"
+
+
+
 
 
 

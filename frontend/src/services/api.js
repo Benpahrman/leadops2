@@ -477,4 +477,18 @@ export async function cancelAutoOutreach(leadId, token = '') {
   return res.json();
 }
 
+export async function initializePipeline(payload) {
+  const res = await fetch(`${API_BASE}/api/pipeline/initialize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Pipeline initialization failed: HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+
 

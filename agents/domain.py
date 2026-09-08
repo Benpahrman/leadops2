@@ -147,6 +147,8 @@ class Lead:
     pain_severity: int = 6
     qualification_verdict: str = "QUALIFIED_HOT"
     research: dict = field(default_factory=dict)
+    custom_goal: str = ""
+    preferred_destination: str = ""
     updated_at: str = ""
 
     def __post_init__(self) -> None:

@@ -13,6 +13,7 @@ import TermsPage from './pages/TermsPage';
 import PrivacyPage from './pages/PrivacyPage';
 import CheckoutSuccessPage from './pages/CheckoutSuccessPage';
 import CheckoutCancelPage from './pages/CheckoutCancelPage';
+import PipelineIntakePage from './pages/PipelineIntakePage';
 
 export default function App() {
   return (
@@ -22,6 +23,9 @@ export default function App() {
           <Header />
           <Routes>
             <Route path="/" element={<LandingPage />} />
+            <Route path="/get-started" element={<PipelineIntakePage />} />
+            <Route path="/build" element={<Navigate to="/get-started" replace />} />
+            <Route path="/pipeline/new" element={<Navigate to="/get-started" replace />} />
             <Route path="/p/:slug" element={<SandboxPage />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/dashboard/:leadId" element={<DashboardPage />} />
