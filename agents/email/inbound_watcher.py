@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -33,6 +34,81 @@ class InboundEmailWatcher:
         self.is_running = False
         self._task: asyncio.Task[None] | None = None
 
+    @staticmethod
+    def should_ignore_inbound(sender: str, subject: str = "") -> bool:
+        """Determines if an inbound email should be ignored without responding or provisioning leads.
+
+        Specifically ignores:
+        - googlemail.com and google.com domains / subdomains (system alerts, mailer-daemon, etc.)
+        - system role accounts (mailer-daemon, postmaster, no-reply, autoreply)
+        - automated bounce notifications / delivery failure notices
+        - self-addressed loops from our own sending domains (omnileadfeeder.tech)
+        """
+        if not sender:
+            return True
+
+        # Extract clean email address if in "Display Name <user@domain.com>" format
+        match = re.search(r"<([^>]+)>", sender)
+        clean_sender = match.group(1).strip().lower() if match else sender.strip().lower()
+        subject_lower = (subject or "").lower().strip()
+
+        if "@" in clean_sender:
+            local_part, domain = clean_sender.split("@", 1)
+        else:
+            local_part, domain = clean_sender, ""
+
+        # 1. Block Googlemail, Google system domains, and our own domain loops
+        # User requirement: "IN OUR INBOUND MESSAGES WE GET MAIL FROM GOOGLEMAIL.COM AND GOOGLE.COM WE NEED TO NOT RESPOND TO THOSE"
+        blocked_domains = {
+            "google.com",
+            "googlemail.com",
+            "omnileadfeeder.tech",
+        }
+        if domain in blocked_domains or any(domain.endswith(f".{bd}") for bd in blocked_domains):
+            return True
+
+        # 2. Block system, daemon, bounce, and no-reply local parts
+        system_prefixes = (
+            "mailer-daemon",
+            "mailerdaemon",
+            "postmaster",
+            "no-reply",
+            "noreply",
+            "donotreply",
+            "do-not-reply",
+            "bounce",
+            "bounces",
+            "notifications",
+            "daemon",
+            "auto-reply",
+            "autoreply",
+        )
+        if any(
+            local_part == prefix or local_part.startswith(f"{prefix}+") or local_part.startswith(f"{prefix}-")
+            for prefix in system_prefixes
+        ):
+            return True
+
+        # 3. Block bounce / automated delivery status subjects
+        bounce_phrases = (
+            "delivery status notification",
+            "undelivered mail returned to sender",
+            "mail delivery failed",
+            "failure notice",
+            "returned mail",
+            "address not found",
+            "security alert",
+            "undeliverable",
+            "automatic reply",
+            "out of office",
+            "auto-reply",
+            "vacation response",
+        )
+        if any(phrase in subject_lower for phrase in bounce_phrases):
+            return True
+
+        return False
+
     def poll_and_process_once(self) -> list[dict[str, Any]]:
         """Poll Gmail IMAP once, process all unseen incoming replies, and return processed event logs."""
         try:
@@ -50,12 +126,28 @@ class InboundEmailWatcher:
     def process_single_inbound_email(self, msg: dict[str, Any]) -> dict[str, Any]:
         """Process an individual inbound message (from IMAP poll or HTTP webhook)."""
         import time
-        sender = msg.get("sender_email", "").lower().strip()
+        raw_sender = msg.get("sender_email", "").strip()
+        match = re.search(r"<([^>]+)>", raw_sender)
+        sender = match.group(1).strip().lower() if match else raw_sender.strip().lower()
         sender_name = (msg.get("sender_name") or "").strip()
         subject = msg.get("subject", "")
         body = msg.get("body_text") or msg.get("body_html") or ""
 
         logger.info(f"📥 [INBOUND EMAIL RECEIVED] From: {sender} | Subject: '{subject}'")
+
+        # 0. Early filter: Do not respond to Google system emails (googlemail.com, google.com), daemons, bounces, or noreply
+        if self.should_ignore_inbound(sender, subject):
+            logger.info(f"🚫 [INBOUND IGNORED] Skipping automated response and lead intake for system/ignored sender '{sender}' | Subject: '{subject}'")
+            return {
+                "ok": True,
+                "sender": sender,
+                "subject": subject,
+                "intent": "IGNORED",
+                "lead_id": None,
+                "reply_dispatched": False,
+                "status": "IGNORED_SYSTEM_SENDER",
+                "received_at": datetime.now(timezone.utc).isoformat(),
+            }
 
         # 1. Match sender to an existing Lead in storage
         lead = None

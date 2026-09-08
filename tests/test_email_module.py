@@ -425,3 +425,93 @@ def test_email_client_dispatches_with_cloudflare_subdomain():
     assert captured["from_email"] in ("alex@email.omnileadfeeder.tech", "alex@contact.omnileadfeeder.tech")
 
 
+def test_inbound_watcher_should_ignore_google_and_system_senders():
+    """Verify should_ignore_inbound accurately flags Google service domains, mailer-daemons, and bounce alerts."""
+    # 1. Googlemail.com and Google.com domains
+    assert InboundEmailWatcher.should_ignore_inbound("mailer-daemon@googlemail.com") is True
+    assert InboundEmailWatcher.should_ignore_inbound("user@googlemail.com") is True
+    assert InboundEmailWatcher.should_ignore_inbound("no-reply@accounts.google.com") is True
+    assert InboundEmailWatcher.should_ignore_inbound("Google Community Team <googlecommunityteam-noreply@google.com>") is True
+    assert InboundEmailWatcher.should_ignore_inbound("alerts@google.com") is True
+
+    # 2. Self-addressed loop protection
+    assert InboundEmailWatcher.should_ignore_inbound("alex@email.omnileadfeeder.tech") is True
+    assert InboundEmailWatcher.should_ignore_inbound("alex@contact.omnileadfeeder.tech") is True
+
+    # 3. System daemon and noreply prefixes on any domain
+    assert InboundEmailWatcher.should_ignore_inbound("mailer-daemon@yahoo.com") is True
+    assert InboundEmailWatcher.should_ignore_inbound("postmaster@company.com") is True
+    assert InboundEmailWatcher.should_ignore_inbound("no-reply@service.com") is True
+    assert InboundEmailWatcher.should_ignore_inbound("noreply@randomsaas.com") is True
+    assert InboundEmailWatcher.should_ignore_inbound("bounce+12345@sendgrid.net") is True
+
+    # 4. Delivery failure / bounce subjects
+    assert InboundEmailWatcher.should_ignore_inbound("someone@anydomain.com", subject="Delivery Status Notification (Failure)") is True
+    assert InboundEmailWatcher.should_ignore_inbound("someone@anydomain.com", subject="Undelivered Mail Returned to Sender") is True
+    assert InboundEmailWatcher.should_ignore_inbound("someone@anydomain.com", subject="Automatic reply: Out of office") is True
+
+    # 5. Legitimate prospective leads are NOT ignored
+    assert InboundEmailWatcher.should_ignore_inbound("prospect.owner@gmail.com", subject="Re: Austin Permits") is False
+    assert InboundEmailWatcher.should_ignore_inbound("bob@apexbuilders.com", subject="Interested in the data feed") is False
+    assert InboundEmailWatcher.should_ignore_inbound("sarah@commercialroofing.com", subject="Pricing question") is False
+
+
+def test_inbound_watcher_does_not_reply_or_create_lead_for_ignored_senders():
+    """Verify that InboundEmailWatcher does not provision leads or send replies when receiving mailer-daemon@googlemail.com or google.com."""
+    storage = InMemoryStorageBackend()
+    sent_emails = []
+
+    class MockClient(EmailClient):
+        def fetch_unseen_emails(self, folder="INBOX", mark_as_read=False):
+            return [
+                {
+                    "imap_id": "1",
+                    "sender_name": "Mail Delivery Subsystem",
+                    "sender_email": "mailer-daemon@googlemail.com",
+                    "subject": "Delivery Status Notification (Failure)",
+                    "message_id": "<msg-bounce-1@googlemail.com>",
+                    "body_text": "The message could not be delivered to recipient@nonexistentdomain.org",
+                },
+                {
+                    "imap_id": "2",
+                    "sender_name": "Google",
+                    "sender_email": "no-reply@accounts.google.com",
+                    "subject": "Security alert for your linked Google Account",
+                    "message_id": "<msg-google-2@google.com>",
+                    "body_text": "A new sign-in was detected on your account.",
+                },
+            ]
+
+        def send_email(self, **kwargs):
+            sent_emails.append(kwargs)
+            return {"ok": True, "message_id": "fake_sent"}
+
+    watcher = InboundEmailWatcher(
+        email_client=MockClient(),
+        storage_backend=storage,
+    )
+
+    results = watcher.poll_and_process_once()
+
+    # Both messages processed as ignored
+    assert len(results) == 2
+    for res in results:
+        assert res["ok"] is True
+        assert res["status"] == "IGNORED_SYSTEM_SENDER"
+        assert res["reply_dispatched"] is False
+        assert res["intent"] == "IGNORED"
+        assert res["lead_id"] is None
+
+    # CRITICAL: Zero emails dispatched
+    assert len(sent_emails) == 0
+
+    # CRITICAL: Zero dummy leads created in storage
+    leads = storage.list_leads()
+    assert len(leads) == 0
+
+    # CRITICAL: Zero inbound email records persisted
+    records = storage.list_inbound_emails()
+    assert len(records) == 0
+
+
+
