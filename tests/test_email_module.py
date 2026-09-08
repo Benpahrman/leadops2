@@ -497,7 +497,7 @@ def test_inbound_watcher_does_not_reply_or_create_lead_for_ignored_senders():
     assert len(results) == 2
     for res in results:
         assert res["ok"] is True
-        assert res["status"] == "IGNORED_SYSTEM_SENDER"
+        assert res["status"] in {"IGNORED_SYSTEM_SENDER", "BOUNCE_PROCESSED_AND_ARCHIVED"}
         assert res["reply_dispatched"] is False
         assert res["intent"] == "IGNORED"
         assert res["lead_id"] is None
@@ -552,6 +552,60 @@ def test_word_quick_banned_from_vocabulary():
     )
     assert not re.search(r"\bquick\b", res["humanized_subject"], re.I), f"Found 'quick' in humanized subject: {res['humanized_subject']}"
     assert not re.search(r"\bquick\b", res["humanized_body_text"], re.I), f"Found 'quick' in humanized body: {res['humanized_body_text']}"
+
+
+def test_deliverability_verifier_rejects_dummy_domains_and_test_accounts():
+    """Verify DeliverabilityVerifier flags dummy placeholder domains and unmonitored test accounts as UNDELIVERABLE."""
+    verifier = DeliverabilityVerifier(probe_smtp=False)
+
+    # 1. Dummy placeholder domains must be UNDELIVERABLE
+    res_dummy1 = verifier.verify("contact@company.com")
+    assert res_dummy1.status == DeliverabilityStatus.UNDELIVERABLE
+    assert not res_dummy1.is_safe_to_send
+
+    res_dummy2 = verifier.verify("ops@testcompany.com")
+    assert res_dummy2.status == DeliverabilityStatus.UNDELIVERABLE
+
+    # 2. Test accounts on any domain must not be safe to send
+    res_test = verifier.verify("test@lonestar.com")
+    assert res_test.is_role_account
+    assert not res_test.is_safe_to_send
+
+
+def test_inbound_watcher_extracts_bounced_email_and_archives_lead():
+    """Verify that when a delivery failure notice is received, InboundEmailWatcher auto-archives the matching lead."""
+    storage = InMemoryStorageBackend()
+    bounced_lead = Lead(
+        lead_id="lead-bounced-partner",
+        tier_key="daily",
+        company_name="Commercial Finance Partners",
+        contact_email="contact@commercialfinancepartners.com",
+    )
+    bounced_lead.state = State.OUTREACH_SENT
+    storage.save_lead(bounced_lead)
+
+    bounce_msg = {
+        "imap_id": "99",
+        "sender_name": "Mail Delivery Subsystem",
+        "sender_email": "mailer-daemon@googlemail.com",
+        "subject": "Delivery Status Notification (Failure)",
+        "message_id": "<bounce-msg-99@googlemail.com>",
+        "body_text": "Address not found\n\nYour message wasn't delivered to contact@commercialfinancepartners.com because the address couldn't be found, or is unable to receive mail.",
+    }
+
+    watcher = InboundEmailWatcher(storage_backend=storage)
+    res = watcher.process_single_inbound_email(bounce_msg)
+
+    assert res["status"] == "BOUNCE_PROCESSED_AND_ARCHIVED"
+    assert res["bounced_email"] == "contact@commercialfinancepartners.com"
+    assert res["lead_id"] == "lead-bounced-partner"
+    assert res["reply_dispatched"] is False
+
+    # Verify lead was transitioned to ARCHIVED
+    updated_lead = storage.get_lead("lead-bounced-partner")
+    assert updated_lead.state == State.ARCHIVED
+    assert "Delivery bounce received" in updated_lead.audit_log[-1]["reason"]
+
 
 
 

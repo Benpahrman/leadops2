@@ -167,7 +167,7 @@ def extract_contact_info_from_url(website_url: str) -> dict[str, Any]:
     verified_email = (
         company_domain_emails[0]
         if company_domain_emails
-        else (general_clean_emails[0] if general_clean_emails else (all_emails[0] if all_emails else f"contact@{domain_name}"))
+        else (general_clean_emails[0] if general_clean_emails else (all_emails[0] if all_emails else ""))
     )
 
     return {

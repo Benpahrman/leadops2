@@ -471,13 +471,13 @@ class ScoutBackgroundWorker:
             contact_info.get("verified_email")
             or llm_candidate.get("contact_email")
             or (contact_info.get("emails")[0] if contact_info.get("emails") else None)
-            or f"contact@{company_website.split('//')[-1].split('/')[0].replace('www.', '') if company_website else 'company.com'}"
+            or None
         )
         verified_phone = (
             contact_info.get("verified_phone")
             or llm_candidate.get("contact_phone")
             or (contact_info.get("phones")[0] if contact_info.get("phones") else None)
-            or "(512) 555-0100"
+            or ""
         )
         
         # Priority for contact name & role: LinkedIn > Extracted Web > LLM Candidate > Default
@@ -564,11 +564,19 @@ class ScoutBackgroundWorker:
         # Pre-flight Email Deliverability & Bounce Verification
         from .email.verifier import DeliverabilityVerifier, DeliverabilityStatus
         verifier = DeliverabilityVerifier(probe_smtp=not bool(os.environ.get("PYTEST_CURRENT_TEST")))
-        contact_email = target.get("contact_email", "")
-        if contact_email and not os.environ.get("PYTEST_CURRENT_TEST"):
+        contact_email = (target.get("contact_email") or "").strip()
+        if not contact_email or any(contact_email.lower().endswith(f"@{d}") for d in ("company.com", "example.com", "testcompany.com", "domain.com")):
+            logger.warning(f"❌ [SCOUT REJECTED] Candidate '{discovered_name}' rejected: No genuine contact email discovered on website {company_website}.")
+            return {
+                "ok": False,
+                "status": "REJECTED_NO_VERIFIED_EMAIL",
+                "reason": f"No genuine contact email found on {company_website} for '{discovered_name}'",
+            }
+
+        if not os.environ.get("PYTEST_CURRENT_TEST"):
             v_res = verifier.verify(contact_email)
-            if v_res.status == DeliverabilityStatus.UNDELIVERABLE:
-                logger.warning(f"❌ [SCOUT REJECTED] Contact email '{contact_email}' is undeliverable: {v_res.reason}")
+            if not v_res.is_safe_to_send or v_res.status == DeliverabilityStatus.UNDELIVERABLE:
+                logger.warning(f"❌ [SCOUT REJECTED] Contact email '{contact_email}' is undeliverable or risky: {v_res.reason}")
                 return {
                     "ok": False,
                     "status": "REJECTED_UNDELIVERABLE_EMAIL",
@@ -1186,7 +1194,14 @@ class B2BWebScoutWorker:
         company_name = dossier.get("company_name") or top_company.get("title", "Lone Star Commercial Capital")
         contact_name = dossier.get("contact_name") or "Operations Director"
         contact_role = dossier.get("contact_role") or "Director of Operations"
-        contact_email = dossier.get("contact_email") or contact_info.get("verified_email", "contact@company.com")
+        contact_email = dossier.get("contact_email") or contact_info.get("verified_email", "")
+        if not contact_email or "@" not in contact_email or any(contact_email.lower().endswith(f"@{d}") for d in ("company.com", "example.com", "testcompany.com", "domain.com")):
+            logger.warning(f"❌ [WEB SCOUT] Rejected candidate '{company_name}': No genuine contact email discovered on website {website}.")
+            return {
+                "ok": False,
+                "status": "REJECTED_NO_VERIFIED_EMAIL",
+                "reason": f"No genuine contact email discovered on {website}",
+            }
         contact_phone = dossier.get("contact_phone") or contact_info.get("verified_phone", "")
         website = dossier.get("website") or contact_info.get("website") or company_domain
         pain_point = dossier.get("pain_point") or "Needs automated tracking of new records to eliminate manual entry."

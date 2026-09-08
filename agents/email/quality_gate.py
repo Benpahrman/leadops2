@@ -101,12 +101,21 @@ class OutreachQualityGatekeeper:
         # -------------------------------------------------------------
         # Gate 2: Pre-Send Deliverability & Bounce Verification
         # -------------------------------------------------------------
-        if contact_email and not os.environ.get("PYTEST_CURRENT_TEST"):
+        if not contact_email or "@" not in contact_email:
+            reasons.append("Missing valid contact email address for outreach")
+            return QualityGateResult(
+                passed=False,
+                gate_failed="DELIVERABILITY_BOUNCE_CHECK",
+                reasons=reasons,
+                metrics=metrics,
+            )
+
+        if not os.environ.get("PYTEST_CURRENT_TEST"):
             v_res = self.verifier.verify(contact_email)
             metrics["deliverability_status"] = v_res.status.value
             metrics["deliverability_reason"] = v_res.reason
-            if v_res.status == DeliverabilityStatus.UNDELIVERABLE:
-                reasons.append(f"Contact email {contact_email} is undeliverable: {v_res.reason}")
+            if not v_res.is_safe_to_send or v_res.status != DeliverabilityStatus.DELIVERABLE:
+                reasons.append(f"Contact email {contact_email} failed deliverability verification: {v_res.reason}")
                 return QualityGateResult(
                     passed=False,
                     gate_failed="DELIVERABILITY_BOUNCE_CHECK",

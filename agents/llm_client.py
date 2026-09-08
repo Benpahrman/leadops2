@@ -1471,7 +1471,7 @@ class LLMAgentEngine:
         default_role = (linkedin_data or {}).get("role") or "Director of Operations / Preconstruction"
         default_linkedin = (linkedin_data or {}).get("linkedin_url", "")
         return {
-            "verified_email": contact_data.get("verified_email", f"contact@{company_name.lower().replace(' ', '')}.com"),
+            "verified_email": contact_data.get("verified_email", ""),
             "verified_phone": contact_data.get("verified_phone", ""),
             "decision_maker_name": default_name,
             "decision_maker_role": default_role,

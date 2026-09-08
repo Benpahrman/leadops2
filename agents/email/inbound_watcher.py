@@ -109,6 +109,25 @@ class InboundEmailWatcher:
 
         return False
 
+    @staticmethod
+    def extract_bounced_email(text: str) -> str | None:
+        """Extract the failed recipient address from a delivery status failure / bounce notification."""
+        patterns = [
+            r"wasn'?t delivered to\s+([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)",
+            r"could not be delivered to:?\s*<*([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)>*",
+            r"delivery to the following recipient failed.*?:?\s*<*([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)>*",
+            r"failed to deliver to:?\s*<*([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)>*",
+            r"mailbox\s+([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)\s+does not exist",
+            r"550\s+.*?<*([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)>*",
+        ]
+        for pat in patterns:
+            m = re.search(pat, text, re.IGNORECASE)
+            if m:
+                extracted = m.group(1).lower().strip().rstrip(".")
+                if not any(extracted.endswith(f"@{d}") for d in ("googlemail.com", "google.com", "gmail.com")):
+                    return extracted
+        return None
+
     def poll_and_process_once(self) -> list[dict[str, Any]]:
         """Poll Gmail IMAP once, process all unseen incoming replies, and return processed event logs."""
         try:
@@ -137,15 +156,34 @@ class InboundEmailWatcher:
 
         # 0. Early filter: Do not respond to Google system emails (googlemail.com, google.com), daemons, bounces, or noreply
         if self.should_ignore_inbound(sender, subject):
-            logger.info(f"🚫 [INBOUND IGNORED] Skipping automated response and lead intake for system/ignored sender '{sender}' | Subject: '{subject}'")
+            # Check if this ignored system message is a bounce / delivery failure notification
+            bounced_recipient = self.extract_bounced_email(f"{subject} {body}")
+            archived_lead_id = None
+            if bounced_recipient and self.storage and hasattr(self.storage, "list_leads"):
+                for l in self.storage.list_leads():
+                    if l.contact_email and l.contact_email.lower().strip() == bounced_recipient.lower().strip():
+                        archived_lead_id = l.lead_id
+                        l.transition(State.ARCHIVED, f"Delivery bounce received: {subject}")
+                        if hasattr(self.storage, "save_lead"):
+                            self.storage.save_lead(l)
+                        logger.warning(
+                            f"⚠️ [BOUNCE REGISTERED] Lead {l.lead_id} ({bounced_recipient}) marked ARCHIVED due to delivery failure notice."
+                        )
+                        break
+
+            logger.info(
+                f"🚫 [INBOUND IGNORED] Skipping automated response for system/ignored sender '{sender}' "
+                f"| Subject: '{subject}' | Bounced Recipient: {bounced_recipient or 'None'}"
+            )
             return {
                 "ok": True,
                 "sender": sender,
                 "subject": subject,
                 "intent": "IGNORED",
-                "lead_id": None,
+                "lead_id": archived_lead_id,
+                "bounced_email": bounced_recipient,
                 "reply_dispatched": False,
-                "status": "IGNORED_SYSTEM_SENDER",
+                "status": "BOUNCE_PROCESSED_AND_ARCHIVED" if bounced_recipient else "IGNORED_SYSTEM_SENDER",
                 "received_at": datetime.now(timezone.utc).isoformat(),
             }
 

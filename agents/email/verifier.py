@@ -23,10 +23,16 @@ DISPOSABLE_DOMAINS = {
     "mytemp.email", "mohmal.com", "fakeinbox.com", "nada.ltd"
 }
 
+# Common dummy or placeholder domains
+DUMMY_DOMAINS = {
+    "company.com", "example.com", "testcompany.com", "domain.com",
+    "mycompany.com", "somedomain.com", "test.com"
+}
+
 # Role-based addresses that typically yield low conversion or spam complaints
 GENERIC_ROLE_PREFIXES = {
     "noreply", "no-reply", "donotreply", "mailer-daemon", "postmaster",
-    "abuse", "spam", "admin", "root"
+    "abuse", "spam", "admin", "root", "test", "webmaster", "hostmaster"
 }
 
 
@@ -50,8 +56,8 @@ class VerificationResult:
 
     @property
     def is_safe_to_send(self) -> bool:
-        """Only DELIVERABLE or low-risk emails should be dispatched to protect Gmail reputation."""
-        return self.status in {DeliverabilityStatus.DELIVERABLE, DeliverabilityStatus.RISKY}
+        """Only genuine DELIVERABLE emails with active mail exchangers are safe to dispatch."""
+        return self.status == DeliverabilityStatus.DELIVERABLE
 
 
 class DeliverabilityVerifier:
@@ -128,6 +134,18 @@ class DeliverabilityVerifier:
                 domain=domain,
             )
 
+        # Check dummy/placeholder domains
+        if domain in DUMMY_DOMAINS or domain.endswith(".example.com"):
+            return VerificationResult(
+                email=email,
+                status=DeliverabilityStatus.UNDELIVERABLE,
+                reason=f"Domain '{domain}' is a dummy/placeholder domain",
+                is_valid_format=True,
+                is_disposable=False,
+                is_role_account=False,
+                domain=domain,
+            )
+
         # Check disposable domains
         is_disposable = domain in DISPOSABLE_DOMAINS
         if is_disposable:
@@ -141,20 +159,7 @@ class DeliverabilityVerifier:
                 domain=domain,
             )
 
-        # Check role-based accounts
-        is_role = local_part in GENERIC_ROLE_PREFIXES
-        if is_role:
-            return VerificationResult(
-                email=email,
-                status=DeliverabilityStatus.RISKY,
-                reason=f"Email local-part '{local_part}' is an unmonitored role account",
-                is_valid_format=True,
-                is_disposable=False,
-                is_role_account=True,
-                domain=domain,
-            )
-
-        # Check DNS MX records
+        # Check DNS MX records before evaluating mailbox or role accounts
         mx_records = self.resolve_mx_records(domain)
         if not mx_records:
             return VerificationResult(
@@ -166,6 +171,20 @@ class DeliverabilityVerifier:
                 is_role_account=False,
                 domain=domain,
                 mx_records=[],
+            )
+
+        # Check role-based accounts
+        is_role = local_part in GENERIC_ROLE_PREFIXES
+        if is_role:
+            return VerificationResult(
+                email=email,
+                status=DeliverabilityStatus.RISKY,
+                reason=f"Email local-part '{local_part}' is an unmonitored role account",
+                is_valid_format=True,
+                is_disposable=False,
+                is_role_account=True,
+                domain=domain,
+                mx_records=mx_records,
             )
 
         # Optional SMTP handshake probe on primary MX
