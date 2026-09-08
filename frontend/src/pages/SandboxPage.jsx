@@ -201,44 +201,41 @@ export default function SandboxPage() {
           </div>
         </div>
 
-        {/* Visual 3-Stage Escrow Timeline */}
-        <div style={{
-          background: 'rgba(15, 23, 42, 0.6)',
-          border: '1px solid var(--border)',
-          borderRadius: 'var(--radius-md)',
-          padding: '16px 20px',
-          marginBottom: '24px',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-          gap: '16px',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(56, 189, 248, 0.15)', border: '1px solid var(--cyan)', display: 'grid', placeItems: 'center', fontWeight: 800, color: 'var(--cyan)', fontSize: '12px' }}>
+        {/* Modern Escrow Milestone Pipeline Ribbon */}
+        <div className="escrow-pipeline-bar">
+          <div className="escrow-step-item">
+            <div className="escrow-step-circle" style={{ background: 'rgba(56, 189, 248, 0.15)', border: '1px solid var(--cyan)', color: 'var(--cyan)' }}>
               1
             </div>
             <div>
-              <div style={{ fontSize: '12px', fontWeight: 700, color: '#fff' }}>$99 Setup Sprint</div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>100% credited to Month 1</div>
+              <div style={{ fontSize: '13px', fontWeight: 800, color: '#fff' }}>Stage 1: $99 Setup Sprint Deposit</div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                100% credited toward Month 1 • Held safely in escrow
+              </div>
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(168, 85, 247, 0.15)', border: '1px solid var(--purple)', display: 'grid', placeItems: 'center', fontWeight: 800, color: 'var(--purple)', fontSize: '12px' }}>
+          <div className="escrow-step-item">
+            <div className="escrow-step-circle" style={{ background: 'rgba(168, 85, 247, 0.15)', border: '1px solid var(--purple)', color: 'var(--purple)' }}>
               2
             </div>
             <div>
-              <div style={{ fontSize: '12px', fontWeight: 700, color: '#fff' }}>7-Agent Swarm Build</div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>AST parsing & anti-bot WAF bypass</div>
+              <div style={{ fontSize: '13px', fontWeight: 800, color: '#fff' }}>Stage 2: 7-Agent Swarm Extraction</div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                Autonomous DOM parsing &amp; anti-bot WAF bypass
+              </div>
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid var(--green)', display: 'grid', placeItems: 'center', fontWeight: 800, color: 'var(--green)', fontSize: '12px' }}>
+          <div className="escrow-step-item">
+            <div className="escrow-step-circle" style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid var(--green)', color: 'var(--green)' }}>
               3
             </div>
             <div>
-              <div style={{ fontSize: '12px', fontWeight: 700, color: '#fff' }}>QA Pass & Daily Delivery</div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>$151 net balance due on &gt;=95% pass</div>
+              <div style={{ fontSize: '13px', fontWeight: 800, color: '#fff' }}>Stage 3: QA Pass &amp; Continuous Feed</div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                $151 net balance due only upon &gt;=95% verification pass
+              </div>
             </div>
           </div>
         </div>
