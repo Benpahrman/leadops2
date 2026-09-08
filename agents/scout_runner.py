@@ -31,8 +31,14 @@ def is_office_hours(
     try:
         tz = zoneinfo.ZoneInfo(tz_str)
     except Exception:
-        tz = zoneinfo.ZoneInfo("US/Central")
-        tz_str = "US/Central"
+        try:
+            tz = zoneinfo.ZoneInfo("US/Central")
+            tz_str = "US/Central"
+        except Exception:
+            # Resilient fallback when tzdata is missing on slim Linux environments
+            from datetime import timezone, timedelta
+            tz = timezone(timedelta(hours=-5), name="US/Central")
+            tz_str = "US/Central"
 
     sh = int(start_hour if start_hour is not None else os.environ.get("SCOUT_OFFICE_HOURS_START", "8"))
     eh = int(end_hour if end_hour is not None else os.environ.get("SCOUT_OFFICE_HOURS_END", "17"))
@@ -1007,10 +1013,17 @@ class ScoutAutomationSupervisor:
                     continue
 
                 self._status["is_office_hours"] = True
-                # When office hours open, dispatch any cold outreach pitches held overnight
+                # When office hours open, dispatch any cold outreach pitches held overnight in background thread
                 try:
+                    import threading
                     from .auto_outreach import auto_outreach_scheduler
-                    auto_outreach_scheduler.flush_pending_office_hours_queue(self.storage)
+                    from .notifications import notification_manager
+                    threading.Thread(
+                        target=auto_outreach_scheduler.flush_pending_office_hours_queue,
+                        args=(self.storage, notification_manager),
+                        daemon=True,
+                        name="office-hours-flush",
+                    ).start()
                 except Exception as flush_err:
                     logger.debug(f"Office hours outreach queue flush note: {flush_err}")
 

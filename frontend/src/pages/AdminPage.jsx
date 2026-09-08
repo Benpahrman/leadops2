@@ -182,7 +182,9 @@ export default function AdminPage() {
       ]);
 
       if (pipeData.status === 'fulfilled') {
-        setPipeline(pipeData.value.leads || pipeData.value.pipeline || []);
+        const raw = pipeData.value || {};
+        const list = Array.isArray(raw) ? raw : (raw.leads || raw.pipeline || []);
+        setPipeline(list);
       } else {
         console.warn('Pipeline fetch error:', pipeData.reason);
         showToast(`Pipeline load error: ${pipeData.reason?.message || 'Authentication required'}`, 'error');

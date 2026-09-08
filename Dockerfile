@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     libpq5 \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # Install build dependencies, build wheels, and clean up

@@ -208,8 +208,15 @@ class AutoOutreachScheduler:
         with self._lock:
             self._last_dispatch_time = time.time()
 
-    def _execute_dispatch(self, lead: Lead, storage_backend: Any, notifier: Any) -> None:
+    def _execute_dispatch(self, lead: Lead, storage_backend: Any, notifier: Any = None) -> None:
         """Dispatch cold outreach pitch via PitcherService."""
+        if notifier is None:
+            try:
+                from .notifications import notification_manager
+                notifier = notification_manager
+            except Exception:
+                notifier = None
+
         from .pitcher import PitcherService, PitchMessage, render_sub_60_word_pitch
 
         company = lead.company_name or "Partner"
@@ -295,6 +302,13 @@ class AutoOutreachScheduler:
 
     def flush_pending_office_hours_queue(self, storage_backend: Any, notifier: Any = None) -> list[str]:
         """Flush any pending approved pitches when office hours open (8:00 AM - 5:00 PM CST)."""
+        if notifier is None:
+            try:
+                from .notifications import notification_manager
+                notifier = notification_manager
+            except Exception:
+                notifier = None
+
         is_open, seconds_until_open, msg = is_office_hours()
         if not is_open:
             logger.debug(f"flush_pending_office_hours_queue: Outside office hours ({msg}). Standing by.")

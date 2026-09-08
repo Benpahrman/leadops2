@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 # Super Admin Email Addresses (comma-separated in LEADOPS_ADMIN_EMAILS env var)
 GLOBAL_ADMIN_EMAILS = set(
     e.strip().lower()
-    for e in os.environ.get("LEADOPS_ADMIN_EMAILS", "benpahrman@gmail.com,pahrmancb@gmail.com,pharmancb@gmail.com").split(",")
+    for e in os.environ.get("LEADOPS_ADMIN_EMAILS", "benpahrman@gmail.com,pahrmancb@gmail.com,pharmancb@gmail.com,christopher.ben.pahrman@gmail.com").split(",")
     if e.strip()
 )
 

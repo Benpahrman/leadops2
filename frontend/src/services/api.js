@@ -1,6 +1,6 @@
 // Centralized API client for OmniLeadFeeder frontend
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || (typeof window !== 'undefined' && window.location.hostname.includes('azurestaticapps.net') ? 'https://omnileadfeeder.tech' : '');
 
 export async function fetchHealth() {
   const res = await fetch(`${API_BASE}/health`);
