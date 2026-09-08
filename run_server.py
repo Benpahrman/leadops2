@@ -429,6 +429,18 @@ def run_continuous_scout_loop(
                 time.sleep(30)
             continue
 
+        # Enforce office hours (8:00 AM - 5:00 PM CST, Mon-Fri)
+        from agents.scout_runner import is_office_hours
+        is_open, wait_seconds, status_msg = is_office_hours()
+        if not is_open:
+            log.info(f"🌙 [SCOUT DAEMON] {status_msg} Standing by until 8:00 AM window.")
+            sleep_chunk = min(wait_seconds, 300)
+            if stop_event:
+                stop_event.wait(sleep_chunk)
+            else:
+                time.sleep(sleep_chunk)
+            continue
+
         try:
             candidate = worker.discover_next_candidate()
             if candidate and candidate.get("ok"):

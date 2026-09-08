@@ -6,8 +6,72 @@ import random
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta, time as dtime
+import zoneinfo
 from typing import Any
+
+def is_office_hours(
+    now: datetime | None = None,
+    tz_name: str | None = None,
+    start_hour: int | None = None,
+    end_hour: int | None = None,
+    weekdays_only: bool | None = None,
+) -> tuple[bool, int, str]:
+    """Check if current time is within business office hours (default: 8:00 AM - 5:00 PM CST, Mon-Fri).
+
+    Returns:
+        (is_open: bool, wait_seconds: int, status_message: str)
+        If is_open is False, wait_seconds is seconds until the next 8:00 AM opening window.
+        If is_open is True, wait_seconds is seconds until 5:00 PM closing.
+    """
+    if os.environ.get("SCOUT_FORCE_OFFICE_HOURS", "").lower() == "true":
+        return True, 3600, "Office hours forced active by configuration"
+
+    tz_str = tz_name or os.environ.get("SCOUT_TIMEZONE", "US/Central")
+    try:
+        tz = zoneinfo.ZoneInfo(tz_str)
+    except Exception:
+        tz = zoneinfo.ZoneInfo("US/Central")
+        tz_str = "US/Central"
+
+    sh = int(start_hour if start_hour is not None else os.environ.get("SCOUT_OFFICE_HOURS_START", "8"))
+    eh = int(end_hour if end_hour is not None else os.environ.get("SCOUT_OFFICE_HOURS_END", "17"))
+    wd_only = (
+        weekdays_only
+        if weekdays_only is not None
+        else os.environ.get("SCOUT_WEEKDAYS_ONLY", "true").lower() == "true"
+    )
+
+    current = now or datetime.now(tz)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=tz)
+    else:
+        current = current.astimezone(tz)
+
+    weekday = current.weekday()  # 0 = Monday, ..., 6 = Sunday
+    is_weekday = weekday < 5
+
+    in_time_window = (current.hour > sh or (current.hour == sh and current.minute >= 0)) and (current.hour < eh)
+
+    if (not wd_only or is_weekday) and in_time_window:
+        close_time = current.replace(hour=eh, minute=0, second=0, microsecond=0)
+        remaining_seconds = max(60, int((close_time - current).total_seconds()))
+        return True, remaining_seconds, f"Office hours active (8:00 AM - 5:00 PM {tz_str})"
+
+    # If outside office hours, compute next opening window
+    candidate_date = current.date()
+    if current.hour >= eh or (wd_only and not is_weekday) or (current.hour < sh and wd_only and not is_weekday):
+        candidate_date += timedelta(days=1)
+
+    while True:
+        candidate_dt = datetime.combine(candidate_date, dtime(sh, 0), tzinfo=tz)
+        candidate_weekday = candidate_dt.weekday()
+        if not wd_only or candidate_weekday < 5:
+            if candidate_dt > current:
+                wait_sec = max(60, int((candidate_dt - current).total_seconds()))
+                return False, wait_sec, f"Standing by for office hours ({sh}:00 AM - {eh}:00 PM {tz_str}). Resumes at {sh}:00 AM."
+        candidate_date += timedelta(days=1)
+
 
 from .domain import State
 from .portal import PortalService
@@ -378,13 +442,12 @@ class ScoutBackgroundWorker:
                 discovered_name = fallback_name
 
             if discovered_name.lower().strip() in existing_companies:
-                domain_part = company_website.split("//")[-1].split("/")[0].replace("www.", "").split(".")[0]
-                discovered_name = domain_part.capitalize()
-                if discovered_name.lower().strip() in existing_companies:
-                    suffix = 2
-                    while f"{discovered_name} {suffix}".lower().strip() in existing_companies:
-                        suffix += 1
-                    discovered_name = f"{discovered_name} {suffix}"
+                logger.info(f"⏭️ [SCOUT DEDUPLICATION] Company '{discovered_name}' ({company_website}) has already been prospected. Skipping duplicate.")
+                return {
+                    "ok": False,
+                    "status": "DUPLICATE_COMPANY",
+                    "reason": f"Company '{discovered_name}' already exists in pipeline.",
+                }
 
         # 4. Step 4: Search LinkedIn for Real Executive Decision-Maker
         logger.info(f"👔 [LINKEDIN SEARCH] Searching LinkedIn for decision maker at {discovered_name}...")
@@ -682,8 +745,10 @@ class ScoutBackgroundWorker:
                     f"Would it be helpful to stream these over, or are you all set in-house?\n\n"
                     f"Best,\nAlex | LeadOps"
                 )
+                clean_title = (job.get("job_title") or "open role").lower().strip()
+                clean_co = re.sub(r"(?i)\s+(inc\.?|llc|corp\.?|ltd\.?|co\.?)$", "", target["company_name"]).strip()
                 pitch = PitchMessage(
-                    subject=f"quick note re: {job.get('job_title', 'open role')} at {target['company_name']}",
+                    subject=f"quick note re: {clean_title} at {clean_co}",
                     body_text=body_txt,
                     body_html=body_txt.replace("\n", "<br>"),
                     sandbox_url=sandbox_link,
@@ -805,14 +870,25 @@ class ScoutBackgroundWorker:
             self.storage.save_lead(lead)
             logger.info(f"📋 [OUTREACH PENDING REVIEW] Copy prepared for {target['company_name']} | State: {lead.state.value}")
 
-            # Push mobile notification to Discord & Telegram with 1-tap Approve/Reject buttons
+            # Push mobile notification to Discord & Telegram with 1-tap controls & 3-minute grace countdown
             try:
                 from .notifications import notification_manager
+                from .auto_outreach import auto_outreach_scheduler
+
+                # Register lead in the 3-minute grace period scheduler
+                auto_outreach_scheduler.schedule_lead_for_dispatch(
+                    lead=lead,
+                    pitch=pitch,
+                    storage_backend=self.storage,
+                    notifier=notification_manager,
+                )
+
                 notification_manager.notify_lead_qualified_and_dispatching(
                     lead=lead,
                     pitch=pitch,
+                    grace_period_seconds=auto_outreach_scheduler.grace_period_seconds,
                 )
-                logger.info(f"📱 [DISCORD NOTIFICATION DISPATCHED] Mobile review alert sent for {target['company_name']}")
+                logger.info(f"📱 [DISCORD NOTIFICATION DISPATCHED] Mobile review alert with 3-minute grace window sent for {target['company_name']}")
             except Exception as notify_err:
                 logger.warning(f"Failed to dispatch Discord review alert: {notify_err}")
 
@@ -886,7 +962,12 @@ class ScoutAutomationSupervisor:
     })
 
     def status(self) -> dict[str, Any]:
-        return dict(self._status)
+        stat = dict(self._status)
+        is_open, wait_sec, status_msg = is_office_hours()
+        stat["is_office_hours"] = is_open
+        stat["office_hours_status"] = status_msg
+        stat["seconds_until_office_window"] = wait_sec
+        return stat
 
     def start(self) -> None:
         if self.enabled and not self.is_running:
@@ -910,6 +991,29 @@ class ScoutAutomationSupervisor:
         })
         try:
             while self.is_running:
+                is_open, wait_seconds, status_msg = is_office_hours()
+                if not is_open:
+                    next_run_dt = datetime.now(timezone.utc) + timedelta(seconds=wait_seconds)
+                    self._status.update({
+                        "phase": "STANDBY_OFFICE_HOURS",
+                        "message": status_msg,
+                        "next_run_at": next_run_dt.isoformat(),
+                        "last_activity_at": datetime.now(timezone.utc).isoformat(),
+                        "is_office_hours": False,
+                    })
+                    logger.info(f"🌙 [SCOUT OFFICE HOURS] {status_msg} Standing by until 8:00 AM window.")
+                    sleep_chunk = min(wait_seconds, 300)
+                    await asyncio.sleep(sleep_chunk)
+                    continue
+
+                self._status["is_office_hours"] = True
+                # When office hours open, dispatch any cold outreach pitches held overnight
+                try:
+                    from .auto_outreach import auto_outreach_scheduler
+                    auto_outreach_scheduler.flush_pending_office_hours_queue(self.storage)
+                except Exception as flush_err:
+                    logger.debug(f"Office hours outreach queue flush note: {flush_err}")
+
                 await self._run_cycle()
                 rest_seconds = random.randint(self.min_rest_seconds, self.max_rest_seconds)
                 next_run = datetime.now(timezone.utc).timestamp() + rest_seconds
@@ -1078,7 +1182,11 @@ class B2BWebScoutWorker:
         jurisdiction = dossier.get("jurisdiction") or jurisdiction
         suggested_fields = dossier.get("suggested_fields") or live_records_data.get("fields") or ["record_id", "date", "status"]
         tier_key = dossier.get("tier_key") or "weekly"
-        pitch_subject = dossier.get("pitch_subject") or "Automating your manual public record search"
+        clean_portal_short = re.sub(r"(?i)\s*(portal|registry|court|system|division|clerk|records)\s*", "", portal_name).strip() or portal_name
+        default_natural_subj = f"quick question re: {clean_portal_short.lower()} records"
+        pitch_subject = dossier.get("pitch_subject") or default_natural_subj
+        if any(ai_w in pitch_subject.lower() for ai_w in ["automating", "streamlining", "sample", "data feed for", "unlocking", "elevating", "efficiency"]):
+            pitch_subject = default_natural_subj
         pitch_body = dossier.get("pitch_body") or "Hi, we can stream public records to your team automatically."
 
         # STRICT BUYER GATE: Government departments are NOT commercial buyers
@@ -1170,7 +1278,40 @@ class B2BWebScoutWorker:
             # Generate outreach pitch
             lead.outreach_subject = target["pitch_subject"]
             lead.outreach_body = target["pitch_body"]
+            if lead.state == State.PROSPECTING:
+                lead.transition(State.REVIEW, "Web scout discovery completed")
+            if lead.state == State.REVIEW:
+                lead.transition(State.PITCH_PENDING_APPROVAL, "Web scout pitch prepared for operator review")
             self.storage.save_lead(lead)
+
+            # Mobile alert and auto-outreach grace queue
+            try:
+                from .notifications import notification_manager
+                from .auto_outreach import auto_outreach_scheduler
+                from .pitcher import PitchMessage
+
+                web_pitch = PitchMessage(
+                    subject=lead.outreach_subject,
+                    body_text=lead.outreach_body,
+                    body_html=getattr(lead, "outreach_html", "") or f"<p>{lead.outreach_body}</p>",
+                    sandbox_url=f"https://www.omnileadfeeder.tech/p/{candidate.slug}",
+                    word_count=len(lead.outreach_body.split()),
+                )
+
+                auto_outreach_scheduler.schedule_lead_for_dispatch(
+                    lead=lead,
+                    pitch=web_pitch,
+                    storage_backend=self.storage,
+                    notifier=notification_manager,
+                )
+
+                notification_manager.notify_lead_qualified_and_dispatching(
+                    lead=lead,
+                    pitch=web_pitch,
+                    grace_period_seconds=auto_outreach_scheduler.grace_period_seconds,
+                )
+            except Exception as notify_err:
+                logger.warning(f"Web scout notification dispatch notice: {notify_err}")
 
         return {
             "ok": True,

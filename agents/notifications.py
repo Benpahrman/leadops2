@@ -18,6 +18,11 @@ class NotificationSettings:
 
     enabled: bool = True
     discord_webhook_url: str = ""
+    discord_webhook_outreach: str = ""
+    discord_webhook_inbox: str = ""
+    discord_webhook_revenue: str = ""
+    discord_webhook_dev: str = ""
+    discord_webhook_alerts: str = ""
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     timeout_seconds: float = 3.5
@@ -25,9 +30,15 @@ class NotificationSettings:
     @classmethod
     def from_env(cls) -> "NotificationSettings":
         enabled_str = os.environ.get("NOTIFICATIONS_ENABLED", "true").lower().strip()
+        default_discord = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
         return cls(
             enabled=enabled_str in ("true", "1", "yes"),
-            discord_webhook_url=os.environ.get("DISCORD_WEBHOOK_URL", "").strip(),
+            discord_webhook_url=default_discord,
+            discord_webhook_outreach=os.environ.get("DISCORD_WEBHOOK_OUTREACH", "").strip() or default_discord,
+            discord_webhook_inbox=os.environ.get("DISCORD_WEBHOOK_INBOX", "").strip() or default_discord,
+            discord_webhook_revenue=os.environ.get("DISCORD_WEBHOOK_REVENUE", "").strip() or default_discord,
+            discord_webhook_dev=os.environ.get("DISCORD_WEBHOOK_DEV", "").strip() or default_discord,
+            discord_webhook_alerts=os.environ.get("DISCORD_WEBHOOK_ALERTS", "").strip() or default_discord,
             telegram_bot_token=os.environ.get("TELEGRAM_BOT_TOKEN", "").strip(),
             telegram_chat_id=os.environ.get("TELEGRAM_CHAT_ID", "").strip(),
             timeout_seconds=float(os.environ.get("NOTIFICATION_TIMEOUT_SECONDS", "3.5")),
@@ -37,9 +48,20 @@ class NotificationSettings:
 class DiscordNotifier:
     """Sends rich, formatted embeds to Discord channels via Webhooks."""
 
-    def __init__(self, webhook_url: str, timeout: float = 3.5):
+    def __init__(
+        self,
+        webhook_url: str,
+        timeout: float = 3.5,
+        channel_webhooks: dict[str, str] | None = None,
+    ):
         self.webhook_url = webhook_url
         self.timeout = timeout
+        self.channel_webhooks = channel_webhooks or {}
+
+    def get_webhook(self, channel: str | None = None) -> str:
+        if channel and self.channel_webhooks.get(channel):
+            return self.channel_webhooks[channel]
+        return self.webhook_url
 
     def send_embed(
         self,
@@ -48,11 +70,23 @@ class DiscordNotifier:
         fields: list[dict[str, Any]] | None = None,
         color: int = 0x15251F,  # Forest Deep default
         footer: str = "LeadOps Autonomous Swarm",
+        author: dict[str, str] | None = None,
+        thumbnail_url: str | None = None,
+        timestamp: str | None = None,
+        footer_icon_url: str | None = None,
+        username: str = "LeadOps Mission Control",
+        avatar_url: str = "https://cdn-icons-png.flaticon.com/512/906/906334.png",
+        channel: str | None = None,
+        image_url: str | None = None,
     ) -> bool:
-        if not self.webhook_url:
+        target_url = self.get_webhook(channel)
+        if not target_url:
             return False
 
-        embed = {
+        from datetime import datetime, timezone
+        ts = timestamp or datetime.now(timezone.utc).isoformat()
+
+        embed: dict[str, Any] = {
             "title": title[:256],
             "description": description[:2048],
             "color": color,
@@ -64,21 +98,40 @@ class DiscordNotifier:
                 }
                 for f in (fields or [])[:25]
             ],
-            "footer": {"text": footer[:2048]},
+            "timestamp": ts,
         }
 
+        footer_obj: dict[str, str] = {"text": footer[:2048]}
+        if footer_icon_url:
+            footer_obj["icon_url"] = footer_icon_url
+        embed["footer"] = footer_obj
+
+        if author:
+            author_obj: dict[str, str] = {"name": str(author.get("name", ""))[:256]}
+            if author.get("icon_url"):
+                author_obj["icon_url"] = author["icon_url"]
+            if author.get("url"):
+                author_obj["url"] = author["url"]
+            embed["author"] = author_obj
+
+        if thumbnail_url:
+            embed["thumbnail"] = {"url": thumbnail_url}
+
+        if image_url:
+            embed["image"] = {"url": image_url}
+
         payload = {
-            "username": "LeadOps Mission Control",
-            "avatar_url": "https://raw.githubusercontent.com/antigravity-ide/assets/main/bot-avatar.png",
+            "username": username,
+            "avatar_url": avatar_url,
             "embeds": [embed],
         }
 
         try:
             with httpx.Client(timeout=self.timeout) as client:
-                res = client.post(self.webhook_url, json=payload)
+                res = client.post(target_url, json=payload)
                 return res.status_code in (200, 204)
         except Exception as e:
-            logger.warning(f"Discord webhook dispatch failed: {e}")
+            logger.warning(f"Discord webhook dispatch failed ({channel or 'default'}): {e}")
             return False
 
 
@@ -126,9 +179,20 @@ class NotificationManager:
         force_dispatch_in_test: bool = False,
     ):
         self.settings = settings or NotificationSettings.from_env()
+        channel_map = {
+            "outreach": self.settings.discord_webhook_outreach,
+            "inbox": self.settings.discord_webhook_inbox,
+            "revenue": self.settings.discord_webhook_revenue,
+            "dev": self.settings.discord_webhook_dev,
+            "alerts": self.settings.discord_webhook_alerts,
+        }
         self.discord = discord_notifier or (
-            DiscordNotifier(self.settings.discord_webhook_url, self.settings.timeout_seconds)
-            if self.settings.discord_webhook_url
+            DiscordNotifier(
+                self.settings.discord_webhook_url,
+                self.settings.timeout_seconds,
+                channel_webhooks=channel_map,
+            )
+            if (self.settings.discord_webhook_url or any(channel_map.values()))
             else None
         )
         self.telegram = telegram_notifier or (
@@ -179,23 +243,34 @@ class NotificationManager:
         lead: Any,
         pitch: Any,
         quota_info: dict[str, Any] | None = None,
+        grace_period_seconds: int = 180,
     ) -> None:
-        """Alert operator when a prospect passes all quality gates and is about to receive cold outreach."""
+        """Alert operator when a prospect passes all quality gates and is queued for cold outreach."""
         from .auth import generate_mobile_action_token
         lead_id = getattr(lead, "lead_id", "")
+        slug = getattr(lead, "slug", "") or lead_id
+
         approve_tok = generate_mobile_action_token("approve_pitch", lead_id)
         reject_tok = generate_mobile_action_token("reject_pitch", lead_id)
+        send_now_tok = generate_mobile_action_token("send_immediately", lead_id)
+        cancel_tok = generate_mobile_action_token("cancel_auto_outreach", lead_id)
+
         approve_url = f"{self.base_url}/api/admin/quick-action?action=approve_pitch&lead_id={lead_id}&token={approve_tok}"
+        send_now_url = f"{self.base_url}/api/admin/quick-action?action=send_immediately&lead_id={lead_id}&token={send_now_tok}"
+        cancel_url = f"{self.base_url}/api/admin/quick-action?action=cancel_auto_outreach&lead_id={lead_id}&token={cancel_tok}"
         reject_url = f"{self.base_url}/api/admin/quick-action?action=reject_pitch&lead_id={lead_id}&token={reject_tok}"
+        sandbox_url = f"{self.base_url}/p/{slug}"
 
         def _send():
             company = getattr(lead, "company_name", "Unknown Company")
             contact = getattr(lead, "contact_name", "Decision Maker")
+            role = getattr(lead, "contact_role", "Executive")
             email = getattr(lead, "contact_email", "N/A")
             niche = getattr(lead, "niche", "Public Records")
-            portal = getattr(lead, "jurisdiction", "") or getattr(lead, "portal_name", "County Portal")
+            portal = getattr(lead, "jurisdiction", "") or getattr(lead, "portal_name", "County Records Portal")
             subject = getattr(pitch, "subject", "Cold outreach")
-            words = getattr(pitch, "word_count", len(getattr(pitch, "body_text", "").split()))
+            body = getattr(pitch, "body_text", "") or getattr(lead, "outreach_body", "")
+            words = getattr(pitch, "word_count", len(body.split()))
             
             quota_str = ""
             if quota_info:
@@ -205,74 +280,110 @@ class NotificationManager:
                 quota_str = f"Week {week} ({sent}/{quota} dispatched today)"
 
             linkedin_url = getattr(lead, "decision_maker_linkedin", "") or (getattr(lead, "research", {}).get("linkedin_url", "") if isinstance(getattr(lead, "research", None), dict) else "")
-            job_info = getattr(lead, "research", {}).get("job_intent") if isinstance(getattr(lead, "research", None), dict) else None
 
-            # 1. Discord Embed
+            # 1. Discord Embed - Clean, Executive Visual Hierarchy
             if self.discord:
-                contact_display = f"{contact}\n`{email}`"
-                if linkedin_url:
-                    contact_display += f"\n[👔 LinkedIn Profile]({linkedin_url})"
-
                 from .email.config import EmailSettings
                 sending_from = EmailSettings.from_environment().resolve_sender_email(hint=getattr(lead, "lead_id", "") or email)
 
+                contact_lines = [f"▸ **Contact:** **{contact}** ({role})", f"▸ **Email:** `{email}`"]
+                if linkedin_url:
+                    contact_lines.append(f"▸ **Profile:** [👔 View LinkedIn Profile]({linkedin_url})")
+
+                # Format pitch body as clean markdown blockquote
+                body_preview = "\n".join(f"> {line}" if line.strip() else ">" for line in body.strip().splitlines()) if body else "> (Drafting complete)"
+
                 fields = [
-                    {"name": "👤 Contact", "value": contact_display, "inline": True},
-                    {"name": "🏢 Company & Niche", "value": f"**{company}**\n_{niche}_", "inline": True},
-                    {"name": "🏛️ Target Portal", "value": f"`{portal}`", "inline": True},
-                    {"name": "📤 Sending From", "value": f"`{sending_from}`\n*(Cloudflare Routed)*", "inline": True},
-                ]
-                if job_info:
-                    fields.append({
-                        "name": "📋 Active Hiring Pain Signal",
-                        "value": f"Currently hiring: **{job_info.get('job_title', 'Manual Role')}** in {job_info.get('location', 'local market')}",
+                    {
+                        "name": "🏢 Verified Buyer & Prospect",
+                        "value": f"**{company}**\n*{niche}*\n" + "\n".join(contact_lines),
+                        "inline": True,
+                    },
+                    {
+                        "name": "🏛️ Routing & Delivery Node",
+                        "value": (
+                            f"▸ **Target Portal:** `{portal}`\n"
+                            f"▸ **Sending Mailbox:** `{sending_from}`\n"
+                            f"▸ **Routing:** Native SMTP / Cloudflare\n"
+                            f"▸ **Warmup:** {quota_str or 'Normal Schedule'}"
+                        ),
+                        "inline": True,
+                    },
+                    {
+                        "name": "✉️ Cold Email Subject Line",
+                        "value": f"```\n{subject}\n```",
                         "inline": False,
-                    })
-
-                fields.extend([
-                    {"name": "✉️ Subject Line", "value": f"_{subject}_", "inline": False},
-                    {"name": "📏 Copy Metrics", "value": f"{words} words • 0 links • Plaintext", "inline": True},
-                ])
-                if quota_str:
-                    fields.append({"name": "⚡ Warmup Status", "value": quota_str, "inline": True})
-
-                fields.append({
-                    "name": "📱 Mobile 1-Tap Operator Control",
-                    "value": f"[✅ Approve & Dispatch]({approve_url})  •  [❌ Reject Pitch]({reject_url})",
-                    "inline": False,
-                })
+                    },
+                    {
+                        "name": f"📄 Cold Email Draft ({words} words • Zero-Link Peer Outreach)",
+                        "value": body_preview[:1024],
+                        "inline": False,
+                    },
+                    {
+                        "name": "⏱️ Autonomous Dispatch Countdown",
+                        "value": (
+                            f"⏳ **Auto-sending in {grace_period_seconds // 60}:00 minutes** unless cancelled.\n"
+                            f"🛡️ *Anti-spam jitter delay (90-240s) enforced between sends • 8am-5pm CST office hours only.*"
+                        ),
+                        "inline": False,
+                    },
+                    {
+                        "name": "📱 1-Tap Mobile Actions",
+                        "value": (
+                            f"> 🛑 **[ ✕ CANCEL DISPATCH ]({cancel_url})**    •    "
+                            f"⚡ **[ ➔ SEND NOW ]({send_now_url})**    •    "
+                            f"🌐 **[ ↗ LIVE SANDBOX ]({sandbox_url})**"
+                        ),
+                        "inline": False,
+                    },
+                ]
 
                 self.discord.send_embed(
-                    title=f"🎯 Lead Qualified & Pitch Ready for Review: {company}",
-                    description="Candidate passed all Quality Gates. Outbound cold pitch is drafted and awaiting your 1-tap mobile decision.",
+                    title=f"🎯 Lead Qualified • Outbound Review: {company}",
+                    description=(
+                        f"### 🎯 Verified Prospect Enriched & Drafted\n"
+                        f"Review live prospect intelligence and the exact email draft below before autonomous dispatch.\n"
+                        f"────────────────────────────────────────"
+                    ),
                     fields=fields,
-                    color=0x24483B,  # Pine Slate
-                    footer="OmniLeadFeeder Technologies • Autonomous Pitcher Engine",
+                    color=0x10B981,  # Emerald Green
+                    author={
+                        "name": "LEADOPS AUTONOMOUS OUTREACH • 3-MIN REVIEW WINDOW",
+                        "icon_url": "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
+                    },
+                    thumbnail_url="https://cdn-icons-png.flaticon.com/512/2921/2921222.png",
+                    footer="OmniLeadFeeder Technologies • Autonomous Outreach Engine",
+                    footer_icon_url="https://cdn-icons-png.flaticon.com/512/906/906334.png",
+                    username="LeadOps • Scout & Outreach",
+                    avatar_url="https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
+                    channel="outreach",
                 )
 
-            # 2. Telegram Message
+            # 2. Telegram Message - Structured HTML with Inline Keyboard
             if self.telegram:
+                body_escaped = body.replace("<", "&lt;").replace(">", "&gt;").replace("&", "&amp;")
                 msg = (
-                    f"🎯 <b>Lead Qualified & Dispatching</b>\n\n"
-                    f"🏢 <b>Company:</b> {company} ({niche})\n"
-                    f"👤 <b>Contact:</b> {contact} (<code>{email}</code>)\n"
+                    f"🎯 <b>Lead Qualified & Auto-Queued</b>\n\n"
+                    f"🏢 <b>Company:</b> {company}\n"
+                    f"👤 <b>Contact:</b> {contact} ({role}) • <code>{email}</code>\n"
                     f"🏛️ <b>Portal:</b> {portal}\n"
-                    f"✉️ <b>Subject:</b> <i>{subject}</i>\n"
-                    f"📊 <b>Metrics:</b> {words} words • 0 links • Plaintext\n"
+                    f"📤 <b>Mailbox:</b> <code>{sending_from if 'sending_from' in locals() else 'primary'}</code>\n\n"
+                    f"✉️ <b>Subject:</b> <i>{subject}</i>\n\n"
+                    f"📄 <b>Email Draft:</b>\n"
+                    f"<blockquote>{body_escaped[:600]}</blockquote>\n\n"
+                    f"⏱️ <i>Auto-sending in {grace_period_seconds // 60} mins unless cancelled.</i>"
                 )
                 if quota_str:
-                    msg += f"⚡ <b>Warmup:</b> {quota_str}\n"
-                msg += (
-                    f"\n✅ <i>Passed Website, MX/Bounce, Voice & Quota Gates.</i>\n\n"
-                    f"📱 <b>Mobile Actions:</b>\n"
-                    f"• <a href=\"{approve_url}\">Approve & Dispatch</a>\n"
-                    f"• <a href=\"{reject_url}\">Reject Pitch</a>"
-                )
+                    msg += f"\n⚡ <i>{quota_str}</i>"
+
                 reply_markup = {
                     "inline_keyboard": [
                         [
-                            {"text": "✅ Approve & Dispatch", "url": approve_url},
-                            {"text": "❌ Reject", "url": reject_url},
+                            {"text": "🛑 Cancel / Reject", "url": cancel_url},
+                            {"text": "⚡ Send Immediately", "url": send_now_url},
+                        ],
+                        [
+                            {"text": "🌐 View Live Sandbox", "url": sandbox_url},
                         ]
                     ]
                 }
@@ -295,29 +406,57 @@ class NotificationManager:
         def _send():
             # 1. Discord Embed
             if self.discord:
-                # Ochre for interested, green for neutral, red for opt-out
                 color_map = {
-                    "INTERESTED": 0xC26B34,  # Industrial Ochre
-                    "QUESTION": 0x2563EB,
-                    "OBJECTION": 0xEAB308,
-                    "OPT_OUT": 0xDC2626,
-                    "OUT_OF_OFFICE": 0x6B7280,
+                    "INTERESTED": 0x10B981,  # Emerald
+                    "QUESTION": 0x3B82F6,    # Blue
+                    "OBJECTION": 0xF59E0B,   # Amber
+                    "OPT_OUT": 0xEF4444,     # Crimson
+                    "OUT_OF_OFFICE": 0x6B7280, # Gray
                 }
-                color = color_map.get(ai_intent.upper(), 0x15251F)
+                color = color_map.get(ai_intent.upper(), 0x3B82F6)
 
                 fields = [
-                    {"name": "🏢 Company / Contact", "value": f"**{company_name}**\n{sender_name} (`{sender_email}`)", "inline": True},
-                    {"name": "🧠 AI Intent & Sentiment", "value": f"**{ai_intent}** ({ai_sentiment})", "inline": True},
-                    {"name": "💬 Prospect Message", "value": f"> {reply_snippet[:300]}", "inline": False},
-                    {"name": "🤖 Alex's Drafted/Sent Response", "value": f"```\n{ai_draft_reply[:400]}\n```", "inline": False},
+                    {
+                        "name": "🏢 Verified Company & Lead",
+                        "value": f"▸ **Company:** **{company_name}**\n▸ **From:** **{sender_name}** (`{sender_email}`)",
+                        "inline": True,
+                    },
+                    {
+                        "name": "🧠 AI Triage & Sentiment",
+                        "value": f"▸ **Intent:** `{ai_intent}`\n▸ **Sentiment:** `{ai_sentiment}`",
+                        "inline": True,
+                    },
+                    {
+                        "name": f"💬 Prospect Message (Re: {subject})",
+                        "value": "\n".join(f"> {line}" for line in reply_snippet.strip().splitlines()[:10]) or "> (Empty message)",
+                        "inline": False,
+                    },
+                    {
+                        "name": "🤖 Alex's Autonomous AI Response",
+                        "value": f"```\n{ai_draft_reply[:600]}\n```",
+                        "inline": False,
+                    },
                 ]
 
                 self.discord.send_embed(
-                    title=f"📬 New Inbound Reply from {company_name}!",
-                    description=f"Cloudflare routed prospect reply from `{sender_email}` for subject *{subject}*.",
+                    title=f"📬 Inbound Reply: {company_name}",
+                    description=(
+                        f"### 📬 Prospect Message Received\n"
+                        f"Cloudflare routed prospect reply from `{sender_email}` for subject *{subject}*.\n"
+                        f"────────────────────────────────────────"
+                    ),
                     fields=fields,
                     color=color,
+                    author={
+                        "name": f"LEADOPS INBOUND CONCIERGE • {ai_intent.upper()}",
+                        "icon_url": "https://cdn-icons-png.flaticon.com/512/2099/2099199.png",
+                    },
+                    thumbnail_url="https://cdn-icons-png.flaticon.com/512/1041/1041916.png",
                     footer="LeadOps • Autonomous Inbound Concierge",
+                    footer_icon_url="https://cdn-icons-png.flaticon.com/512/906/906334.png",
+                    username="LeadOps • Inbound Concierge",
+                    avatar_url="https://cdn-icons-png.flaticon.com/512/2099/2099199.png",
+                    channel="inbox",
                 )
 
             # 2. Telegram Message
@@ -344,19 +483,32 @@ class NotificationManager:
         """Alert operator when the daily warmup dispatch quota has been satisfied."""
         def _send():
             title = f"🛑 Daily Warmup Quota Reached ({sent_count}/{quota})"
-            desc = f"Week {warmup_week} daily limit reached. Outbound outreach paused until next dispatch window ({next_resume_time}) to protect domain reputation."
+            desc = (
+                f"### 🛡️ Warmup Safety Gatekeeper Engaged\n"
+                f"Week {warmup_week} daily quota satisfied ({sent_count}/{quota} sent today).\n"
+                f"Outbound outreach paused until `{next_resume_time}` to protect sender authority.\n"
+                f"────────────────────────────────────────"
+            )
 
             if self.discord:
                 self.discord.send_embed(
                     title=title,
                     description=desc,
                     fields=[
-                        {"name": "📅 Warmup Tier", "value": f"Week {warmup_week}", "inline": True},
-                        {"name": "Dispatched Today", "value": f"{sent_count} / {quota}", "inline": True},
-                        {"name": "Resuming", "value": next_resume_time, "inline": True},
+                        {"name": "📅 Warmup Tier", "value": f"**Week {warmup_week}**", "inline": True},
+                        {"name": "📊 Dispatched Today", "value": f"**{sent_count} / {quota}**", "inline": True},
+                        {"name": "⏰ Resuming Window", "value": f"`{next_resume_time}`", "inline": True},
                     ],
-                    color=0xEAB308,  # Amber
+                    color=0xF59E0B,  # Warm Amber
+                    author={
+                        "name": "LEADOPS DELIVERABILITY PROTECTION",
+                        "icon_url": "https://cdn-icons-png.flaticon.com/512/7595/7595571.png",
+                    },
                     footer="LeadOps • Deliverability Protection Gate",
+                    footer_icon_url="https://cdn-icons-png.flaticon.com/512/906/906334.png",
+                    username="LeadOps • Deliverability Watchdog",
+                    avatar_url="https://cdn-icons-png.flaticon.com/512/7595/7595571.png",
+                    channel="outreach",
                 )
 
             if self.telegram:
@@ -378,13 +530,21 @@ class NotificationManager:
     ) -> None:
         """General system alert (extractor failure, unexpected exception, config alert)."""
         def _send():
-            color = 0xDC2626 if severity == "ERROR" else 0xEAB308
+            color = 0xEF4444 if severity.upper() == "ERROR" else (0xF59E0B if severity.upper() == "WARNING" else 0x10B981)
             if self.discord:
                 self.discord.send_embed(
                     title=f"⚠️ [{severity}] {title}",
-                    description=message,
+                    description=f"{message}\n────────────────────────────────────────",
                     color=color,
+                    author={
+                        "name": f"LEADOPS SYSTEM TELEMETRY • {severity.upper()}",
+                        "icon_url": "https://cdn-icons-png.flaticon.com/512/564/564619.png",
+                    },
                     footer="LeadOps System Telemetry",
+                    footer_icon_url="https://cdn-icons-png.flaticon.com/512/906/906334.png",
+                    username="LeadOps • System Watchdog",
+                    avatar_url="https://cdn-icons-png.flaticon.com/512/564/564619.png",
+                    channel="alerts",
                 )
             if self.telegram:
                 msg = f"⚠️ <b>[{severity}] {title}</b>\n\n{message}"
@@ -410,22 +570,35 @@ class NotificationManager:
 
             if self.discord:
                 fields = [
-                    {"name": "💰 Amount Captured", "value": f"**${amount_usd:,.2f} USD**", "inline": True},
-                    {"name": "📋 Payment Type", "value": payment_type, "inline": True},
-                    {"name": "💳 Provider / Method", "value": provider, "inline": True},
-                    {"name": "🏢 Company", "value": f"**{company}**", "inline": True},
-                    {"name": "👤 Contact", "value": f"{contact}\n`{email}`", "inline": True},
-                    {"name": "🏛️ Target Portal", "value": f"`{portal}`\n({tier})", "inline": True},
+                    {"name": "💵 Cash Captured", "value": f"**${amount_usd:,.2f} USD**", "inline": True},
+                    {"name": "📋 Milestone Type", "value": f"`{payment_type}`", "inline": True},
+                    {"name": "💳 Payment Provider", "value": f"**{provider}**", "inline": True},
+                    {"name": "🏢 Client Company", "value": f"**{company}**", "inline": True},
+                    {"name": "👤 Contact", "value": f"**{contact}**\n`{email}`", "inline": True},
+                    {"name": "🏛️ Data Registry Feed", "value": f"`{portal}`\n*(Tier: {tier})*", "inline": True},
                 ]
                 if transaction_id:
                     fields.append({"name": "🧾 Transaction ID", "value": f"`{transaction_id}`", "inline": False})
 
                 self.discord.send_embed(
-                    title=f"💵 Payment Captured: ${amount_usd:,.2f} USD ({company})",
-                    description=f"Successfully processed **{payment_type}** for **{company}** via {provider}.",
+                    title=f"💰 Payment Captured: ${amount_usd:,.2f} USD ({company})",
+                    description=(
+                        f"### 💵 Revenue Captured\n"
+                        f"Successfully processed **{payment_type}** for **{company}** via {provider}.\n"
+                        f"────────────────────────────────────────"
+                    ),
                     fields=fields,
                     color=0x10B981,  # Emerald Green
+                    author={
+                        "name": "LEADOPS ACCOUNTING & REVENUE • PAYMENT CAPTURED",
+                        "icon_url": "https://cdn-icons-png.flaticon.com/512/2489/2489756.png",
+                    },
+                    thumbnail_url="https://cdn-icons-png.flaticon.com/512/1006/1006555.png",
                     footer="LeadOps • Accounting & Revenue Engine",
+                    footer_icon_url="https://cdn-icons-png.flaticon.com/512/906/906334.png",
+                    username="LeadOps • Treasury & Billing",
+                    avatar_url="https://cdn-icons-png.flaticon.com/512/2489/2489756.png",
+                    channel="revenue",
                 )
 
             if self.telegram:
@@ -468,21 +641,37 @@ class NotificationManager:
             if self.discord:
                 fields = [
                     {"name": "🏢 Company", "value": f"**{company}**", "inline": True},
-                    {"name": "👤 Contact", "value": f"{contact}\n`{email}`", "inline": True},
-                    {"name": "📉 Churn Impact", "value": f"-${mrr:,.2f}/mo ({tier})", "inline": True},
-                    {"name": "💬 Stated Reason", "value": f"> {reason or 'No reason provided'}", "inline": False},
+                    {"name": "👤 Contact", "value": f"**{contact}**\n`{email}`", "inline": True},
+                    {"name": "📉 Churn Impact", "value": f"**-${mrr:,.2f}/mo** ({tier})", "inline": True},
+                    {"name": "💬 Stated Customer Reason", "value": f"> {reason or 'No reason provided'}", "inline": False},
                     {
                         "name": "📱 Mobile 1-Tap Operator Retention",
-                        "value": f"[🚨 Confirm Cancellation]({cancel_url})  •  [⏸️ Grant 30-Day Pause]({pause_url})",
+                        "value": (
+                            f"> 🚨 **[ ✕ CONFIRM CANCELLATION ]({cancel_url})**    •    "
+                            f"⏸️ **[ ⏸ GRANT 30-DAY PAUSE ]({pause_url})**"
+                        ),
                         "inline": False,
                     },
                 ]
                 self.discord.send_embed(
                     title=f"🚨 Subscription Cancellation Requested: {company}",
-                    description=f"A cancellation request was submitted for **{company}**. Immediate intervention/win-back recommended.",
+                    description=(
+                        f"### 🚨 Customer Churn Alert\n"
+                        f"A cancellation request was submitted for **{company}**. Immediate win-back intervention recommended.\n"
+                        f"────────────────────────────────────────"
+                    ),
                     fields=fields,
                     color=0xEF4444,  # Bright Red
+                    author={
+                        "name": "LEADOPS RETENTION & CHURN DEFENSE",
+                        "icon_url": "https://cdn-icons-png.flaticon.com/512/564/564619.png",
+                    },
+                    thumbnail_url="https://cdn-icons-png.flaticon.com/512/1828/1828843.png",
                     footer="LeadOps • Churn Prevention & Retention",
+                    footer_icon_url="https://cdn-icons-png.flaticon.com/512/906/906334.png",
+                    username="LeadOps • Retention Shield",
+                    avatar_url="https://cdn-icons-png.flaticon.com/512/1828/1828843.png",
+                    channel="revenue",
                 )
 
             if self.telegram:
@@ -527,16 +716,29 @@ class NotificationManager:
                 fields = [
                     {"name": "🎫 Ticket ID", "value": f"`{ticket_id}`", "inline": True},
                     {"name": "⚡ Priority", "value": f"**{priority}**", "inline": True},
-                    {"name": "📂 Type", "value": ttype, "inline": True},
+                    {"name": "📂 Category", "value": ttype, "inline": True},
                     {"name": "🏢 Company / Lead", "value": f"**{company}** (`{lead_id}`)", "inline": True},
-                    {"name": "📝 Details", "value": f"> {desc[:400]}", "inline": False},
+                    {"name": "📝 Issue Details", "value": f"> {desc[:400]}", "inline": False},
                 ]
                 self.discord.send_embed(
-                    title=f"⚠️ Customer Complaint / Ticket: [{priority}] {title[:100]}",
-                    description=f"A support ticket was filed for **{company}** requiring attention.",
+                    title=f"⚠️ Support Ticket: [{priority}] {title[:100]}",
+                    description=(
+                        f"### ⚠️ Customer Support Case\n"
+                        f"A customer service ticket was filed for **{company}** requiring operator review.\n"
+                        f"────────────────────────────────────────"
+                    ),
                     fields=fields,
                     color=0xF97316,  # Orange
+                    author={
+                        "name": f"LEADOPS SUPPORT TELEMETRY • [{priority}]",
+                        "icon_url": "https://cdn-icons-png.flaticon.com/512/1041/1041888.png",
+                    },
+                    thumbnail_url="https://cdn-icons-png.flaticon.com/512/3875/3875880.png",
                     footer="LeadOps • Support & Remediation",
+                    footer_icon_url="https://cdn-icons-png.flaticon.com/512/906/906334.png",
+                    username="LeadOps • Support Desk",
+                    avatar_url="https://cdn-icons-png.flaticon.com/512/3875/3875880.png",
+                    channel="inbox",
                 )
 
             if self.telegram:
@@ -567,19 +769,32 @@ class NotificationManager:
 
             if self.discord:
                 fields = [
-                    {"name": "🏢 Sandbox / Company", "value": f"**{company}**\n`{slug}`", "inline": True},
-                    {"name": "👤 Sender", "value": f"{contact} ({sender_role})", "inline": True},
+                    {"name": "🏢 Portal & Company", "value": f"**{company}**\n`{slug}`", "inline": True},
+                    {"name": "👤 Sender", "value": f"**{contact}** ({sender_role})", "inline": True},
                     {"name": "💬 User Message", "value": f"> {message_text[:350]}", "inline": False},
                 ]
                 if ai_reply_text:
                     fields.append({"name": "🤖 Alex's AI Response", "value": f"```\n{ai_reply_text[:350]}\n```", "inline": False})
 
                 self.discord.send_embed(
-                    title=f"💬 New Portal Chat Message ({company})",
-                    description=f"Incoming message from customer on portal `{slug}`.",
+                    title=f"💬 Portal Chat: {company}",
+                    description=(
+                        f"### 💬 Real-Time Portal Inbound\n"
+                        f"Incoming customer concierge chat on portal `{slug}`.\n"
+                        f"────────────────────────────────────────"
+                    ),
                     fields=fields,
                     color=0x3B82F6,  # Blue
+                    author={
+                        "name": "LEADOPS LIVE CONCIERGE",
+                        "icon_url": "https://cdn-icons-png.flaticon.com/512/1041/1041916.png",
+                    },
+                    thumbnail_url="https://cdn-icons-png.flaticon.com/512/1041/1041916.png",
                     footer="LeadOps • Live Concierge Telemetry",
+                    footer_icon_url="https://cdn-icons-png.flaticon.com/512/906/906334.png",
+                    username="LeadOps • Alex Live Concierge",
+                    avatar_url="https://cdn-icons-png.flaticon.com/512/1041/1041916.png",
+                    channel="inbox",
                 )
 
             if self.telegram:
@@ -617,27 +832,40 @@ class NotificationManager:
 
             if self.discord:
                 fields = [
-                    {"name": "🏢 Company", "value": f"**{company}**", "inline": True},
+                    {"name": "🏢 Client Company", "value": f"**{company}**", "inline": True},
                     {"name": "🏛️ Source Registry", "value": f"`{portal}`", "inline": True},
-                    {"name": "📦 Tier", "value": tier, "inline": True},
-                    {"name": "🛡️ QA Gate Score", "value": f"**{qa_score:.1f}% PASS**", "inline": True},
-                    {"name": "📊 Verified Rows", "value": f"{sample_count} live records", "inline": True},
+                    {"name": "📦 Feed Cadence", "value": f"**{tier}**", "inline": True},
+                    {"name": "🛡️ QA Gate Score", "value": f"**{qa_score:.1f}% CERTIFIED**", "inline": True},
+                    {"name": "📊 Verified Records", "value": f"**{sample_count} live rows**", "inline": True},
                     {"name": "💳 Milestone 2 Auto-Charge", "value": auto_str, "inline": True},
-                    {"name": "🚀 Delivery Target", "value": destination, "inline": False},
+                    {"name": "🚀 Delivery Target", "value": f"`{destination}`", "inline": False},
                 ]
                 if not auto_charged:
                     fields.append({
                         "name": "📱 Mobile 1-Tap Control",
-                        "value": f"[🚀 Force Release & Auto-Charge $250]({delivery_url})",
+                        "value": f"> 🚀 **[ ➔ FORCE RELEASE & CHARGE $250 ]({delivery_url})**",
                         "inline": False,
                     })
 
                 self.discord.send_embed(
                     title=f"🚀 Live Feed Delivered: {company}",
-                    description=f"Autonomous Swarm has verified, compiled, and deployed the live data pipeline for **{company}**.",
+                    description=(
+                        f"### 🚀 Production Pipeline Activated\n"
+                        f"Autonomous Swarm has verified, compiled, and deployed the live data pipeline for **{company}**.\n"
+                        f"────────────────────────────────────────"
+                    ),
                     fields=fields,
                     color=0x059669,  # Emerald
+                    author={
+                        "name": "LEADOPS DELIVERY ENGINE • LIVE PIPELINE ACTIVE",
+                        "icon_url": "https://cdn-icons-png.flaticon.com/512/1356/1356479.png",
+                    },
+                    thumbnail_url="https://cdn-icons-png.flaticon.com/512/3135/3135763.png",
                     footer="LeadOps • Autonomous Delivery Engine",
+                    footer_icon_url="https://cdn-icons-png.flaticon.com/512/906/906334.png",
+                    username="LeadOps • Delivery Engine",
+                    avatar_url="https://cdn-icons-png.flaticon.com/512/1356/1356479.png",
+                    channel="dev",
                 )
 
             if self.telegram:
@@ -685,24 +913,44 @@ class NotificationManager:
                 discord_fields = [
                     {"name": "🏢 Client Company", "value": f"**{company}**", "inline": True},
                     {"name": "🏛️ Target Portal", "value": f"`{source[:60]}`", "inline": True},
-                    {"name": "📦 Target Tier", "value": f"{tier} ({fields_count} fields)", "inline": True},
+                    {"name": "📦 Target Tier", "value": f"**{tier}** ({fields_count} fields)", "inline": True},
                     {
-                        "name": "🤖 Autonomous Specialists",
-                        "value": "• Lead Solutions Architect AI\n• Anti-Bot & Network Engineer\n• Frontend DOM Specialist\n• Systems & Schema Architect\n• Junior Playwright Coder\n• Independent QA Gatekeeper",
+                        "name": "🤖 7-Agent Autonomous Specialists",
+                        "value": (
+                            "▸ **Solutions Architect AI** • Architecture & pipeline planning\n"
+                            "▸ **Anti-Bot & Network Engineer** • WAF evasion & residential proxies\n"
+                            "▸ **Frontend DOM Specialist** • Selector & pagination mapping\n"
+                            "▸ **Systems & Schema Architect** • Pydantic schema validation\n"
+                            "▸ **Playwright Coder** • Resilient async crawler compilation\n"
+                            "▸ **Independent QA Gatekeeper** • Zero-mock dataset certification"
+                        ),
                         "inline": False,
                     },
                     {
-                        "name": "📋 Key Milestones",
-                        "value": "\n".join(f"• {o}" for o in objs[:4]),
+                        "name": "📋 Active Milestones",
+                        "value": "\n".join(f"▸ {o}" for o in objs[:4]),
                         "inline": False,
                     },
                 ]
                 self.discord.send_embed(
                     title=f"🛠️ Autonomous Dev Swarm Activated: {company}",
-                    description=f"Deposit verified. Swarm launched to compile and certify extraction pipeline for **{company}**.",
+                    description=(
+                        f"### 🛠️ Builder Swarm Initialized\n"
+                        f"Deposit verified. Swarm launched to compile and certify extraction pipeline for **{company}**.\n"
+                        f"────────────────────────────────────────"
+                    ),
                     fields=discord_fields,
-                    color=0x2563EB,  # Deep Blue
+                    color=0x6366F1,  # Electric Indigo
+                    author={
+                        "name": "LEADOPS AUTONOMOUS DEV SWARM • BUILD ACTIVE",
+                        "icon_url": "https://cdn-icons-png.flaticon.com/512/4712/4712109.png",
+                    },
+                    thumbnail_url="https://cdn-icons-png.flaticon.com/512/2065/2065224.png",
                     footer="LeadOps • Autonomous Builder Swarm",
+                    footer_icon_url="https://cdn-icons-png.flaticon.com/512/906/906334.png",
+                    username="LeadOps • Autonomous Dev Swarm",
+                    avatar_url="https://cdn-icons-png.flaticon.com/512/4712/4712109.png",
+                    channel="dev",
                 )
 
             if self.telegram:
@@ -737,24 +985,37 @@ class NotificationManager:
 
             if self.discord:
                 fields = [
-                    {"name": "🏢 Company", "value": f"**{company}**", "inline": True},
-                    {"name": "🛡️ QA Score", "value": f"**{qa_score:.1f}%**", "inline": True},
-                    {"name": "📊 Verified Records", "value": f"{record_count} live rows", "inline": True},
-                    {"name": "🔍 Gatekeeper Status", "value": f"**{status_str}**", "inline": False},
+                    {"name": "🏢 Client Company", "value": f"**{company}**", "inline": True},
+                    {"name": "🛡️ QA Gatekeeper Score", "value": f"**{qa_score:.1f}%**", "inline": True},
+                    {"name": "📊 Verified Records", "value": f"**{record_count} live rows**", "inline": True},
+                    {"name": "🔍 Gatekeeper Verdict", "value": f"**{status_str}**", "inline": False},
                 ]
                 if issues:
                     fields.append({
                         "name": "⚠️ Feedback / Roadblocks",
-                        "value": "\n".join(f"• {i}" for i in issues[:3]),
+                        "value": "\n".join(f"▸ {i}" for i in issues[:3]),
                         "inline": False,
                     })
 
                 self.discord.send_embed(
-                    title=f"🛡️ QA Gatekeeper Verification: {company} ({status_str})",
-                    description=f"Independent Quality Gatekeeper evaluated live extraction against zero-mock standards.",
+                    title=f"🛡️ QA Gatekeeper: {company} ({status_str})",
+                    description=(
+                        f"### 🛡️ Zero-Mock Quality Certification\n"
+                        f"Independent Quality Gatekeeper evaluated live extraction against strict production standards.\n"
+                        f"────────────────────────────────────────"
+                    ),
                     fields=fields,
                     color=color,
+                    author={
+                        "name": "LEADOPS QA GATEKEEPER • ZERO-MOCK CERTIFICATION",
+                        "icon_url": "https://cdn-icons-png.flaticon.com/512/7595/7595571.png",
+                    },
+                    thumbnail_url="https://cdn-icons-png.flaticon.com/512/190/190411.png" if escrow_ready else "https://cdn-icons-png.flaticon.com/512/564/564619.png",
                     footer="LeadOps • QA Gatekeeper & Escrow Verifier",
+                    footer_icon_url="https://cdn-icons-png.flaticon.com/512/906/906334.png",
+                    username="LeadOps • QA Gatekeeper",
+                    avatar_url="https://cdn-icons-png.flaticon.com/512/7595/7595571.png",
+                    channel="dev",
                 )
 
             if self.telegram:
@@ -795,16 +1056,34 @@ class NotificationManager:
                     },
                     {
                         "name": "📦 Codebase Assets Generated",
-                        "value": "• Standalone `extractor.py`\n• Modular structure (`src/models`, `src/utils`)\n• GitHub Actions CI/CD workflow\n• Signed QA insurance certificate",
+                        "value": (
+                            "▸ Standalone `extractor.py`\n"
+                            "▸ Modular structure (`src/models`, `src/utils`)\n"
+                            "▸ GitHub Actions CI/CD workflow\n"
+                            "▸ Signed QA insurance certificate"
+                        ),
                         "inline": False,
                     },
                 ]
                 self.discord.send_embed(
                     title=f"🚀 Dev Swarm Finished: {company} ({status_text})",
-                    description=f"Autonomous Swarm has completed the build iteration for **{company}**.",
+                    description=(
+                        f"### 🚀 Autonomous Swarm Build Finished\n"
+                        f"Autonomous Swarm has completed the build iteration for **{company}**.\n"
+                        f"────────────────────────────────────────"
+                    ),
                     fields=fields,
                     color=color,
+                    author={
+                        "name": "LEADOPS DEV SWARM • BUILD CERTIFIED",
+                        "icon_url": "https://cdn-icons-png.flaticon.com/512/1356/1356479.png",
+                    },
+                    thumbnail_url="https://cdn-icons-png.flaticon.com/512/190/190411.png" if escrow_ready else "https://cdn-icons-png.flaticon.com/512/564/564619.png",
                     footer="LeadOps • Autonomous Delivery Engine",
+                    footer_icon_url="https://cdn-icons-png.flaticon.com/512/906/906334.png",
+                    username="LeadOps • Delivery Engine",
+                    avatar_url="https://cdn-icons-png.flaticon.com/512/1356/1356479.png",
+                    channel="dev",
                 )
 
             if self.telegram:
@@ -841,10 +1120,23 @@ class NotificationManager:
                 ]
                 self.discord.send_embed(
                     title=f"🛑 Dev Swarm Stopped / Roadblock: {company}",
-                    description=f"Autonomous builder swarm hit an obstacle requiring attention.",
+                    description=(
+                        f"### 🛑 Swarm Blocker Encountered\n"
+                        f"Autonomous builder swarm hit an obstacle requiring attention.\n"
+                        f"────────────────────────────────────────"
+                    ),
                     fields=fields,
                     color=0xDC2626,  # Red
+                    author={
+                        "name": "LEADOPS DEV SWARM • EXCEPTION TELEMETRY",
+                        "icon_url": "https://cdn-icons-png.flaticon.com/512/564/564619.png",
+                    },
+                    thumbnail_url="https://cdn-icons-png.flaticon.com/512/564/564619.png",
                     footer="LeadOps • Swarm Exception Telemetry",
+                    footer_icon_url="https://cdn-icons-png.flaticon.com/512/906/906334.png",
+                    username="LeadOps • Swarm Diagnostics",
+                    avatar_url="https://cdn-icons-png.flaticon.com/512/564/564619.png",
+                    channel="dev",
                 )
 
             if self.telegram:
@@ -943,32 +1235,48 @@ class NotificationManager:
         def _send():
             if self.discord:
                 fields = [
-                    {"name": "💵 Total Cash Collected", "value": f"**${total_cash_collected:,.2f}**\n({deposits_paid} dep / {final_paid} fin)", "inline": True},
-                    {"name": "📈 Active MRR", "value": f"**${mrr:,.2f}/mo**\n(${arr:,.2f} ARR)", "inline": True},
-                    {"name": "🔄 Subscriptions", "value": f"**{len(active_subs)} Active**\n({len(paused_subs)} paused)", "inline": True},
-                    {"name": "📊 Pipeline Breakdown", "value": (
-                        f"• Outreach/Intake: **{pipeline['prospecting'] + pipeline['intake']}**\n"
-                        f"• Dev Swarms Building: **{pipeline['building']}**\n"
-                        f"• Escrow Review: **{pipeline['escrow_preview']}**\n"
-                        f"• Delivered / Active: **{pipeline['delivered']}**"
+                    {"name": "💵 Total Cash Collected", "value": f"**${total_cash_collected:,.2f}**\n*({deposits_paid} deposits • {final_paid} deliveries)*", "inline": True},
+                    {"name": "📈 Active MRR / ARR", "value": f"**${mrr:,.2f}/mo**\n*(${arr:,.2f} ARR)*", "inline": True},
+                    {"name": "🔄 Subscriptions", "value": f"**{len(active_subs)} Active**\n*({len(paused_subs)} paused)*", "inline": True},
+                    {"name": "📊 Autonomous Pipeline Breakdown", "value": (
+                        f"▸ Outreach & Intake: **{pipeline['prospecting'] + pipeline['intake']}**\n"
+                        f"▸ Autonomous Swarms Building: **{pipeline['building']}**\n"
+                        f"▸ Escrow QA Review: **{pipeline['escrow_preview']}**\n"
+                        f"▸ Delivered & Active: **{pipeline['delivered']}**"
                     ), "inline": False},
-                    {"name": "🛡️ Health & Support", "value": (
-                        f"• Total Portals: **{len(sandboxes)}**\n"
-                        f"• Open Tickets: **{len(open_tickets)}** ({len(urgent_tickets)} urgent)\n"
-                        f"• Pending Cancellations: **{len(pending_cancellations)}**"
+                    {"name": "🛡️ Infrastructure & Health Telemetry", "value": (
+                        f"▸ Active Client Portals: **{len(sandboxes)}**\n"
+                        f"▸ Support Tickets: **{len(open_tickets)}** ({len(urgent_tickets)} critical/urgent)\n"
+                        f"▸ Pending Cancellations: **{len(pending_cancellations)}**\n"
+                        f"▸ Swarm Uptime: **100% Lights-Out Autonomous**"
                     ), "inline": False},
                     {
                         "name": "📱 Mobile 1-Tap Swarm Controls",
-                        "value": f"[⏸️ Pause Prospector]({pause_prosp_url})  •  [▶️ Resume Prospector]({resume_prosp_url})",
+                        "value": (
+                            f"> ⏸️ **[ ⏸ PAUSE PROSPECTOR ]({pause_prosp_url})**    •    "
+                            f"▶️ **[ ▶ RESUME PROSPECTOR ]({resume_prosp_url})**"
+                        ),
                         "inline": False,
                     },
                 ]
                 self.discord.send_embed(
-                    title=f"🌅 LeadOps Executive Morning Briefing — {now_str}",
-                    description="Autonomous 24-Hour Operations, Pipeline & Accounting Summary.",
+                    title=f"🌅 Executive Morning Briefing — {now_str}",
+                    description=(
+                        f"### 🌅 Autonomous 24-Hour Operations, Pipeline & Accounting Summary\n"
+                        f"────────────────────────────────────────"
+                    ),
                     fields=fields,
-                    color=0x1E3A8A,  # Executive Deep Blue
+                    color=0x7C3AED,  # Royal Purple
+                    author={
+                        "name": "LEADOPS EXECUTIVE MISSION CONTROL",
+                        "icon_url": "https://cdn-icons-png.flaticon.com/512/869/869869.png",
+                    },
+                    thumbnail_url="https://cdn-icons-png.flaticon.com/512/2920/2920329.png",
                     footer="LeadOps • Executive Mission Control",
+                    footer_icon_url="https://cdn-icons-png.flaticon.com/512/906/906334.png",
+                    username="LeadOps • Executive Mission Control",
+                    avatar_url="https://cdn-icons-png.flaticon.com/512/869/869869.png",
+                    channel="alerts",
                 )
 
             if self.telegram:

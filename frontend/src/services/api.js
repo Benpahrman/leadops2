@@ -21,19 +21,36 @@ export async function suggestColumns(slug) {
   return res.json();
 }
 
-export async function payDeposit(slug, { email, cardholder, targetUrl, paypalOrderId }) {
+export async function payDeposit(slug, { email, cardholder, targetUrl, paypalOrderId, depositAmount = 99.0 }) {
   const res = await fetch(`${API_BASE}/api/sandbox/${slug}/pay-deposit`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       email,
       cardholder,
+      deposit_amount: depositAmount,
       target_url: targetUrl || '',
       paypal_order_id: paypalOrderId || `PAYID-${Date.now()}`,
       tos_accepted: true,
       sow_accepted: true,
     }),
   });
+  return res.json();
+}
+
+export async function unlockBacklog(slug, { email, paypalOrderId } = {}) {
+  const res = await fetch(`${API_BASE}/api/sandbox/${slug}/unlock-backlog`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email,
+      paypal_order_id: paypalOrderId || `PAYID-BACKLOG-${Date.now()}`,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Backlog unlock failed: HTTP ${res.status}`);
+  }
   return res.json();
 }
 
@@ -250,6 +267,29 @@ export async function advanceLeadState(leadId, token = '') {
   return res.json();
 }
 
+export async function batchApprovePendingPitches(token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/leads/batch-approve`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function fetchScoutStatus(token = '') {
+  const headers = {};
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/scout/status`, { headers });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 export async function deleteLead(leadId, token = '') {
   const headers = {};
   const resolved = resolveAdminAuth(token);
@@ -386,3 +426,55 @@ export async function fetchAuditTrail(leadId, token = '') {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
+
+export async function fetchAutoOutreachStatus(token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/auto-outreach/status`, { headers });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function toggleAutoOutreach(enabled, token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/auto-outreach/toggle`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ enabled }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function triggerScoutDiscovery(niche = null, token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/scout/trigger-web-scout`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ niche }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function cancelAutoOutreach(leadId, token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/quick-action?action=cancel_auto_outreach&lead_id=${leadId}&token=${resolved}`, {
+    headers: { ...headers, Accept: 'application/json' },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+

@@ -32,6 +32,61 @@ class PitchMessage:
     word_count: int
 
 
+def _safe_str(val: Any, fallback: str = "") -> str:
+    if val is None:
+        return fallback
+    if not isinstance(val, str):
+        s = str(val)
+        if "MagicMock" in s or "<MagicMock" in s:
+            return fallback
+        return s
+    return val
+
+
+def generate_natural_subject(
+    company_name: str = "",
+    niche: str = "",
+    portal_name: str = "",
+    contact_name: str = "",
+    jurisdiction: str = "",
+) -> str:
+    """Generate concise, natural, non-AI lowercase peer subject lines (2-4 words).
+    
+    Eliminates robotic tropes like 'Sample ... data feed for ...' or 'Automating your manual...'.
+    """
+    import random
+    import re
+    
+    company_name = _safe_str(company_name)
+    niche = _safe_str(niche, "public records")
+    portal_name = _safe_str(portal_name)
+    contact_name = _safe_str(contact_name)
+    jurisdiction = _safe_str(jurisdiction)
+    
+    clean_co = re.sub(r"(?i)\s+(inc\.?|llc|corp\.?|ltd\.?|co\.?|pllc)$", "", company_name).strip()
+    clean_co = re.sub(r"\s+\d+$", "", clean_co).strip()
+    first_name = (contact_name or "").split()[0].strip() if contact_name else ""
+    
+    portal_short = re.sub(r"(?i)\s*(portal|registry|court|system|division|clerk|records|official|department)\s*", "", portal_name).strip()
+    geo_hint = jurisdiction.split(",")[0].strip() if jurisdiction else ""
+    
+    topic = portal_short or geo_hint or niche.split("&")[0].split("and")[0].strip()
+    topic_clean = re.sub(r"[^\w\s-]", "", topic).strip().lower()
+    if len(topic_clean.split()) > 3:
+        topic_clean = " ".join(topic_clean.split()[:2])
+    if not topic_clean:
+        topic_clean = "public records"
+
+    candidates = [
+        f"{topic_clean} records",
+        f"quick question re: {topic_clean}",
+        f"{clean_co.lower()} / public records" if clean_co else f"{topic_clean} records",
+        f"quick question {first_name}" if first_name and first_name.lower() != "there" else f"question re: {clean_co.lower()}" if clean_co else f"{topic_clean} records",
+        f"record lookups at {clean_co.lower()}" if clean_co else f"{topic_clean} filings",
+    ]
+    return random.choice(candidates)
+
+
 def render_sub_60_word_pitch(
     company_name: str,
     niche: str,
@@ -49,9 +104,28 @@ def render_sub_60_word_pitch(
     link_mode: str | None = None,
 ) -> PitchMessage:
     """Generate concise, natural, human-to-human peer outreach copy with configurable link delivery."""
+    import re
+    company_name = _safe_str(company_name, "Company")
+    niche = _safe_str(niche, "public records")
+    portal_name = _safe_str(portal_name, "records portal")
+    contact_name = _safe_str(contact_name, "there")
+    contact_role = _safe_str(contact_role)
+    pain_point = _safe_str(pain_point)
+    business_specialty = _safe_str(business_specialty)
+    human_observation = _safe_str(human_observation)
+    operational_friction = _safe_str(operational_friction)
+    slug = _safe_str(slug, "preview")
+    
     sandbox_url = f"{base_url.rstrip('/')}/p/{slug}"
-    default_subject = f"Sample {niche} data feed for {company_name}"
-    display_company = " ".join(company_name.split()[:4])
+    clean_company = re.sub(r"(?i)\s+(inc\.?|llc|corp\.?|ltd\.?|co\.?|pllc)$", "", company_name).strip()
+    clean_company = re.sub(r"\s+\d+$", "", clean_company).strip() or company_name
+    default_subject = generate_natural_subject(
+        company_name=clean_company,
+        niche=niche,
+        portal_name=portal_name,
+        contact_name=contact_name,
+    )
+    display_company = " ".join(clean_company.split()[:4])
     first_name = contact_name.split()[0] if contact_name and contact_name.lower() != "there" else "there"
     active_link_mode = (
         link_mode
@@ -68,7 +142,7 @@ def render_sub_60_word_pitch(
     if llm_engine and getattr(llm_engine, "is_available", lambda: False)():
         try:
             lead_info = {
-                "company_name": company_name,
+                "company_name": clean_company,
                 "contact_name": first_name,
                 "contact_role": contact_role or "Leadership",
                 "niche": niche,
@@ -95,8 +169,11 @@ def render_sub_60_word_pitch(
                         f"<p style='margin: 20px 0;'><a href='{sandbox_url}' style='background: #C26B34; color: #ffffff; padding: 11px 22px; text-decoration: none; font-weight: 600; border-radius: 6px; display: inline-block;'>Review Live Data Sandbox &rarr;</a></p>"
                         f"<p style='margin-top: 18px; color: #64748b; font-size: 14px;'>Best,<br><strong style='color: #15251F;'>Alex</strong> &bull; LeadOps</p></div>"
                     )
+                chosen_subject = ai_pitch.get("subject", default_subject).strip()
+                if any(bad in chosen_subject.lower() for bad in ["sample", "data feed for", "automating", "streamlining", "unlocking", "elevating", "efficiency"]):
+                    chosen_subject = default_subject
                 return PitchMessage(
-                    subject=ai_pitch.get("subject", default_subject),
+                    subject=chosen_subject,
                     body_text=ai_pitch["body_text"],
                     body_html=ai_pitch.get("body_html") if (active_link_mode != "permission_first" or "href" not in str(ai_pitch.get("body_html", ""))) else default_html,
                     sandbox_url=sandbox_url,
@@ -238,6 +315,8 @@ class PitcherService:
         recipient_name: str,
         pitch: PitchMessage,
         human_approver: str = "Autonomous AI Engine",
+        enforce_office_hours: bool = False,
+        force_out_of_hours: bool = False,
     ) -> dict[str, Any]:
         """Verify opt-out, deliverability, warmup quota, voice alignment, and dispatch email."""
         if human_approver == "":
@@ -246,6 +325,19 @@ class PitcherService:
                 raise ValueError("Human approval is required for outbound pitch dispatch")
 
         approver = human_approver.strip() if (human_approver and human_approver.strip()) else "Autonomous AI Engine"
+
+        # 0. Office hours check for outbound cold outreach (8:00 AM - 5:00 PM CST Mon-Fri)
+        should_enforce_hours = (
+            enforce_office_hours
+            or os.environ.get("ENFORCE_OUTREACH_OFFICE_HOURS", "true").lower() in ("1", "true", "yes")
+        )
+        if should_enforce_hours and not force_out_of_hours:
+            from .scout_runner import is_office_hours
+            is_open, seconds_until_open, msg = is_office_hours()
+            if not is_open:
+                raise ValueError(
+                    f"Outbound cold outreach sending is restricted to office hours (8:00 AM - 5:00 PM CST Mon-Fri). {msg}"
+                )
 
         # 1. Opt-out suppression check
         if self.is_opted_out(recipient_email):

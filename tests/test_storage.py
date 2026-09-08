@@ -83,3 +83,20 @@ def test_sqlite_storage_backup_db(tmp_path):
     assert loaded is not None
     assert loaded.company_name == "Backup Test Inc"
 
+
+def test_sqlite_storage_deposit_and_backlog_persistence(tmp_path):
+    db_path = str(tmp_path / "test_pricing.db")
+    storage = SqliteStorageBackend(db_path=db_path)
+    lead = Lead("lead-pricing-test", "daily", company_name="Pricing Corp")
+    lead.deposit_amount_usd = 99.00
+    lead.unlocked_30d_backlog = True
+    storage.save_lead(lead)
+
+    # Reload from fresh storage instance
+    storage_reloaded = SqliteStorageBackend(db_path=db_path)
+    reloaded = storage_reloaded.get_lead("lead-pricing-test")
+    assert reloaded is not None
+    assert reloaded.deposit_amount_usd == 99.00
+    assert reloaded.unlocked_30d_backlog is True
+
+

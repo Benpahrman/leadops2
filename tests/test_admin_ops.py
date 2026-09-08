@@ -202,3 +202,147 @@ def test_admin_draft_email_and_lifecycle_dispatch(test_setup):
     assert send_data["ok"] is True
     assert send_data["lead_id"] == "lead-admin-1"
 
+
+def test_is_office_hours():
+    from datetime import datetime
+    import zoneinfo
+    from agents.scout_runner import is_office_hours
+
+    cst = zoneinfo.ZoneInfo("US/Central")
+
+    # Wednesday 10:30 AM CST -> Inside office hours
+    dt_work_hours = datetime(2026, 9, 9, 10, 30, tzinfo=cst)
+    is_open, sec, msg = is_office_hours(now=dt_work_hours)
+    assert is_open is True
+
+    # Wednesday 6:30 PM CST -> Outside office hours
+    dt_evening = datetime(2026, 9, 9, 18, 30, tzinfo=cst)
+    assert is_office_hours(now=dt_evening)[0] is False
+
+    # Wednesday 7:30 AM CST -> Outside office hours
+    dt_morning = datetime(2026, 9, 9, 7, 30, tzinfo=cst)
+    assert is_office_hours(now=dt_morning)[0] is False
+
+    # Saturday 11:00 AM CST -> Weekend (outside office hours)
+    dt_saturday = datetime(2026, 9, 12, 11, 0, tzinfo=cst)
+    assert is_office_hours(now=dt_saturday)[0] is False
+
+
+def test_batch_approve_pending_pitches(test_setup, monkeypatch):
+    import agents.scout_runner
+    monkeypatch.setattr(agents.scout_runner, "is_office_hours", lambda: (True, 3600, "Office hours active"))
+    storage, admin_service, client = test_setup
+    admin_headers = {"Authorization": "Bearer mock_user_founder_lead_admin"}
+
+    # Lead 1: Valid contact email in PITCH_PENDING_APPROVAL
+    lead_valid = Lead("lead-valid-p1", "daily", state=State.PITCH_PENDING_APPROVAL)
+    lead_valid.company_name = "Valid Corp"
+    lead_valid.contact_email = "director@validcorp.com"
+    lead_valid.contact_name = "Marcus"
+    storage.save_lead(lead_valid)
+
+    # Lead 2: Junk aggregator email in PITCH_PENDING_APPROVAL
+    lead_junk = Lead("lead-junk-p2", "daily", state=State.PITCH_PENDING_APPROVAL)
+    lead_junk.company_name = "Junk Aggregator Co"
+    lead_junk.contact_email = "contact@duckduckgo.com"
+    lead_junk.contact_name = "Bot"
+    storage.save_lead(lead_junk)
+
+    # Lead 3: Another junk aggregator (sentry)
+    lead_sentry = Lead("lead-sentry-p3", "daily", state=State.PITCH_PENDING_APPROVAL)
+    lead_sentry.company_name = "Sentry Co"
+    lead_sentry.contact_email = "bca456@sentry.globalreach.com"
+    storage.save_lead(lead_sentry)
+
+    # Call batch approve API
+    res = client.post("/api/admin/leads/batch-approve", headers=admin_headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    # The valid lead was approved, junk aggregators skipped
+    assert data["approved_count"] == 1
+    assert data["skipped_count"] == 2
+    assert "lead-valid-p1" in data["approved_lead_ids"]
+    assert "lead-junk-p2" in data["skipped_lead_ids"]
+    assert "lead-sentry-p3" in data["skipped_lead_ids"]
+
+    # Verify state updates in storage
+    assert storage.get_lead("lead-valid-p1").state == State.OUTREACH_SENT
+    assert storage.get_lead("lead-junk-p2").state == State.PITCH_PENDING_APPROVAL
+
+
+def test_batch_approve_outside_office_hours_queues_lead(test_setup, monkeypatch):
+    import agents.scout_runner
+    monkeypatch.setattr(agents.scout_runner, "is_office_hours", lambda: (False, 7200, "Closed for the evening"))
+    storage, admin_service, client = test_setup
+    admin_headers = {"Authorization": "Bearer mock_user_founder_lead_admin"}
+
+    lead = Lead("lead-night-p1", "daily", state=State.PITCH_PENDING_APPROVAL)
+    lead.company_name = "Night Corp"
+    lead.contact_email = "ops@nightcorp.com"
+    storage.save_lead(lead)
+
+    res = client.post("/api/admin/leads/batch-approve", headers=admin_headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert data["status"] == "QUEUED_OFFICE_HOURS"
+    assert data["approved_count"] == 1
+    assert data["dispatched_count"] == 0
+    # Remains in PITCH_PENDING_APPROVAL queued for morning dispatch
+    assert storage.get_lead("lead-night-p1").state == State.PITCH_PENDING_APPROVAL
+
+
+def test_auto_outreach_scheduler():
+    from agents.auto_outreach import AutoOutreachScheduler
+    from agents.pitcher import PitchMessage
+    storage = InMemoryStorageBackend()
+
+    scheduler = AutoOutreachScheduler(grace_period_seconds=180, min_jitter_seconds=1, max_jitter_seconds=2)
+    scheduler.set_enabled(True)
+    assert scheduler.is_enabled is True
+
+    lead = Lead("lead-auto-test-1", "daily", state=State.PITCH_PENDING_APPROVAL)
+    lead.company_name = "Beta Systems"
+    lead.contact_email = "alex@betasystems.com"
+    pitch = PitchMessage("beta records", "Hello beta", "<p>Hello</p>", "https://test.com/p/beta", 5)
+
+    res = scheduler.schedule_lead_for_dispatch(lead, pitch, storage)
+    assert res["ok"] is True
+    assert scheduler.is_pending("lead-auto-test-1") is True
+
+    # Operator cancels via mobile
+    cancelled = scheduler.cancel_dispatch("lead-auto-test-1", reason="Operator tapped Cancel")
+    assert cancelled is True
+    assert scheduler.is_pending("lead-auto-test-1") is False
+
+
+def test_quick_action_cancel_and_send_now(test_setup):
+    from agents.auth import generate_mobile_action_token
+    storage, admin_service, client = test_setup
+
+    lead = Lead("lead-quick-test", "daily", state=State.PITCH_PENDING_APPROVAL)
+    lead.company_name = "Quick Test Corp"
+    lead.contact_email = "director@quicktest.com"
+    lead.outreach_subject = "quick records"
+    lead.outreach_body = "Hi, here is your feed."
+    storage.save_lead(lead)
+
+    # 1. Test cancel_auto_outreach
+    cancel_tok = generate_mobile_action_token("cancel_auto_outreach", "lead-quick-test")
+    res = client.get(f"/api/admin/quick-action?action=cancel_auto_outreach&lead_id=lead-quick-test&token={cancel_tok}")
+    assert res.status_code == 200
+    assert "Outreach Cancelled" in res.text
+    assert storage.get_lead("lead-quick-test").state == State.ARCHIVED
+
+    # Reset for send_immediately
+    lead.state = State.PITCH_PENDING_APPROVAL
+    storage.save_lead(lead)
+    send_tok = generate_mobile_action_token("send_immediately", "lead-quick-test")
+    res2 = client.get(f"/api/admin/quick-action?action=send_immediately&lead_id=lead-quick-test&token={send_tok}")
+    assert res2.status_code == 200
+    assert "Outreach Pitch Approved & Dispatched" in res2.text
+    assert storage.get_lead("lead-quick-test").state == State.OUTREACH_SENT
+
+
+

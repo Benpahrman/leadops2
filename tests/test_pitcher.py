@@ -23,7 +23,28 @@ def test_render_sub_60_word_pitch():
     assert pitch.word_count < 60
     assert "https://leadops.app/p/apex-real-estate-lead-1" in pitch.sandbox_url
     assert "Cook County Clerk" in pitch.body_text
-    assert "Sample Probate Court data feed for Apex Real Estate" == pitch.subject
+    assert pitch.subject
+    assert len(pitch.subject.split()) <= 6
+    assert "sample" not in pitch.subject.lower()
+    assert "data feed for" not in pitch.subject.lower()
+
+
+def test_natural_subject_generation():
+    from agents.pitcher import generate_natural_subject
+    subj = generate_natural_subject(
+        company_name="Austin Architects LLC",
+        niche="Commercial Construction & Permits",
+        portal_name="City of Austin Building Permits Portal",
+        contact_name="Marcus Vance",
+    )
+    assert subj
+    # Non-AI subjects: 2-4 words, casual lowercase peer subject
+    assert len(subj.split()) <= 5
+    assert "sample" not in subj.lower()
+    assert "data feed" not in subj.lower()
+    assert "automating" not in subj.lower()
+    assert not subj.endswith(" 4")
+
 
 
 def test_pitcher_dispatch_lifecycle_and_mock_client():
@@ -124,4 +145,36 @@ def test_escrow_ready_email_rendering_and_dispatch():
     assert len(sent_payloads) == 1
     assert sent_payloads[0]["email"]["to"][0]["email"] == "ops@lonestar.com"
     assert "98.5%" in sent_payloads[0]["email"]["subject"]
+
+
+def test_outreach_office_hours_enforcement_and_emergency_override(monkeypatch):
+    import agents.scout_runner
+    settings = SendPulseSettings(client_id="id", client_secret="secret", from_email="a@b.com")
+    def mock_requester(url, headers, body_bytes, method):
+        return 200, {"result": True, "id": "msg_test"}
+    mock_client = SendPulseClient(settings=settings, http_requester=mock_requester)
+    pitcher = PitcherService(sendpulse_client=mock_client)
+    
+    lead = Lead("lead-office-hours-test", "daily", company_name="Apex Testing", contact_email="apex@example.com")
+    pitch = render_sub_60_word_pitch("Apex Testing", "Permits", "City Portal", 10, "apex-slug")
+
+    # 1. Simulate outside office hours
+    monkeypatch.setattr(agents.scout_runner, "is_office_hours", lambda: (False, 3600, "Outside office hours (closed)"))
+    
+    # Normal dispatch fails when enforce_office_hours is active
+    with pytest.raises(ValueError, match="Outbound cold outreach sending is restricted to office hours"):
+        pitcher.approve_and_dispatch(lead, "apex@example.com", "Apex", pitch, enforce_office_hours=True)
+
+    # 2. Emergency force bypass allows dispatch even outside office hours
+    res = pitcher.approve_and_dispatch(lead, "apex@example.com", "Apex", pitch, enforce_office_hours=True, force_out_of_hours=True)
+    assert res["approver"] == "Autonomous AI Engine"
+    assert lead.state == State.OUTREACH_SENT
+
+    # 3. During office hours, dispatch succeeds normally without force
+    lead2 = Lead("lead-in-hours-test", "daily", company_name="Beta Testing", contact_email="beta@example.com")
+    monkeypatch.setattr(agents.scout_runner, "is_office_hours", lambda: (True, 7200, "Office hours active"))
+    res2 = pitcher.approve_and_dispatch(lead2, "beta@example.com", "Beta", pitch, enforce_office_hours=True)
+    assert res2["approver"] == "Autonomous AI Engine"
+    assert lead2.state == State.OUTREACH_SENT
+
 

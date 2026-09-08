@@ -132,6 +132,16 @@ def advance_lead_state(
         return admin_service.advance_lead_state(lead_id)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/api/admin/leads/batch-approve", tags=["Admin Operations"])
+def batch_approve_pitches(
+    _: ClerkUser = Depends(require_admin),
+    admin_service=Depends(get_admin_service),
+):
+    """Approve and dispatch all eligible pending pitches in a single operator action."""
+    return admin_service.batch_approve_pending_pitches()
 
 @router.delete("/api/admin/leads/{lead_id}", tags=["Admin Operations"])
 def delete_lead(
@@ -163,6 +173,28 @@ def get_scout_status(
     if not supervisor:
         return {"phase": "UNAVAILABLE", "message": "Scout supervisor is not configured"}
     return supervisor.status()
+
+
+@router.get("/api/admin/auto-outreach/status", tags=["Admin Operations"])
+def get_auto_outreach_status(
+    _: ClerkUser = Depends(require_admin),
+):
+    from ..auto_outreach import auto_outreach_scheduler
+    return auto_outreach_scheduler.get_status()
+
+
+class ToggleAutoOutreachRequest(BaseModel):
+    enabled: bool
+
+
+@router.post("/api/admin/auto-outreach/toggle", tags=["Admin Operations"])
+def toggle_auto_outreach(
+    req: ToggleAutoOutreachRequest,
+    _: ClerkUser = Depends(require_admin),
+):
+    from ..auto_outreach import auto_outreach_scheduler
+    auto_outreach_scheduler.set_enabled(req.enabled)
+    return {"ok": True, "enabled": auto_outreach_scheduler.is_enabled}
 
 
 class TriggerWebScoutRequest(BaseModel):
@@ -1103,6 +1135,112 @@ def trigger_morning_briefing(
     return {"ok": True, "briefing": briefing}
 
 
+@router.get("/api/admin/notifications/status", tags=["Admin Operations"])
+def get_notifications_status(
+    _: ClerkUser = Depends(require_admin),
+):
+    """Retrieve active multi-channel Discord and Telegram configuration status."""
+    from ..notifications import notification_manager
+    settings = notification_manager.settings
+    return {
+        "ok": True,
+        "enabled": settings.enabled,
+        "discord_configured": bool(settings.discord_webhook_url or settings.discord_webhook_outreach),
+        "discord_channels": {
+            "default": bool(settings.discord_webhook_url),
+            "outreach": bool(settings.discord_webhook_outreach),
+            "inbox": bool(settings.discord_webhook_inbox),
+            "revenue": bool(settings.discord_webhook_revenue),
+            "dev": bool(settings.discord_webhook_dev),
+            "alerts": bool(settings.discord_webhook_alerts),
+        },
+        "telegram_configured": bool(settings.telegram_bot_token and settings.telegram_chat_id),
+    }
+
+
+@router.post("/api/admin/notifications/test-preview", tags=["Admin Operations"])
+def trigger_test_notification_preview(
+    preview_type: str = "outreach",
+    _: ClerkUser = Depends(require_admin),
+):
+    """Send a live Discord embed showcase to preview the layout, colors, personas, and action buttons."""
+    from ..notifications import notification_manager
+    from ..domain import Lead, PitchMessage
+    
+    if not notification_manager.is_configured():
+        raise HTTPException(status_code=400, detail="Notifications are not configured or disabled.")
+        
+    sample_lead = Lead(
+        "lead-demo-1",
+        "daily",
+        company_name="Apex Title & Escrow",
+        contact_name="Michael Vance",
+        contact_email="mvance@apextitle.example.com",
+    )
+    sample_lead.niche = "Probate & Foreclosures"
+    sample_lead.jurisdiction = "Harris County Records"
+    
+    if preview_type == "outreach":
+        pitch = PitchMessage(
+            subject="Harris County probate feed",
+            body_text=(
+                "Hi Michael,\n\n"
+                "We built an automated pipeline that extracts new Harris County probate filings daily.\n\n"
+                "Would love to send over 25 sample rows for Apex if you have a minute?\n\n"
+                "Best,\nAlex"
+            ),
+            word_count=29,
+        )
+        notification_manager.notify_lead_qualified_and_dispatching(
+            sample_lead,
+            pitch,
+            quota_info={"sent_today": 8, "daily_quota": 25, "warmup_week": 1},
+        )
+    elif preview_type == "revenue":
+        notification_manager.notify_payment_received(
+            sample_lead,
+            amount_usd=250.00,
+            payment_type="Deployment Deposit",
+            provider="Stripe",
+            transaction_id="ch_3N8vKjL2k9p0Xy",
+        )
+    elif preview_type == "dev":
+        notification_manager.notify_dev_swarm_started(
+            sample_lead,
+            objectives=[
+                "Reverse engineer Harris County portal DOM hierarchy",
+                "Compile resilient Playwright scraper",
+                "Certify 25 real records against QA gatekeeper",
+            ],
+        )
+    elif preview_type == "qa":
+        notification_manager.notify_qa_evaluation(
+            sample_lead,
+            qa_score=100.0,
+            escrow_ready=True,
+            record_count=25,
+        )
+    elif preview_type == "inbox":
+        notification_manager.notify_inbound_reply_received(
+            sender_email="mvance@apextitle.example.com",
+            sender_name="Michael Vance",
+            company_name="Apex Title & Escrow",
+            subject="Re: Harris County probate feed",
+            reply_snippet="Sounds interesting. Can you send over the sample data and pricing details?",
+            ai_intent="INTERESTED",
+            ai_sentiment="POSITIVE",
+            ai_draft_reply="Hi Michael, Absolutely! I've prepared a sandbox with 25 live verified records for Harris County. You can view the live feed here...",
+        )
+    else:
+        notification_manager.notify_system_alert(
+            title="Discord Aesthetic Showcase",
+            message="Your multi-channel Discord setup is operational with premium executive styling.",
+            severity="INFO",
+        )
+        
+    return {"ok": True, "preview_type": preview_type, "message": "Preview embed dispatched successfully."}
+
+
 @router.get("/api/admin/quick-action", tags=["Admin Mobile Controls"], response_class=HTMLResponse)
 def handle_mobile_quick_action(
     request: Request,
@@ -1137,57 +1275,127 @@ def handle_mobile_quick_action(
             leads = storage_backend.list_leads()
             lead = next((l for l in leads if l.slug == clean_lead_id or l.lead_id == clean_lead_id), None)
 
-    if action_lower == "approve_pitch":
+    if action_lower in ("approve_pitch", "send_immediately"):
         if not lead:
             raise HTTPException(status_code=404, detail=f"Lead not found: {clean_lead_id}")
 
-        from ..pitcher import PitcherService, PitchMessage
+        # Cancel any pending auto-outreach grace timer
+        try:
+            from ..auto_outreach import auto_outreach_scheduler
+            auto_outreach_scheduler.cancel_dispatch(clean_lead_id, reason="Operator manual mobile dispatch triggered")
+        except Exception as e:
+            logger.debug(f"Auto-outreach cancel note: {e}")
+
+        from ..pitcher import PitcherService, PitchMessage, render_sub_60_word_pitch
         pitch = None
-        if getattr(lead, "outreach_subject", ""):
+        slug = getattr(lead, "slug", "") or lead.lead_id
+        if getattr(lead, "outreach_subject", "") and getattr(lead, "outreach_body", ""):
             pitch = PitchMessage(
                 subject=lead.outreach_subject,
                 body_text=lead.outreach_body,
                 body_html=getattr(lead, "outreach_html", "") or f"<p>{lead.outreach_body}</p>",
-                sandbox_url=f"https://www.omnileadfeeder.tech/p/{lead.slug}",
+                sandbox_url=f"https://www.omnileadfeeder.tech/p/{slug}",
                 word_count=len(lead.outreach_body.split()),
             )
-
-        pitcher = PitcherService(storage_backend=storage_backend)
-        if pitch and lead.contact_email:
-            try:
-                pitcher.approve_and_dispatch(
-                    lead=lead,
-                    recipient_email=lead.contact_email,
-                    recipient_name=lead.contact_name or lead.company_name,
-                    pitch=pitch,
-                    human_approver="Founder (Mobile Discord)",
-                )
-            except Exception as send_err:
-                logger.warning(f"Error during mobile pitch dispatch: {send_err}")
-                lead.state = State.OUTREACH_SENT
-                storage_backend.save_lead(lead)
         else:
-            lead.state = State.OUTREACH_SENT
+            company = lead.company_name or "Partner"
+            pitch = render_sub_60_word_pitch(
+                company_name=company,
+                niche=getattr(lead, "niche", "Public Records") or "Public Records",
+                portal_name=getattr(lead, "target_portal_name", "Official Records Portal") or "Official Records Portal",
+                sample_count=4,
+                slug=slug,
+                contact_name=(getattr(lead, "contact_name", "") or "there").split()[0],
+                contact_role=getattr(lead, "contact_role", ""),
+            )
+            lead.outreach_subject = pitch.subject
+            lead.outreach_body = pitch.body_text
+            lead.outreach_html = pitch.body_html
             storage_backend.save_lead(lead)
 
-        title = "Outreach Pitch Approved & Dispatched"
-        description = f"Cold outreach pitch for <b>{lead.company_name}</b> ({lead.contact_email}) has been approved and dispatched via native SMTP."
-        status_icon = "🚀"
-        badge_color = "#10B981"
-        notification_manager.notify_system_alert(
-            "📱 Mobile Pitch Approved",
-            f"Founder approved cold outreach for {lead.company_name} ({lead.contact_email}) from mobile.",
-            severity="INFO",
-        )
+        email = (lead.contact_email or "").strip()
+        if not email or "@" not in email:
+            title = "Dispatch Halted: Missing Email"
+            description = f"Cannot dispatch outreach for <b>{lead.company_name}</b>: No valid recipient email address on file."
+            status_icon = "⚠️"
+            badge_color = "#F59E0B"
+        else:
+            from ..scout_runner import is_office_hours
+            is_open, seconds_until_open, msg = is_office_hours()
+            force_now = (action_lower == "send_immediately")
 
-    elif action_lower == "reject_pitch":
+            if not is_open and not force_now:
+                from ..auto_outreach import auto_outreach_scheduler
+                auto_outreach_scheduler.schedule_lead_for_dispatch(lead, pitch, storage_backend)
+                lead.audit_log.append({
+                    "from": lead.state.value,
+                    "to": lead.state.value,
+                    "reason": f"Pitch approved by mobile operator; queued for office hours dispatch at 8:00 AM CST ({msg})",
+                })
+                storage_backend.save_lead(lead)
+                title = "🌙 Pitch Approved — Scheduled for Office Hours"
+                description = (
+                    f"Cold outreach pitch for <b>{lead.company_name}</b> ({email}) is approved!<br><br>"
+                    f"Outbound cold email sending is kept strictly to office hours (8:00 AM - 5:00 PM CST Mon-Fri).<br><br>"
+                    f"This email is safely queued and will automatically dispatch at <b>8:00 AM CST</b> with anti-spam jitter."
+                )
+                status_icon = "⏱️"
+                badge_color = "#3B82F6"
+                notification_manager.notify_system_alert(
+                    "📱 Mobile Pitch Approved (Queued for Office Hours)",
+                    f"Founder approved cold outreach for {lead.company_name} ({email}). Queued for 8:00 AM CST office hours dispatch.",
+                    severity="INFO",
+                )
+            else:
+                pitcher = PitcherService(storage_backend=storage_backend)
+                try:
+                    pitcher.approve_and_dispatch(
+                        lead=lead,
+                        recipient_email=email,
+                        recipient_name=lead.contact_name or lead.company_name,
+                        pitch=pitch,
+                        human_approver="Founder (Mobile Action)",
+                        force_out_of_hours=force_now,
+                    )
+                    storage_backend.save_lead(lead)
+                    title = "Outreach Pitch Approved & Dispatched"
+                    description = f"Cold outreach pitch for <b>{lead.company_name}</b> ({email}) has been approved and dispatched via native SMTP.<br><br><b>Subject:</b> <i>{pitch.subject}</i>"
+                    status_icon = "🚀"
+                    badge_color = "#10B981"
+                    notification_manager.notify_system_alert(
+                        "📱 Mobile Pitch Approved",
+                        f"Founder approved cold outreach for {lead.company_name} ({email}) from mobile.",
+                        severity="INFO",
+                    )
+                except Exception as send_err:
+                    logger.warning(f"Error during mobile pitch dispatch for {lead.lead_id}: {send_err}")
+                    title = "Dispatch Blocked by Quality Gate"
+                    description = f"Could not dispatch email for <b>{lead.company_name}</b> ({email}):<br><br><code>{str(send_err)}</code>"
+                    status_icon = "⚠️"
+                    badge_color = "#EF4444"
+
+    elif action_lower in ("reject_pitch", "cancel_auto_outreach"):
         if not lead:
             raise HTTPException(status_code=404, detail=f"Lead not found: {clean_lead_id}")
+
+        # Cancel background auto-dispatch timer
+        try:
+            from ..auto_outreach import auto_outreach_scheduler
+            auto_outreach_scheduler.cancel_dispatch(clean_lead_id, reason="Operator cancelled via mobile link")
+        except Exception as e:
+            logger.debug(f"Auto-outreach cancel note: {e}")
+
         lead.state = State.ARCHIVED
+        lead.audit_log.append({
+            "from": State.PITCH_PENDING_APPROVAL.value,
+            "to": State.ARCHIVED.value,
+            "reason": "Operator cancelled outreach via mobile action",
+            "at": datetime.now(timezone.utc).isoformat(),
+        })
         storage_backend.save_lead(lead)
-        title = "Outreach Pitch Rejected"
-        description = f"Pitch for <b>{lead.company_name}</b> has been rejected and archived."
-        status_icon = "✕"
+        title = "Outreach Cancelled & Pitch Archived"
+        description = f"Outreach for <b>{lead.company_name}</b> ({lead.contact_email}) has been cancelled. No emails will be sent."
+        status_icon = "🛑"
         badge_color = "#EF4444"
 
     elif action_lower == "approve_delivery":

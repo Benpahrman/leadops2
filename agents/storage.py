@@ -350,6 +350,15 @@ class SqliteStorageBackend:
                     cursor.execute(f"ALTER TABLE leads ADD COLUMN {col} TEXT DEFAULT ''")
                 except sqlite3.OperationalError:
                     pass
+            # Funnel & Low-Friction Pricing columns
+            try:
+                cursor.execute("ALTER TABLE leads ADD COLUMN deposit_amount_usd REAL DEFAULT 99.0")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute("ALTER TABLE leads ADD COLUMN unlocked_30d_backlog INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS sandboxes (
@@ -388,12 +397,13 @@ class SqliteStorageBackend:
                     outreach_body, repo_url, niche, delivery_count,
                     last_login_at, created_at, upsell_sent, referral_sent,
                     winback_stage, heartbeat_count, referred_by, claimed_by, is_paused, paused_until, paypal_vault_id, subscription_id, decision_maker_linkedin,
-                    automation_opportunity_score, purchase_probability, pain_severity, qualification_verdict, research, updated_at
+                    automation_opportunity_score, purchase_probability, pain_severity, qualification_verdict, research,
+                    deposit_amount_usd, unlocked_30d_backlog, updated_at
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 ON CONFLICT(lead_id) DO UPDATE SET
                     tier_key=excluded.tier_key,
@@ -438,6 +448,8 @@ class SqliteStorageBackend:
                     pain_severity=excluded.pain_severity,
                     qualification_verdict=excluded.qualification_verdict,
                     research=excluded.research,
+                    deposit_amount_usd=excluded.deposit_amount_usd,
+                    unlocked_30d_backlog=excluded.unlocked_30d_backlog,
                     updated_at=excluded.updated_at
                 """,
                 (
@@ -484,6 +496,8 @@ class SqliteStorageBackend:
                     getattr(lead, "pain_severity", 6) or 6,
                     getattr(lead, "qualification_verdict", "QUALIFIED_HOT") or "QUALIFIED_HOT",
                     json.dumps(getattr(lead, "research", {}) or {}),
+                    float(getattr(lead, "deposit_amount_usd", 99.00) or 99.00),
+                    1 if getattr(lead, "unlocked_30d_backlog", False) else 0,
                     datetime.now(timezone.utc).isoformat(),
                 ),
             )
@@ -1134,6 +1148,8 @@ class SqliteStorageBackend:
                 if isinstance(get_col("research", "{}"), str) and get_col("research", "{}").strip().startswith("{")
                 else (get_col("research", {}) if isinstance(get_col("research", {}), dict) else {})
             ),
+            deposit_amount_usd=float(get_col("deposit_amount_usd", 99.00) or 99.00),
+            unlocked_30d_backlog=bool(get_col("unlocked_30d_backlog", 0)),
         )
 
     def backup_db(self, target_path: str | None = None) -> str:
@@ -1334,6 +1350,41 @@ class PostgresStorageBackend:
             """))
             conn.execute(text("""
                 CREATE INDEX IF NOT EXISTS ix_chat_messages_conv ON chat_messages (conversation_id, created_at)
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS daily_email_quota_logs (
+                    id SERIAL PRIMARY KEY,
+                    inbox_id VARCHAR(64) NOT NULL,
+                    recipient VARCHAR(255) NOT NULL,
+                    lead_id VARCHAR(255) NOT NULL,
+                    dispatched_at VARCHAR(64) NOT NULL,
+                    sent_date VARCHAR(16) NOT NULL
+                )
+            """))
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_email_quota_inbox_date ON daily_email_quota_logs (inbox_id, sent_date)
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS inbound_emails (
+                    id SERIAL PRIMARY KEY,
+                    message_id VARCHAR(255) UNIQUE,
+                    sender_email VARCHAR(255) NOT NULL,
+                    sender_name VARCHAR(255) DEFAULT '',
+                    subject TEXT DEFAULT '',
+                    body TEXT DEFAULT '',
+                    lead_id VARCHAR(255),
+                    intent VARCHAR(64) DEFAULT 'unclassified',
+                    received_at VARCHAR(64) NOT NULL
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS inbox_accounts (
+                    inbox_id VARCHAR(64) PRIMARY KEY,
+                    email_address VARCHAR(255) NOT NULL,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    daily_limit INTEGER NOT NULL DEFAULT 25,
+                    created_at VARCHAR(64) NOT NULL
+                )
             """))
 
     def save_lead(self, lead: Lead) -> None:

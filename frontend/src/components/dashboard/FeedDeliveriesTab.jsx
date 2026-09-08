@@ -15,52 +15,12 @@ export default function FeedDeliveriesTab({ leadId, dashState, onRefresh, token 
     JSON.stringify(r).toLowerCase().includes(searchTerm.toLowerCase().trim())
   );
 
-  // Delivery run history
-  const runHistory = dashState?.delivery_history || [
-    {
-      batch_id: `BATCH-${leadId.toUpperCase()}-0907`,
-      timestamp: 'Today, 08:00 AM UTC',
-      rows: 25,
-      destination: 'Google Sheets & Webhook',
-      status: 'DELIVERED (HTTP 200)',
-      qa_score: '100%',
-      health: 'HEALTHY',
-    },
-    {
-      batch_id: `BATCH-${leadId.toUpperCase()}-0906`,
-      timestamp: 'Yesterday, 08:00 AM UTC',
-      rows: 25,
-      destination: 'Google Sheets & Webhook',
-      status: 'DELIVERED (HTTP 200)',
-      qa_score: '96.5%',
-      health: 'AUTO-HEALED (Turnstile Evasion)',
-    },
-    {
-      batch_id: `BATCH-${leadId.toUpperCase()}-0905`,
-      timestamp: 'Sep 5, 08:00 AM UTC',
-      rows: 25,
-      destination: 'Google Sheets & Webhook',
-      status: 'DELIVERED (HTTP 200)',
-      qa_score: '98.0%',
-      health: 'HEALTHY',
-    },
-  ];
+  // Live delivery run history from backend API
+  const runHistory = dashState?.delivery_history || [];
 
-  // Self-healing & fixes audit log
-  const fixesLog = [
-    {
-      timestamp: 'Today 06:14 AM',
-      type: 'PASSIVE CHECK',
-      description: 'Pre-flight WAF probe passed. Residential IP pool verified with zero Cloudflare challenge latency.',
-      status: 'RESOLVED',
-    },
-    {
-      timestamp: 'Yesterday 06:02 AM',
-      type: 'AUTONOMOUS REPAIR',
-      description: 'Target portal rotated table class names. DOM Architect auto-adapted cascading selector fallback in 48ms.',
-      status: 'AUTO-HEALED',
-    },
-  ];
+  // Live self-healing & operational fixes audit log from backend API
+  const fixesLog = dashState?.fixes_log || [];
+
 
   const handleManualSync = async () => {
     setIsSyncing(true);
@@ -285,16 +245,24 @@ export default function FeedDeliveriesTab({ leadId, dashState, onRefresh, token 
                 </tr>
               </thead>
               <tbody>
-                {runHistory.map((run, i) => (
-                  <tr key={i}>
-                    <td><b style={{ color: 'var(--cyan)', fontFamily: 'var(--mono)' }}>{run.batch_id}</b></td>
-                    <td>{run.timestamp}</td>
-                    <td><b>{run.rows} rows</b></td>
-                    <td>
-                      <span className="badge-tag badge-green">{run.status}</span>
+                {runHistory.length === 0 ? (
+                  <tr>
+                    <td colSpan="4" style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                      No prior delivery batches recorded yet. Deliveries trigger daily at 08:00 AM UTC.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  runHistory.map((run, i) => (
+                    <tr key={i}>
+                      <td><b style={{ color: 'var(--cyan)', fontFamily: 'var(--mono)' }}>{run.batch_id}</b></td>
+                      <td>{run.timestamp}</td>
+                      <td><b>{run.rows} rows</b></td>
+                      <td>
+                        <span className="badge-tag badge-green">{run.status}</span>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -306,32 +274,39 @@ export default function FeedDeliveriesTab({ leadId, dashState, onRefresh, token 
             🛡️ Autonomous Self-Healing &amp; Fixes Audit Log
           </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {fixesLog.map((fix, idx) => (
-              <div
-                key={idx}
-                style={{
-                  background: 'var(--card-alt)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '8px',
-                  padding: '12px',
-                  fontSize: '12px',
-                  lineHeight: 1.5,
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                  <span style={{ color: 'var(--cyan)', fontWeight: 700, fontFamily: 'var(--mono)' }}>
-                    {fix.type}
-                  </span>
-                  <span style={{ color: 'var(--green)', fontSize: '11px', fontWeight: 700 }}>
-                    ● {fix.status}
-                  </span>
-                </div>
-                <div style={{ color: 'var(--text)' }}>{fix.description}</div>
-                <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '4px' }}>
-                  {fix.timestamp} • 4-Hour SLA Target Met
-                </div>
+            {fixesLog.length === 0 ? (
+              <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
+                Operational integrity optimal. Pre-flight telemetry and selectors in verified state.
               </div>
-            ))}
+            ) : (
+              fixesLog.map((fix, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    background: 'var(--card-alt)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '8px',
+                    padding: '12px',
+                    fontSize: '12px',
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span style={{ color: 'var(--cyan)', fontWeight: 700, fontFamily: 'var(--mono)' }}>
+                      {fix.type}
+                    </span>
+                    <span style={{ color: 'var(--green)', fontSize: '11px', fontWeight: 700 }}>
+                      ● {fix.status}
+                    </span>
+                  </div>
+                  <div style={{ color: 'var(--text)' }}>{fix.description}</div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '4px' }}>
+                    {fix.timestamp} • 4-Hour SLA Target Met
+                  </div>
+                </div>
+              ))
+            )}
+
           </div>
         </div>
       </div>

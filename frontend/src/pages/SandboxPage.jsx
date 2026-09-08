@@ -130,21 +130,23 @@ export default function SandboxPage() {
                 className="btn btn-primary btn-lg"
                 onClick={() => setIsCheckoutOpen(true)}
               >
-                💳 Authorize $250 Deposit in Escrow ➔
+                💳 Start $99 Setup Sprint (100% Credited to Month 1) ➔
               </button>
               <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--mono)' }}>
-                100% Refundable if QA Fails • 24hr Turnaround
+                100% Refundable if QA Fails • Balance of $151 Due Upon Delivery
               </span>
             </div>
           </div>
         </div>
 
-        {/* Live Data Table with 1-Click Verification Links */}
+        {/* Live Data Table with 1-Click Verification Links & $49 Backlog Unlock */}
         <DataTable
+          slug={slug}
           rows={rows}
           sourceUrl={sourceUrl}
           companyName={companyName}
           jurisdiction={jurisdiction}
+          defaultEmail={sandboxData?.lead?.contact_email || ''}
         />
 
         {/* Active Schema & AI Suggestions */}
@@ -160,14 +162,14 @@ export default function SandboxPage() {
           <h3 style={{ fontSize: '22px', fontWeight: 800, color: '#fff' }}>
             Ready to Automate Daily Delivery to Google Sheets?
           </h3>
-          <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: '8px auto 20px', maxWidth: '580px' }}>
-            Authorize your $250 milestone setup deposit. Your funds remain safeguarded in third-party escrow until our 7-agent dev swarm verifies 25 live rows with 100% accuracy.
+          <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: '8px auto 20px', maxWidth: '620px' }}>
+            Authorize your $99 setup sprint deposit. 100% credited toward your first month ($151 balance due only when live QA passes with &gt;=95% accuracy). Held safely in third-party escrow.
           </p>
           <button
             className="btn btn-primary btn-lg"
             onClick={() => setIsCheckoutOpen(true)}
           >
-            Authorize $250 Milestone Deposit &amp; Launch Swarm ➔
+            Start $99 Setup Sprint (Credited to Month 1) ➔
           </button>
         </div>
       </div>

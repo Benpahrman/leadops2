@@ -242,27 +242,34 @@ class PortalService:
         if sandbox.lead.state != State.SOW_GENERATED:
             raise ValueError("Checkout requires an approved scope and generated SOW")
         self._record(slug, "checkout.requested")
+        deposit_usd = getattr(sandbox.lead, "deposit_amount_usd", 99.00)
         return {
             "lead_id": sandbox.lead.lead_id,
             "tier": sandbox.lead.tier.name,
-            "amount_cents": sandbox.lead.tier.price_cents // 2,
+            "amount_cents": int(deposit_usd * 100) if sandbox.lead.tier_key != "buyout" else sandbox.lead.tier.price_cents // 2,
+            "deposit_amount_usd": deposit_usd,
             "payment_provider": "paypal",
             "payment_kind": "buyout" if sandbox.lead.tier_key == "buyout" else "setup_deposit",
         }
 
     def request_final_checkout(self, slug: str) -> dict[str, object]:
-        """Generate checkout payload for the second (final) 50% milestone payment and recurring subscription initialization."""
+        """Generate checkout payload for the second (final) milestone payment and recurring subscription initialization."""
         sandbox = self.get_sandbox(slug)
         if sandbox.lead.state != State.ESCROW_PREVIEW:
             raise ValueError("Final payment requires a completed build in ESCROW_PREVIEW state")
         self._record(slug, "final_checkout.requested")
         starts_subscription = sandbox.lead.tier_key != "buyout"
         plan_id = os.getenv(f"PAYPAL_PLAN_ID_{sandbox.lead.tier_key.upper()}", f"P-LEADOPS-{sandbox.lead.tier_key.upper()}-PLAN") if starts_subscription else ""
+        deposit_usd = getattr(sandbox.lead, "deposit_amount_usd", 99.00)
+        # 100% of the $99 setup deposit is credited towards Month 1 subscription balance ($250 - $99 = $151)
+        net_amount_cents = max(0, sandbox.lead.tier.price_cents - int(deposit_usd * 100)) if starts_subscription else 150000
         return {
             "lead_id": sandbox.lead.lead_id,
             "tier": sandbox.lead.tier.name,
             "tier_key": sandbox.lead.tier_key,
-            "amount_cents": sandbox.lead.tier.price_cents // 2 if sandbox.lead.tier_key != "buyout" else 150000,
+            "amount_cents": net_amount_cents,
+            "deposit_credit_usd": deposit_usd,
+            "plan_price_usd": sandbox.lead.tier.price_cents / 100.0,
             "payment_provider": "paypal",
             "payment_kind": "final_payment_and_subscription",
             "starts_subscription": starts_subscription,

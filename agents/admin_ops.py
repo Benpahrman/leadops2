@@ -195,30 +195,59 @@ class AdminMissionControlService:
             slug = sb.slug if sb else f"lead-{lead_id}"
             company = lead.company_name or (slug.split("-")[0].capitalize() if slug else "Target Company")
 
-            from .pitcher import PitcherService, render_sub_60_word_pitch
+            from .pitcher import PitcherService, PitchMessage, render_sub_60_word_pitch
 
-            pitch = render_sub_60_word_pitch(
-                company_name=company,
-                niche=lead.niche or "Public Records",
-                portal_name=lead.target_portal_name or "County Official Records Portal",
-                sample_count=len(sb.rows) if sb and sb.rows else 4,
-                slug=slug,
-                base_url=os.environ.get("LEADOPS_PUBLIC_BASE_URL", "https://omnileadfeeder.tech"),
-                contact_name=(lead.contact_name or "there").split()[0],
-                contact_role=lead.contact_role,
-            )
+            if getattr(lead, "outreach_subject", "") and getattr(lead, "outreach_body", ""):
+                pitch = PitchMessage(
+                    subject=lead.outreach_subject,
+                    body_text=lead.outreach_body,
+                    body_html=getattr(lead, "outreach_html", "") or f"<p>{lead.outreach_body}</p>",
+                    sandbox_url=f"https://www.omnileadfeeder.tech/p/{slug}",
+                    word_count=len(lead.outreach_body.split()),
+                )
+            else:
+                pitch = render_sub_60_word_pitch(
+                    company_name=company,
+                    niche=lead.niche or "Public Records",
+                    portal_name=lead.target_portal_name or "County Official Records Portal",
+                    sample_count=len(sb.rows) if sb and sb.rows else 4,
+                    slug=slug,
+                    base_url=os.environ.get("LEADOPS_PUBLIC_BASE_URL", "https://omnileadfeeder.tech"),
+                    contact_name=(lead.contact_name or "there").split()[0],
+                    contact_role=lead.contact_role,
+                )
 
             recipient_email = lead.contact_email.strip()
             if not recipient_email:
                 raise ValueError("Cannot dispatch pitch without a verified contact email")
 
-            pitcher = PitcherService()
+            from .scout_runner import is_office_hours
+            is_open, seconds_until_open, msg = is_office_hours()
+            if not is_open:
+                from .auto_outreach import auto_outreach_scheduler
+                auto_outreach_scheduler.schedule_lead_for_dispatch(lead, pitch, self.storage)
+                lead.audit_log.append({
+                    "from": prev_state.value,
+                    "to": prev_state.value,
+                    "reason": f"Pitch approved by operator; queued for office hours dispatch at 8:00 AM CST ({msg})",
+                })
+                self.storage.save_lead(lead)
+                return {
+                    "ok": True,
+                    "lead_id": lead_id,
+                    "new_state": prev_state.value,
+                    "status": "QUEUED_OFFICE_HOURS",
+                    "message": f"Pitch approved for {lead.company_name}. Sending is held until office hours (8:00 AM - 5:00 PM CST Mon-Fri). Dispatches at 8:00 AM CST.",
+                }
+
+            pitcher = PitcherService(storage_backend=self.storage)
             pitcher.approve_and_dispatch(
                 lead=lead,
                 recipient_email=recipient_email,
                 recipient_name=lead.contact_name or company,
                 pitch=pitch,
                 human_approver="Founder Operator",
+                force_out_of_hours=False,
             )
         elif prev_state == State.OUTREACH_SENT and target == State.CONVERSATIONAL_INTAKE:
             if not lead.selected_fields:
@@ -471,4 +500,128 @@ class AdminMissionControlService:
             "emergency_stop_active": active,
             "reason": reason,
             "updated_at": self.governance.emergency_stop_updated_at,
+        }
+
+    def batch_approve_pending_pitches(self) -> dict[str, Any]:
+        """Approve and dispatch cold outreach for all leads currently in PITCH_PENDING_APPROVAL."""
+        from .pitcher import PitcherService, PitchMessage, render_sub_60_word_pitch
+
+        leads = self.storage.list_leads()
+        pending = [l for l in leads if getattr(l, "state", None) == State.PITCH_PENDING_APPROVAL or str(getattr(l, "state", "")) == "PITCH_PENDING_APPROVAL"]
+        
+        from .scout_runner import is_office_hours
+        is_open, seconds_until_open, msg = is_office_hours()
+        if not is_open:
+            from .auto_outreach import auto_outreach_scheduler
+            queued = []
+            skipped = []
+            for lead in pending:
+                email = (getattr(lead, "contact_email", "") or "").strip()
+                if not email or "@" not in email or any(agg in email.lower() for agg in ["duckduckgo.com", "sentry.globalreach", "datanyze.com", "prospeo.io"]):
+                    skipped.append({
+                        "lead_id": lead.lead_id,
+                        "company": lead.company_name,
+                        "email": email,
+                        "reason": f"Filtered aggregator/invalid domain: {email or 'empty'}",
+                    })
+                    continue
+                auto_outreach_scheduler.schedule_lead_for_dispatch(lead, None, self.storage)
+                lead.audit_log.append({
+                    "from": State.PITCH_PENDING_APPROVAL.value,
+                    "to": State.PITCH_PENDING_APPROVAL.value,
+                    "reason": f"Batch approved by operator; queued for office hours dispatch at 8:00 AM CST ({msg})",
+                })
+                self.storage.save_lead(lead)
+                queued.append({"lead_id": lead.lead_id, "company": lead.company_name, "email": email})
+            return {
+                "ok": True,
+                "total_pending": len(pending),
+                "approved_count": len(queued),
+                "scheduled_for_office_hours": len(queued),
+                "dispatched_count": 0,
+                "skipped_count": len(skipped),
+                "status": "QUEUED_OFFICE_HOURS",
+                "message": f"Approved {len(queued)} pitch(es). Outbound sending is held until office hours (8:00 AM - 5:00 PM CST Mon-Fri). Dispatches at 8:00 AM CST.",
+                "queued": queued,
+                "dispatched": [],
+                "skipped": skipped,
+                "errors": [],
+                "approved_lead_ids": [q["lead_id"] for q in queued],
+                "skipped_lead_ids": [s["lead_id"] for s in skipped],
+            }
+
+        dispatched = []
+        skipped = []
+        errors = []
+        
+        pitcher = PitcherService(storage_backend=self.storage)
+        for lead in pending:
+            email = (getattr(lead, "contact_email", "") or "").strip()
+            # Safety check: Skip missing or known dummy/search aggregator emails
+            if not email or "@" not in email or any(agg in email.lower() for agg in ["duckduckgo.com", "sentry.globalreach", "datanyze.com", "prospeo.io"]):
+                skipped.append({
+                    "lead_id": lead.lead_id,
+                    "company": lead.company_name,
+                    "email": email,
+                    "reason": f"Filtered aggregator/invalid domain: {email or 'empty'}",
+                })
+                continue
+            
+            slug = getattr(lead, "slug", "") or f"lead-{lead.lead_id}"
+            pitch = None
+            if getattr(lead, "outreach_subject", "") and getattr(lead, "outreach_body", ""):
+                pitch = PitchMessage(
+                    subject=lead.outreach_subject,
+                    body_text=lead.outreach_body,
+                    body_html=getattr(lead, "outreach_html", "") or f"<p>{lead.outreach_body}</p>",
+                    sandbox_url=f"https://www.omnileadfeeder.tech/p/{slug}",
+                    word_count=len(lead.outreach_body.split()),
+                )
+            else:
+                pitch = render_sub_60_word_pitch(
+                    company_name=lead.company_name,
+                    niche=getattr(lead, "niche", "Public Records") or "Public Records",
+                    portal_name=getattr(lead, "target_portal_name", "Official Records Portal") or "Official Records Portal",
+                    sample_count=4,
+                    slug=slug,
+                    contact_name=(getattr(lead, "contact_name", "") or "there").split()[0],
+                    contact_role=getattr(lead, "contact_role", ""),
+                )
+            
+            try:
+                pitcher.approve_and_dispatch(
+                    lead=lead,
+                    recipient_email=email,
+                    recipient_name=getattr(lead, "contact_name", "") or lead.company_name,
+                    pitch=pitch,
+                    human_approver="Founder Batch Approval",
+                )
+                self.storage.save_lead(lead)
+                dispatched.append({
+                    "lead_id": lead.lead_id,
+                    "company": lead.company_name,
+                    "email": email,
+                    "subject": pitch.subject,
+                })
+            except Exception as exc:
+                errors.append({
+                    "lead_id": lead.lead_id,
+                    "company": lead.company_name,
+                    "email": email,
+                    "error": str(exc),
+                })
+                
+        return {
+            "ok": True,
+            "total_pending": len(pending),
+            "dispatched_count": len(dispatched),
+            "approved_count": len(dispatched),
+            "skipped_count": len(skipped),
+            "error_count": len(errors),
+            "dispatched": dispatched,
+            "skipped": skipped,
+            "errors": errors,
+            "approved_lead_ids": [d["lead_id"] for d in dispatched],
+            "skipped_lead_ids": [s["lead_id"] for s in skipped],
+            "message": f"Dispatched {len(dispatched)} pitches. Skipped {len(skipped)} invalid leads. Errors: {len(errors)}.",
         }

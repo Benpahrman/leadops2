@@ -1296,7 +1296,12 @@ class LLMAgentEngine:
             "2. ZERO ATTACHMENTS / PROMO CODE: Never mention PDFs, attachments, or sales demos.\n"
             "3. 100% PLAINTEXT: No markdown, no bullet points, no bolding, no HTML formatting.\n"
             "4. STRICT LENGTH: Between 35 and 55 words max (excluding sign-off).\n"
-            "5. ONE LOW-FRICTION CALL TO ACTION (CTA): End with a simple 4–7 word question asking permission to send the data.\n\n"
+            "5. ONE LOW-FRICTION CALL TO ACTION (CTA): End with a simple 4–7 word question asking permission to send the data.\n"
+            "6. NATURAL HUMAN SUBJECT LINES (ZERO AI CLICHÉS):\n"
+            "   - NEVER write robotic phrases like 'Sample ... data feed for ...', 'Automating your...', 'Streamlining...', 'Unlocking...', 'Transforming...'.\n"
+            "   - Strictly 2–4 words max. Must be all-lowercase or casual sentence case.\n"
+            "   - Must sound like an engineer or operator writing a quick 1-on-1 note.\n"
+            "   - Authentic examples: 'travis county permits', 'quick question {first_name}', 'harris county deeds', 'cook county filings', 'question re: {portal}'.\n\n"
             f"### DYNAMIC VARIATION FOR THIS DRAFT:\n"
             f"- Angle: {selected_angle}\n"
             f"- Tone: {selected_tone}\n"
@@ -1304,7 +1309,7 @@ class LLMAgentEngine:
             "### OUTPUT FORMAT\n"
             "Emit ONLY valid JSON:\n"
             "{\n"
-            '  "subject": "3-4 words max, lowercase or casual title case",\n'
+            '  "subject": "2-4 words max, casual lowercase only, zero marketing words",\n'
             '  "body": "Exact plaintext email body"\n'
             "}"
         )
@@ -1334,7 +1339,16 @@ class LLMAgentEngine:
                 clean_body = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", clean_body).strip()
 
                 words = len(clean_body.split())
-                subject = pitch_data.get("subject", f"quick note re: {lead_info.get('portal_name')}").strip()
+                raw_subject = pitch_data.get("subject", "").strip()
+                # Anti-AI subject sanitizer
+                clean_portal = re.sub(r"(?i)\s*(portal|registry|court|system|division|clerk|records)\s*", "", str(lead_info.get('portal_name', ''))).strip() or "public records"
+                clean_fn = (lead_info.get('contact_name') or '').strip()
+                fallback_subject = f"quick question {clean_fn}" if clean_fn and clean_fn.lower() != 'there' else f"{clean_portal.lower()} records"
+                
+                if not raw_subject or any(bad in raw_subject.lower() for bad in ["sample", "data feed for", "automating", "streamlining", "unlocking", "elevating", "efficiency"]):
+                    subject = fallback_subject
+                else:
+                    subject = raw_subject.lower().strip()
 
                 # Build clean HTML representation matching brand guidelines (Pine Slate / Forest Deep)
                 html_paragraphs = "".join(f"<p style='margin: 0 0 14px 0;'>{p.strip()}</p>" for p in clean_body.split("\n\n") if p.strip())

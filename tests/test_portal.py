@@ -34,7 +34,7 @@ class PortalServiceTests(unittest.TestCase):
         self.lead.transition(State.CONVERSATIONAL_INTAKE, "intake started")
         self.lead.transition(State.SOW_GENERATED, "scope approved")
         checkout = self.portal.request_checkout(self.slug)
-        self.assertEqual(checkout["amount_cents"], 25_000)
+        self.assertEqual(checkout["amount_cents"], 9900)  # $99 setup sprint deposit
         self.assertEqual(checkout["payment_provider"], "paypal")
 
     def test_scope_approval_unlocks_checkout(self):

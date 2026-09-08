@@ -593,6 +593,72 @@ def request_checkout(
     except (KeyError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@router.post("/api/sandbox/{slug}/unlock-backlog", tags=["Portal API"])
+async def unlock_30d_backlog(
+    slug: str,
+    request: Request,
+    user: ClerkUser | None = Depends(get_current_user_optional),
+    portal_service=Depends(get_portal_service),
+    storage_backend=Depends(get_storage),
+):
+    """Processes $49 tripwire purchase to unlock the full 30-day backlog CSV dataset (200-500 rows)."""
+    try:
+        sandbox = ensure_demo_sandbox(slug, portal_service, storage_backend)
+        lead = sandbox.lead
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            pass
+
+        email = body.get("email") or lead.contact_email or (user.email if user else "") or "customer@client.com"
+        paypal_order_id = body.get("paypal_order_id") or f"PAYID-BACKLOG-{int(datetime.now().timestamp()*1000)}"
+
+        lead.unlocked_30d_backlog = True
+        storage_backend.save_lead(lead)
+
+        # Record financial transaction in Audit Vault
+        from ..audit_vault import audit_vault
+        audit_vault.record_payment_event(
+            lead_id=lead.lead_id,
+            provider="PAYPAL",
+            transaction_id=f"TXN-{paypal_order_id}",
+            order_id=paypal_order_id,
+            amount_usd=49.00,
+            currency="USD",
+            status="COMPLETED",
+            payer_email=email,
+            payer_name=lead.company_name or slug,
+            payment_type="30-Day Historical Backlog Dataset Unlock ($49 Tripwire)",
+            raw_metadata={"client_ip": request.client.host if request.client else "127.0.0.1"},
+        )
+
+        try:
+            from ..notifications import notification_manager
+            notification_manager.notify_payment_received(
+                lead=lead,
+                amount_usd=49.00,
+                payment_type="30-Day Full Backlog CSV Unlock",
+                provider="PayPal",
+            )
+        except Exception as notif_err:
+            logger.warning(f"Notification notice for backlog payment: {notif_err}")
+
+        # Return full rows dataset
+        full_rows = sandbox.rows or []
+        return {
+            "ok": True,
+            "unlocked": True,
+            "amount_paid": 49.00,
+            "rows_count": len(full_rows),
+            "rows": full_rows,
+            "message": "Full 30-day historical backlog unlocked successfully!",
+        }
+    except Exception as e:
+        logger.error(f"Backlog unlock error for {slug}: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.post("/api/sandbox/{slug}/pay-deposit", tags=["Portal API"])
 @router.post("/api/sandbox/{slug}/simulate-deposit", tags=["Portal API"])
 async def pay_deposit(
@@ -602,11 +668,21 @@ async def pay_deposit(
     portal_service=Depends(get_portal_service),
     storage_backend=Depends(get_storage),
 ):
-    """Processes 50% milestone deposit payment, records binding clickwrap agreement, and starts dev swarm."""
+    """Processes $99 setup sprint deposit, records binding clickwrap agreement, and starts dev swarm."""
     try:
         sandbox = ensure_demo_sandbox(slug, portal_service, storage_backend)
         lead = sandbox.lead
-        logger.info(f"💳 [CHECKOUT DEPOSIT RECEIVED] Slug: {slug} | Lead: {lead.lead_id} | Amount: $250.00")
+
+        # Parse request body payload
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            pass
+
+        deposit_amount_usd = float(body.get("deposit_amount") or 99.00)
+        lead.deposit_amount_usd = deposit_amount_usd
+        logger.info(f"💳 [CHECKOUT DEPOSIT RECEIVED] Slug: {slug} | Lead: {lead.lead_id} | Amount: ${deposit_amount_usd:.2f} (100% credited to Month 1)")
 
         # Capture client network and device details for indisputable audit proof
         client_ip = (
@@ -617,13 +693,6 @@ async def pay_deposit(
         if "," in client_ip:
             client_ip = client_ip.split(",")[0].strip()
         user_agent = request.headers.get("user-agent", "Standard Browser")
-
-        # Parse request body payload
-        body = {}
-        try:
-            body = await request.json()
-        except Exception:
-            pass
 
         paypal_order_id = body.get("paypal_order_id") or f"PAYID-{int(datetime.now().timestamp()*1000)}"
         contact_email = body.get("email") or lead.contact_email or (user.email if user else "") or "customer@client.com"
@@ -660,7 +729,7 @@ async def pay_deposit(
             target_url=target_source_url,
             selected_fields=active_fields,
             tier_key=lead.tier_key or "daily",
-            deposit_amount_usd=250.00,
+            deposit_amount_usd=deposit_amount_usd,
         )
 
         # 2. Record financial transaction in Audit Vault
@@ -669,12 +738,12 @@ async def pay_deposit(
             provider="PAYPAL",
             transaction_id=f"TXN-{paypal_order_id}",
             order_id=paypal_order_id,
-            amount_usd=250.00,
+            amount_usd=deposit_amount_usd,
             currency="USD",
             status="COMPLETED",
             payer_email=contact_email,
             payer_name=company_name,
-            payment_type="50% Milestone Setup Deposit",
+            payment_type=f"Setup Sprint Deposit (${deposit_amount_usd:.2f} credited to Month 1)",
             raw_metadata={"client_ip": client_ip, "user_agent": user_agent},
         )
 
@@ -683,6 +752,7 @@ async def pay_deposit(
             if not lead.deposit_paid:
                 lead.record_payment(PaymentEvent.DEPOSIT_PAID)
                 storage_backend.save_lead(lead)
+
             logger.info(f"🚀 [CHECKOUT COMPLETE] Lead {lead.lead_id} active at {lead.state.value}")
             return {
                 "ok": True,
@@ -816,12 +886,15 @@ def pay_final(
     portal_service=Depends(get_portal_service),
     storage_backend=Depends(get_storage),
 ):
-    """Processes the second 50% milestone payment transaction ($250) and activates live feed delivery."""
+    """Processes the milestone #2 final balance payment (Month 1 balance net of $99 setup credit: $151) and activates live feed delivery."""
     try:
         sandbox = ensure_demo_sandbox(slug, portal_service, storage_backend)
         lead = sandbox.lead
-        amount_usd = 250.00 if lead.tier_key != "buyout" else 1500.00
-        logger.info(f"💳 [FINAL PAYMENT RECEIVED] Slug: {slug} | Lead: {lead.lead_id} | Amount: ${amount_usd:.2f}")
+        deposit_usd = getattr(lead, "deposit_amount_usd", 99.00)
+        plan_price_usd = (lead.tier.price_cents / 100.0) if lead.tier else 250.00
+        # 100% of the setup deposit is credited towards Month 1
+        amount_usd = max(0.0, plan_price_usd - deposit_usd) if lead.tier_key != "buyout" else 1500.00
+        logger.info(f"💳 [FINAL PAYMENT RECEIVED] Slug: {slug} | Lead: {lead.lead_id} | Amount: ${amount_usd:.2f} (Credited ${deposit_usd:.2f} setup deposit)")
 
         if user and user.email and not getattr(lead, "claimed_by", ""):
             lead.claimed_by = user.email

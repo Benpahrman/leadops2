@@ -74,7 +74,7 @@ def test_sandbox_api_flow(client):
     checkout_data = res.json()
     assert checkout_data["lead_id"] == "test-lead-1"
     assert checkout_data["payment_kind"] == "setup_deposit"
-    assert checkout_data["amount_cents"] == 12500  # $250 / 2 = $125
+    assert checkout_data["amount_cents"] == 9900  # $99 setup deposit sprint
 
 
 def test_scout_candidate_auth(client):
@@ -550,6 +550,75 @@ def test_chat_target_url_detection(client):
     sandbox = portal.get_sandbox(slug)
     assert sandbox.source_url == chat_url
     assert sandbox.lead.source_url == chat_url
+
+
+def test_unlock_30d_backlog_flow(client):
+    """Verify $49 tripwire backlog unlock endpoint and transaction recording."""
+    slug = "test-company-test-lead-1"
+    res = client.post(
+        f"/api/sandbox/{slug}/unlock-backlog",
+        json={"email": "buyer@acme-corp.com", "paypal_order_id": "PAYID-TEST-BACKLOG-49"}
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert data["unlocked"] is True
+    assert data["amount_paid"] == 49.00
+    assert len(data["rows"]) >= 1
+
+    portal = client.app.state.portal_service
+    sandbox = portal.get_sandbox(slug)
+    assert sandbox.lead.unlocked_30d_backlog is True
+
+
+def test_setup_sprint_deposit_and_final_credit_flow(client):
+    """Verify $99 setup sprint deposit and 100% credit towards month 1 ($151 balance)."""
+    slug = "test-company-test-lead-1"
+    
+    # 1. Pay $99 setup sprint deposit
+    pay_res = client.post(
+        f"/api/sandbox/{slug}/pay-deposit",
+        json={
+            "email": "alex@acme-corp.com",
+            "cardholder": "Acme Corp",
+            "deposit_amount": 99.00,
+            "paypal_order_id": "PAYID-SPRINT-99",
+        }
+    )
+    assert pay_res.status_code == 200
+    pay_data = pay_res.json()
+    assert pay_data["ok"] is True
+    assert pay_data["deposit_paid"] is True
+
+    portal = client.app.state.portal_service
+    sandbox = portal.get_sandbox(slug)
+    assert sandbox.lead.deposit_paid is True
+    assert sandbox.lead.deposit_amount_usd == 99.00
+
+    # 2. Simulate dev swarm completion to ESCROW_PREVIEW
+    sandbox.lead.qa_score = 98.0
+    sandbox.lead.preview_rows = 25
+    sandbox.lead.transition(State.ESCROW_PREVIEW, "Build certified by QA")
+    client.app.state.storage_backend.save_lead(sandbox.lead)
+
+    # 3. Check final milestone breakdown (100% deposit credit)
+    final_checkout = portal.request_final_checkout(slug)
+    assert final_checkout["deposit_credit_usd"] == 99.00
+    # $250 plan - $99 deposit = $151 net balance due
+    assert final_checkout["amount_cents"] == 15100
+
+    # 4. Pay final balance ($151)
+    auth_headers = {"Authorization": "Bearer mock_user_founder_lead_admin"}
+    csrf_token = generate_test_csrf_token("user_founder")
+    final_res = client.post(
+        f"/api/sandbox/{slug}/pay-final",
+        headers={**auth_headers, "X-CSRF-Token": csrf_token}
+    )
+    assert final_res.status_code == 200
+    assert sandbox.lead.state == State.DELIVERED
+    assert sandbox.lead.final_paid is True
+    assert sandbox.lead.subscription_active is True
+
 
 
 

@@ -97,7 +97,10 @@ class EmailVoiceHumanizerAgent:
             "5. ONE LOW-FRICTION CALL TO ACTION (CTA): End with a simple 4–7 word question asking permission to send data.\n"
             "6. BRAND VOICE: Pragmatic, not corporate. Eliminate buzzwords. Concrete over descriptive. Empathetic to tedious manual docket lookup.\n"
             "7. SIGN-OFF: Rotate between 'Best, Alex', 'Cheers, Alex', 'Alex | LeadOps', or 'Talk soon, Alex'.\n"
-            "8. Output STRICT JSON ONLY."
+            "8. NATURAL HUMAN SUBJECT LINES (ZERO AI CLICHÉS):\n"
+            "   - If Subject to Review contains 'Sample ... data feed', 'Automating', 'Streamlining', 'Unlocking', 'Transforming', or corporate jargon, REWRITE IT.\n"
+            "   - Must be 2-4 words, all lowercase or casual sentence case (e.g. 'travis county permits', 'quick question {prospect_name}', 'court records / {company_name}').\n"
+            "9. Output STRICT JSON ONLY."
         )
 
         user_prompt = f"""
@@ -114,20 +117,32 @@ Inspect this email and return JSON:
 {{
   "is_voice_compliant": true | false,
   "word_count": int,
-  "humanized_subject": "3-4 words max, lowercase or casual title case",
+  "humanized_subject": "2-4 words max, casual lowercase only, zero AI marketing words",
   "humanized_body_text": "Exact plaintext email body (35-55 words, zero links)",
   "voice_notes": "brief confirmation of brand voice alignment"
 }}
 """
         res = self.llm.generate_structured_json(system_prompt, user_prompt)
+        
+        # Clean company name and build natural subject fallback
+        clean_co = re.sub(r"(?i)\s+(inc\.?|llc|corp\.?|ltd\.?|co\.?|pllc)$", "", company_name).strip()
+        clean_co = re.sub(r"\s+\d+$", "", clean_co).strip()
+        first_name = (prospect_name or "").split()[0].strip()
+        topic_short = niche.split("&")[0].split("and")[0].strip().lower()
+        natural_fallback_subj = f"quick question {first_name}" if first_name and first_name.lower() != "there" else f"{clean_co.lower()} / public records"
+
         if not res or not isinstance(res, dict) or not res.get("humanized_body_text"):
             # Sanitize fallback
             clean_body = re.sub(r"https?://\S+", "", body_text).strip()
             clean_body = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", clean_body).strip()
+            
+            clean_subj = subject
+            if any(bad in clean_subj.lower() for bad in ["sample", "data feed for", "automating", "streamlining", "unlocking", "elevating", "efficiency"]):
+                clean_subj = natural_fallback_subj
             return {
                 "is_voice_compliant": True,
                 "word_count": len(clean_body.split()),
-                "humanized_subject": subject,
+                "humanized_subject": clean_subj.lower().strip(),
                 "humanized_body_text": clean_body,
                 "voice_notes": "Preserved sanitized verified copy",
             }
@@ -137,6 +152,13 @@ Inspect this email and return JSON:
         clean_text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", clean_text).strip()
         res["humanized_body_text"] = clean_text
         res["word_count"] = len(clean_text.split())
+        
+        # Guarantee non-AI subject in result
+        subj = str(res.get("humanized_subject") or subject)
+        if any(bad in subj.lower() for bad in ["sample", "data feed for", "automating", "streamlining", "unlocking", "elevating", "efficiency"]):
+            res["humanized_subject"] = natural_fallback_subj
+        else:
+            res["humanized_subject"] = subj.lower().strip()
         return res
 
 

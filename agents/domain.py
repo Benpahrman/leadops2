@@ -108,9 +108,11 @@ class Lead:
     qa_score: float | None = None
     preview_rows: int = 0
     deposit_paid: bool = False
+    deposit_amount_usd: float = 99.00
     final_paid: bool = False
     subscription_active: bool = False
     buyout_paid: bool = False
+    unlocked_30d_backlog: bool = False
     audit_log: list[dict[str, str]] = field(default_factory=list)
     company_name: str = ""
     contact_name: str = ""

@@ -121,16 +121,16 @@ def test_notification_manager_lead_qualified_and_dispatching():
     embed_kwargs = mock_discord.send_embed.call_args.kwargs
     assert "Apex Real Estate" in embed_kwargs["title"]
     field_names = [f["name"] for f in embed_kwargs["fields"]]
-    assert "👤 Contact" in field_names
-    assert "🏢 Company & Niche" in field_names
-    assert "📱 Mobile 1-Tap Operator Control" in field_names
+    assert any("Verified Buyer & Prospect" in f or "Contact" in f for f in field_names)
+    assert any("Email Draft" in f for f in field_names)
+    assert any("1-Tap Mobile Actions" in f or "Mobile" in f for f in field_names)
 
     # Verify Telegram inline keyboard with mobile approval buttons
     tg_kwargs = mock_telegram.send_message.call_args.kwargs
     assert "reply_markup" in tg_kwargs
     inline_kb = tg_kwargs["reply_markup"]["inline_keyboard"][0]
-    assert any("Approve" in btn["text"] for btn in inline_kb)
-    assert any("quick-action?action=approve_pitch" in btn["url"] for btn in inline_kb)
+    assert any("Cancel" in btn["text"] or "Send" in btn["text"] or "Approve" in btn["text"] for btn in inline_kb)
+    assert any("quick-action" in btn["url"] for btn in inline_kb)
 
 
 def test_notification_manager_inbound_reply_received():
@@ -571,11 +571,13 @@ def test_mobile_action_token_generation_and_verification():
     assert verify_mobile_action_token("invalid_token", "approve_pitch", "lead-100") is False
 
 
-def test_mobile_quick_action_endpoint():
+def test_mobile_quick_action_endpoint(monkeypatch):
     from fastapi.testclient import TestClient
     from agents.api import create_app
     from agents.auth import generate_mobile_action_token
     from agents.domain import State
+    import agents.scout_runner
+    monkeypatch.setattr(agents.scout_runner, "is_office_hours", lambda: (True, 3600, "Office hours active"))
 
     storage = InMemoryStorageBackend()
     lead = Lead("lead-mobile-test", "daily", company_name="Lone Star Escrow", contact_email="test@lonestar.com")

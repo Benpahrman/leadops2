@@ -6,6 +6,8 @@ import {
   triggerSwarmBuild,
   purgeAllData,
   advanceLeadState,
+  batchApprovePendingPitches,
+  fetchScoutStatus,
   fetchSwarmProgress,
   fetchActiveBuilds,
   overrideQA,
@@ -19,8 +21,14 @@ import {
   fetchAuditTrail,
   deleteLead,
   resolveAdminAuth,
+  fetchAutoOutreachStatus,
+  toggleAutoOutreach,
+  triggerScoutDiscovery,
+  cancelAutoOutreach,
 } from '../services/api';
 import { useToast } from '../context/ToastContext';
+import ConfirmModal from '../components/common/ConfirmModal';
+import CommandPalette from '../components/common/CommandPalette';
 
 export default function AdminPage() {
   const { isLoaded, isSignedIn, getToken } = useAuth();
@@ -56,20 +64,93 @@ export default function AdminPage() {
     return resolveAdminAuth();
   };
 
-  // Active Tab
-  const [activeTab, setActiveTab] = useState('deals');
+  // URL Query Helper
+  const getInitialParam = (key, fallback) => {
+    if (typeof window === 'undefined') return fallback;
+    try {
+      const p = new URLSearchParams(window.location.search);
+      return p.get(key) || fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
+  // Active Tab & Filters with URL persistence
+  const [activeTab, setActiveTab] = useState(() => getInitialParam('tab', 'deals'));
+  const [searchQuery, setSearchQuery] = useState(() => getInitialParam('q', ''));
+  const [stateFilter, setStateFilter] = useState(() => getInitialParam('state', 'ALL'));
+  const [paymentFilter, setPaymentFilter] = useState(() => getInitialParam('payment', 'ALL'));
+  const [scoreFilter, setScoreFilter] = useState(() => getInitialParam('score', 'ALL'));
 
   // Pipeline & Data
   const [pipeline, setPipeline] = useState([]);
   const [metrics, setMetrics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionInProgress, setActionInProgress] = useState({});
+  const [scoutStatus, setScoutStatus] = useState(null);
+  const [batchApproving, setBatchApproving] = useState(false);
+  const [autoOutreachStatus, setAutoOutreachStatus] = useState(null);
+  const [autoOutreachLoading, setAutoOutreachLoading] = useState(false);
+  const [scoutingInProgress, setScoutingInProgress] = useState(false);
 
-  // Search & Filter
-  const [searchQuery, setSearchQuery] = useState('');
-  const [stateFilter, setStateFilter] = useState('ALL');
-  const [paymentFilter, setPaymentFilter] = useState('ALL');
-  const [scoreFilter, setScoreFilter] = useState('ALL');
+  // Sync tab & filters to URL query string
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      params.set('tab', activeTab);
+      if (searchQuery.trim()) params.set('q', searchQuery.trim()); else params.delete('q');
+      if (stateFilter !== 'ALL') params.set('state', stateFilter); else params.delete('state');
+      if (paymentFilter !== 'ALL') params.set('payment', paymentFilter); else params.delete('payment');
+      if (scoreFilter !== 'ALL') params.set('score', scoreFilter); else params.delete('score');
+
+      const newUrl = `${window.location.pathname}?${params.toString()}`;
+      window.history.replaceState(null, '', newUrl);
+    } catch (e) {
+      console.warn('URL sync note:', e);
+    }
+  }, [activeTab, searchQuery, stateFilter, paymentFilter, scoreFilter]);
+
+  // Command Palette State & Hotkey Listener (Cmd+K / Ctrl+K)
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Confirm Modal state (replaces native window.confirm & prompt)
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    isDestructive: false,
+    requireMatch: null,
+    hasInput: false,
+    inputLabel: '',
+    inputPlaceholder: '',
+    inputDefaultValue: '',
+    onConfirm: () => {},
+  });
+  const closeConfirmModal = () => setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+
+  // Quick Copy Helper
+  const handleCopyText = (text, label = 'Text') => {
+    if (!text) return;
+    try {
+      navigator.clipboard.writeText(text);
+      showToast(`${label} copied to clipboard!`, 'success');
+    } catch {
+      showToast(`Could not copy ${label}`, 'info');
+    }
+  };
 
   // Scrapers & Daily Grid
   const [scrapers, setScrapers] = useState([]);
@@ -92,10 +173,12 @@ export default function AdminPage() {
     setLoading(true);
     try {
       const token = await resolveToken();
-      const [pipeData, metricData, buildsData] = await Promise.allSettled([
+      const [pipeData, metricData, buildsData, scoutData, autoData] = await Promise.allSettled([
         fetchAdminPipeline(token),
         fetchAdminMetrics(token),
         fetchActiveBuilds(token),
+        fetchScoutStatus(token),
+        fetchAutoOutreachStatus(token),
       ]);
 
       if (pipeData.status === 'fulfilled') {
@@ -109,6 +192,12 @@ export default function AdminPage() {
       }
       if (buildsData.status === 'fulfilled') {
         setActiveBuilds(buildsData.value.active_builds || []);
+      }
+      if (scoutData.status === 'fulfilled') {
+        setScoutStatus(scoutData.value);
+      }
+      if (autoData.status === 'fulfilled') {
+        setAutoOutreachStatus(autoData.value);
       }
     } catch (err) {
       console.warn('Admin load note:', err);
@@ -212,6 +301,81 @@ export default function AdminPage() {
     }
   };
 
+  const handleBatchApprove = async () => {
+    const pendingCount = pipeline.filter((l) => l.state === 'PITCH_PENDING_APPROVAL').length;
+    if (pendingCount === 0) {
+      showToast('No leads currently pending pitch approval.', 'info');
+      return;
+    }
+    const confirmed = window.confirm(
+      `🚀 BATCH APPROVAL CONFIRMATION\n\nApprove and dispatch pitches for all ${pendingCount} pending leads?\n\n- Junk aggregator addresses (e.g. duckduckgo, sentry) will be filtered.\n- Natural, casual 2-4 word subject lines will be delivered.\n- Verified leads will transition to OUTREACH_SENT.`
+    );
+    if (!confirmed) return;
+
+    setBatchApproving(true);
+    showToast(`Batch approving ${pendingCount} pending pitches...`, 'info');
+    try {
+      const token = await resolveToken();
+      const res = await batchApprovePendingPitches(token);
+      showToast(res.message || `Batch approval complete: ${res.approved_count} dispatched, ${res.skipped_count} skipped.`, 'success');
+      await loadAdminData();
+    } catch (err) {
+      showToast(`Batch approval failed: ${err.message}`, 'error');
+    } finally {
+      setBatchApproving(false);
+    }
+  };
+
+  const handleToggleAutoOutreach = async () => {
+    const current = autoOutreachStatus?.enabled ?? true;
+    const nextState = !current;
+    setAutoOutreachLoading(true);
+    try {
+      const token = await resolveToken();
+      await toggleAutoOutreach(nextState, token);
+      showToast(`Auto-Outreach 3-minute grace period ${nextState ? 'ENABLED (with anti-spam jitter)' : 'PAUSED'}.`, 'success');
+      await loadAdminData();
+    } catch (err) {
+      showToast(`Failed to toggle auto-outreach: ${err.message}`, 'error');
+    } finally {
+      setAutoOutreachLoading(false);
+    }
+  };
+
+  const handleTriggerWebScout = async () => {
+    setScoutingInProgress(true);
+    showToast('🔎 Triggering autonomous B2B Scout discovery cycle...', 'info');
+    try {
+      const token = await resolveToken();
+      const res = await triggerScoutDiscovery(null, token);
+      if (res.lead_id) {
+        showToast(`Discovered qualified lead: ${res.company_name || res.lead_id}!`, 'success');
+      } else {
+        showToast(res.message || 'Scout pass complete. Telemetry updated.', 'info');
+      }
+      await loadAdminData();
+    } catch (err) {
+      showToast(`Scout trigger error: ${err.message}`, 'error');
+    } finally {
+      setScoutingInProgress(false);
+    }
+  };
+
+  const handleCancelOutreach = async (leadId, companyName) => {
+    setActionInProgress((p) => ({ ...p, [leadId]: true }));
+    try {
+      const token = await resolveToken();
+      await cancelAutoOutreach(leadId, token);
+      showToast(`Auto-outreach cancelled for ${companyName || leadId}. Pitch archived.`, 'success');
+      await loadAdminData();
+    } catch (err) {
+      showToast(`Cancel outreach error: ${err.message}`, 'error');
+    } finally {
+      setActionInProgress((p) => ({ ...p, [leadId]: false }));
+    }
+  };
+
+
   const handleTriggerSwarm = async (leadId) => {
     setActionInProgress((p) => ({ ...p, [leadId]: true }));
     showToast(`Triggering autonomous 7-agent dev swarm for ${leadId}...`, 'info');
@@ -227,65 +391,134 @@ export default function AdminPage() {
     }
   };
 
-  const handlePurgeAllData = async () => {
-    const confirmed = window.confirm(
-      "⚠️ FRESH START CONFIRMATION\n\nAre you sure you want to permanently purge all test leads, sandboxes, and mock customer records?\n\nThis resets the database to a clean 0-lead state for real production customers."
-    );
-    if (!confirmed) return;
-
-    showToast("Purging all test data and resetting pipeline...", "info");
-    try {
-      const token = await resolveToken();
-      const res = await purgeAllData(token);
-      showToast(res.message || "All test records successfully purged!", "success");
-      await loadAdminData();
-    } catch (err) {
-      showToast(`Purge failed: ${err.message}`, "error");
-    }
+  const handlePurgeAllData = () => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Reset & Purge All Test Records',
+      message: 'This will permanently remove all test leads, sandboxes, and customer records, resetting the database to a clean 0-lead state for real production customers.',
+      confirmText: 'Purge Database',
+      cancelText: 'Cancel',
+      isDestructive: true,
+      requireMatch: 'PURGE',
+      hasInput: false,
+      onConfirm: async () => {
+        closeConfirmModal();
+        showToast("Purging all test data and resetting pipeline...", "info");
+        try {
+          const token = await resolveToken();
+          const res = await purgeAllData(token);
+          showToast(res.message || "All test records successfully purged!", "success");
+          await loadAdminData();
+        } catch (err) {
+          showToast(`Purge failed: ${err.message}`, "error");
+        }
+      },
+    });
   };
 
-  const handleDeleteLead = async (leadId, companyName) => {
-    const confirmed = window.confirm(
-      `⚠️ DELETE CONFIRMATION\n\nAre you sure you want to permanently delete lead:\n"${companyName || leadId}"?\n\nThis will remove the lead, associated sandboxes, and audit records.`
-    );
-    if (!confirmed) return;
-
-    setActionInProgress((p) => ({ ...p, [leadId]: true }));
-    try {
-      const token = await resolveToken();
-      await deleteLead(leadId, token);
-      showToast(`Lead "${companyName || leadId}" deleted successfully.`, 'success');
-      await loadAdminData();
-    } catch (err) {
-      showToast(`Failed to delete lead: ${err.message}`, 'error');
-    } finally {
-      setActionInProgress((p) => ({ ...p, [leadId]: false }));
-    }
+  const handleDeleteLead = (leadId, companyName) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Delete Lead',
+      message: `Are you sure you want to permanently delete lead "${companyName || leadId}"? This will remove the lead, associated sandboxes, and audit records.`,
+      confirmText: 'Delete Lead',
+      cancelText: 'Cancel',
+      isDestructive: true,
+      requireMatch: null,
+      hasInput: false,
+      onConfirm: async () => {
+        closeConfirmModal();
+        setActionInProgress((p) => ({ ...p, [leadId]: true }));
+        try {
+          const token = await resolveToken();
+          await deleteLead(leadId, token);
+          showToast(`Lead "${companyName || leadId}" deleted successfully.`, 'success');
+          await loadAdminData();
+        } catch (err) {
+          showToast(`Failed to delete lead: ${err.message}`, 'error');
+        } finally {
+          setActionInProgress((p) => ({ ...p, [leadId]: false }));
+        }
+      },
+    });
   };
 
-  const handleToggleEmergencyStop = async () => {
+  const handleToggleEmergencyStop = () => {
     const currentState = metrics?.emergency_stop_active || false;
     const newState = !currentState;
-    const reason = prompt(
-      newState
-        ? "Enter reason for EMERGENCY STOP (pauses all autonomous outreach & dev swarms):"
-        : "Enter reason for RESUMING normal operations:",
-      newState ? "Manual founder safety stop" : "Founder resumed operations"
-    );
-    if (reason === null) return;
-
-    try {
-      const token = await resolveToken();
-      await toggleEmergencyStop(newState, reason, token);
-      showToast(
-        newState ? "🛑 EMERGENCY STOP ACTIVATED" : "✅ Systems resumed normal operation",
-        newState ? "error" : "success"
-      );
-      await loadAdminData();
-    } catch (err) {
-      showToast(`Emergency toggle failed: ${err.message}`, "error");
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: newState ? 'Activate Emergency Stop' : 'Resume Normal Operations',
+      message: newState
+        ? 'Emergency stop pauses all autonomous prospecting, outbound emails, and dev swarm iterations immediately.'
+        : 'Resuming will allow background dev swarms and auto-outreach schedules to proceed normally.',
+      confirmText: newState ? 'Activate Emergency Stop' : 'Resume System',
+      cancelText: 'Cancel',
+      isDestructive: newState,
+      requireMatch: null,
+      hasInput: true,
+      inputLabel: newState ? 'Reason for EMERGENCY STOP:' : 'Reason for RESUMING normal operations:',
+      inputPlaceholder: newState ? 'Manual founder safety stop' : 'Founder resumed operations',
+      inputDefaultValue: newState ? 'Manual founder safety stop' : 'Founder resumed operations',
+      onConfirm: async (reason) => {
+        closeConfirmModal();
+        try {
+          const token = await resolveToken();
+          await toggleEmergencyStop(
+            newState,
+            reason || (newState ? 'Manual founder safety stop' : 'Founder resumed operations'),
+            token
+          );
+          showToast(
+            newState ? '🛑 EMERGENCY STOP ACTIVATED' : '✅ Systems resumed normal operation',
+            newState ? 'error' : 'success'
+          );
+          await loadAdminData();
+        } catch (err) {
+          showToast(`Emergency toggle failed: ${err.message}`, 'error');
+        }
+      },
+    });
   };
+
+  // Command Palette Actions
+  const commandPaletteActions = useMemo(() => [
+    {
+      id: 'act-refresh',
+      label: 'Refresh Pipeline & Telemetry',
+      icon: '🔄',
+      category: 'Actions',
+      run: () => loadAdminData(),
+    },
+    {
+      id: 'act-scout',
+      label: 'Trigger Scout Prospecting Cycle',
+      icon: '🔎',
+      category: 'Actions',
+      run: () => handleTriggerWebScout(),
+    },
+    {
+      id: 'act-auto-outreach',
+      label: `Toggle Auto-Outreach (${autoOutreachStatus?.enabled ? 'Pause' : 'Enable'})`,
+      icon: '⏱️',
+      category: 'Actions',
+      run: () => handleToggleAutoOutreach(),
+    },
+    {
+      id: 'act-emergency',
+      label: metrics?.emergency_stop_active ? 'Resume Normal Operations' : 'Activate Emergency Stop',
+      icon: '🛑',
+      category: 'Actions',
+      run: () => handleToggleEmergencyStop(),
+    },
+    {
+      id: 'act-purge',
+      label: 'Purge All Test Records',
+      icon: '🧹',
+      category: 'Danger Zone',
+      run: () => handlePurgeAllData(),
+    },
+  ], [metrics, autoOutreachStatus, loadAdminData, handleTriggerWebScout, handleToggleAutoOutreach, handleToggleEmergencyStop, handlePurgeAllData]);
 
   const handleViewAudit = async (leadId, companyName) => {
     try {
@@ -470,6 +703,26 @@ export default function AdminPage() {
                 Founder Mission Control
               </h1>
               <span className="badge-tag badge-cyan">GLOBAL ADMIN</span>
+              {scoutStatus && (
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    padding: '3px 8px',
+                    borderRadius: '6px',
+                    background: scoutStatus.is_office_hours ? 'rgba(16, 185, 129, 0.15)' : 'rgba(100, 116, 139, 0.2)',
+                    color: scoutStatus.is_office_hours ? 'var(--green)' : '#94a3b8',
+                    border: `1px solid ${scoutStatus.is_office_hours ? 'rgba(16, 185, 129, 0.35)' : 'rgba(100, 116, 139, 0.3)'}`,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                  }}
+                  title={`Scout Office Hours: 8:00 AM - 5:00 PM CST Mon-Fri. Current CST: ${scoutStatus.current_cst_time || ''}`}
+                >
+                  <span>{scoutStatus.is_office_hours ? '🟢' : '🌙'}</span>
+                  Scout: {scoutStatus.is_office_hours ? 'Office Hours (8am-5pm CST)' : 'Standby (Office Hours Only)'}
+                </span>
+              )}
               {metrics?.emergency_stop_active && (
                 <span className="badge-tag badge-red">🛑 EMERGENCY STOP ACTIVE</span>
               )}
@@ -498,6 +751,41 @@ export default function AdminPage() {
             <button
               className="btn btn-outline"
               style={{
+                borderColor: autoOutreachStatus?.enabled ? 'var(--green)' : 'rgba(148, 163, 184, 0.4)',
+                color: autoOutreachStatus?.enabled ? 'var(--green)' : '#94a3b8',
+                fontSize: '11px',
+                padding: '6px 12px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+              }}
+              onClick={handleToggleAutoOutreach}
+              disabled={autoOutreachLoading}
+              title="When enabled, newly scouted leads auto-send after a 3-minute grace period unless cancelled via mobile Discord/Telegram."
+            >
+              <span>{autoOutreachStatus?.enabled ? '⏱️ Auto-Outreach: ON (3m Grace)' : '⏸️ Auto-Outreach: OFF'}</span>
+            </button>
+            <button
+              className="btn btn-outline"
+              style={{
+                borderColor: 'rgba(56, 189, 248, 0.4)',
+                color: 'var(--cyan)',
+                fontSize: '11px',
+                padding: '6px 12px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+              }}
+              onClick={handleTriggerWebScout}
+              disabled={scoutingInProgress}
+              title="Manually trigger autonomous scout to probe public registries and discover qualified B2B leads."
+            >
+              <span>{scoutingInProgress ? '⏳ Scouting...' : '🔎 Scout Now'}</span>
+            </button>
+
+            <button
+              className="btn btn-outline"
+              style={{
                 borderColor: metrics?.emergency_stop_active ? 'var(--green)' : 'rgba(239, 68, 68, 0.4)',
                 color: metrics?.emergency_stop_active ? 'var(--green)' : '#f87171',
               }}
@@ -515,6 +803,26 @@ export default function AdminPage() {
             </button>
             <button className="btn btn-outline" onClick={loadAdminData}>
               🔄 Refresh Telemetry
+            </button>
+            <button
+              className="btn btn-primary"
+              style={{
+                fontSize: '11px',
+                padding: '6px 14px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: 'rgba(56, 189, 248, 0.15)',
+                color: 'var(--cyan)',
+                border: '1px solid rgba(56, 189, 248, 0.4)',
+              }}
+              onClick={() => setCommandPaletteOpen(true)}
+              title="Open Command Palette (Cmd+K / Ctrl+K)"
+            >
+              <span>⚡ ⌘K Omnibar</span>
+              <kbd style={{ fontSize: '9px', background: 'rgba(0, 0, 0, 0.3)', padding: '2px 4px', borderRadius: '3px' }}>
+                ⌘K
+              </kbd>
             </button>
           </div>
         </div>
@@ -688,6 +996,31 @@ export default function AdminPage() {
                 <option value="QUALIFIED">⚡ Qualified Fit (≥65)</option>
                 <option value="NURTURE">🌱 Nurture (&lt;65)</option>
               </select>
+
+              {pipeline.filter((l) => l.state === 'PITCH_PENDING_APPROVAL').length > 0 && (
+                <button
+                  className="btn btn-primary"
+                  style={{
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    border: 'none',
+                    fontWeight: 700,
+                    fontSize: '13px',
+                    padding: '10px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: '0 2px 10px rgba(16, 185, 129, 0.3)',
+                    marginLeft: 'auto',
+                  }}
+                  onClick={handleBatchApprove}
+                  disabled={batchApproving}
+                  title="Approve and send all pending outreach pitches"
+                >
+                  {batchApproving
+                    ? '⏳ Dispatching Pitches...'
+                    : `🚀 Approve All Pending (${pipeline.filter((l) => l.state === 'PITCH_PENDING_APPROVAL').length})`}
+                </button>
+              )}
             </div>
 
             {/* Deals Table */}
@@ -712,23 +1045,41 @@ export default function AdminPage() {
                           'Fetching live pipeline deals from PostgreSQL...'
                         ) : pipeline.length === 0 ? (
                           <div>
-                            <p style={{ color: '#fff', fontWeight: 600, marginBottom: '8px' }}>
-                              No deals currently loaded in view.
+                            <div style={{ fontSize: '32px', marginBottom: '8px' }}>⚡</div>
+                            <p style={{ color: '#fff', fontWeight: 700, fontSize: '15px', marginBottom: '6px' }}>
+                              Pipeline is Ready for Live Leads
                             </p>
-                            <p style={{ fontSize: '12px', color: 'var(--text-dim)', marginBottom: '16px' }}>
-                              If Clerk authentication is pending or DNS is resolving, connect via Founder Master Key:
+                            <p style={{ fontSize: '12px', color: 'var(--text-dim)', maxWidth: '440px', margin: '0 auto 16px', lineHeight: 1.5 }}>
+                              The database is clean with 0 records. Trigger an autonomous Scout discovery cycle to prospect live municipal leads now, or authenticate via Founder Master Key:
                             </p>
-                            <button
-                              className="btn btn-primary"
-                              style={{ padding: '8px 20px', fontSize: '12px' }}
-                              onClick={async () => {
-                                localStorage.setItem('leadops_admin_token', '0baac74dfda043fdaf84c5d0b38e259b');
-                                showToast('Founder Master Key Activated!', 'success');
-                                await loadAdminData();
-                              }}
-                            >
-                              ⚡ Authenticate as Founder &amp; Load All Leads
-                            </button>
+                            <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                              <button
+                                className="btn btn-primary"
+                                style={{ padding: '8px 18px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                onClick={handleTriggerWebScout}
+                                disabled={scoutingInProgress}
+                              >
+                                <span>{scoutingInProgress ? '⏳ Scouting In Progress...' : '🚀 Trigger Live Prospecting Run'}</span>
+                              </button>
+                              <button
+                                className="btn btn-outline"
+                                style={{ padding: '8px 16px', fontSize: '12px' }}
+                                onClick={async () => {
+                                  localStorage.setItem('leadops_admin_token', '0baac74dfda043fdaf84c5d0b38e259b');
+                                  showToast('Founder Master Key Activated!', 'success');
+                                  await loadAdminData();
+                                }}
+                              >
+                                ⚡ Authenticate Master Key
+                              </button>
+                              <button
+                                className="btn btn-outline"
+                                style={{ padding: '8px 16px', fontSize: '12px' }}
+                                onClick={loadAdminData}
+                              >
+                                🔄 Refresh Telemetry
+                              </button>
+                            </div>
                           </div>
                         ) : (
                           'No deals match your search criteria.'
@@ -746,8 +1097,24 @@ export default function AdminPage() {
                             <div style={{ fontWeight: 700, color: '#fff' }}>
                               {lead.company_name || 'Organization Lead'}
                             </div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontFamily: 'var(--mono)', marginTop: '2px' }}>
-                              {lead.lead_id}
+                            <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontFamily: 'var(--mono)', marginTop: '2px', display: 'flex', alignItems: 'center' }}>
+                              <span>{lead.lead_id}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyText(lead.lead_id, 'Lead ID')}
+                                title="Copy Lead ID"
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  color: 'var(--text-dim)',
+                                  fontSize: '11px',
+                                  padding: '0 4px',
+                                  marginLeft: '4px',
+                                }}
+                              >
+                                📋
+                              </button>
                             </div>
                             {lead.contact_email && (
                               <div style={{ fontSize: '11px', color: 'var(--cyan)', marginTop: '2px' }}>
@@ -918,13 +1285,29 @@ export default function AdminPage() {
                               </a>
                               <button
                                 className="btn btn-primary"
-                                style={{ padding: '4px 10px', fontSize: '11px' }}
+                                style={{
+                                  padding: '4px 10px',
+                                  fontSize: '11px',
+                                  background: lead.state === 'PITCH_PENDING_APPROVAL' ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : undefined,
+                                  borderColor: lead.state === 'PITCH_PENDING_APPROVAL' ? '#10b981' : undefined,
+                                }}
                                 onClick={() => handleAdvance(lead.lead_id)}
                                 disabled={actionInProgress[lead.lead_id]}
-                                title="1-Click Advance lifecycle stage"
+                                title={lead.state === 'PITCH_PENDING_APPROVAL' ? 'Approve pitch and dispatch outreach email' : '1-Click Advance lifecycle stage'}
                               >
-                                ⏩ Advance
+                                {lead.state === 'PITCH_PENDING_APPROVAL' ? '✓ Approve Pitch' : '⏩ Advance'}
                               </button>
+                              {lead.state === 'PITCH_PENDING_APPROVAL' && (
+                                <button
+                                  className="btn btn-outline"
+                                  style={{ padding: '4px 8px', fontSize: '11px', color: '#f87171', borderColor: 'rgba(239, 68, 68, 0.4)' }}
+                                  onClick={() => handleCancelOutreach(lead.lead_id, lead.company_name)}
+                                  disabled={actionInProgress[lead.lead_id]}
+                                  title="Cancel auto-dispatch timer and archive pitch"
+                                >
+                                  ✕ Cancel Outreach
+                                </button>
+                              )}
                               <button
                                 className="btn btn-outline"
                                 style={{ padding: '4px 8px', fontSize: '11px' }}
@@ -982,9 +1365,29 @@ export default function AdminPage() {
 
               return (
                 <div key={col.key} className="kanban-column">
-                  <div className="kanban-col-header">
-                    <span>{col.label}</span>
-                    <span className="badge-tag">{colLeads.length}</span>
+                  <div className="kanban-col-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>{col.label}</span>
+                      <span className="badge-tag">{colLeads.length}</span>
+                    </div>
+                    {col.key === 'PITCH_PENDING_APPROVAL' && colLeads.length > 0 && (
+                      <button
+                        className="btn btn-primary"
+                        style={{
+                          padding: '2px 8px',
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                          border: 'none',
+                          boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
+                        }}
+                        onClick={handleBatchApprove}
+                        disabled={batchApproving}
+                        title="Approve and send all pending outreach pitches"
+                      >
+                        {batchApproving ? '⏳ Sending...' : `✓ Approve All (${colLeads.length})`}
+                      </button>
+                    )}
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto' }}>
@@ -1071,11 +1474,17 @@ export default function AdminPage() {
                           <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
                             <button
                               className="btn btn-primary"
-                              style={{ padding: '4px 8px', fontSize: '11px', flex: 1 }}
+                              style={{
+                                padding: '4px 8px',
+                                fontSize: '11px',
+                                flex: 1,
+                                background: lead.state === 'PITCH_PENDING_APPROVAL' ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : undefined,
+                                borderColor: lead.state === 'PITCH_PENDING_APPROVAL' ? '#10b981' : undefined,
+                              }}
                               onClick={() => handleAdvance(lead.lead_id)}
                               disabled={actionInProgress[lead.lead_id]}
                             >
-                              ⏩ Advance
+                              {lead.state === 'PITCH_PENDING_APPROVAL' ? '✓ Approve Pitch' : '⏩ Advance'}
                             </button>
                             <a
                               href={`/p/${lead.slug || lead.lead_id}`}
@@ -1982,6 +2391,38 @@ export default function AdminPage() {
           </div>
         );
       })()}
+
+      {/* Risk-Guard Confirmation Modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        confirmText={confirmModal.confirmText}
+        cancelText={confirmModal.cancelText}
+        isDestructive={confirmModal.isDestructive}
+        requireMatch={confirmModal.requireMatch}
+        hasInput={confirmModal.hasInput}
+        inputLabel={confirmModal.inputLabel}
+        inputPlaceholder={confirmModal.inputPlaceholder}
+        inputDefaultValue={confirmModal.inputDefaultValue}
+        onConfirm={confirmModal.onConfirm}
+        onClose={closeConfirmModal}
+      />
+
+      {/* Global Command Palette (Cmd+K / Ctrl+K) */}
+      <CommandPalette
+        isOpen={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        activeTab={activeTab}
+        onSelectTab={(tabKey) => {
+          setActiveTab(tabKey);
+        }}
+        pipeline={pipeline}
+        onSelectLead={(selectedLead) => {
+          setScoreModal({ open: true, lead: selectedLead });
+        }}
+        actions={commandPaletteActions}
+      />
     </main>
   );
 }
