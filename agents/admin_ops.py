@@ -117,7 +117,7 @@ class AdminMissionControlService:
                 "slug": slug,
                 "checkout_url": f"/p/{slug}",
                 "dashboard_url": f"/dashboard/{lead.lead_id}",
-                "outreach_subject": getattr(lead, "outreach_subject", "") or f"quick note re: {getattr(lead, 'target_portal_name', 'public registry')} filings",
+                "outreach_subject": getattr(lead, "outreach_subject", "") or f"{getattr(lead, 'target_portal_name', 'public registry').lower()} filings",
                 "outreach_body": getattr(lead, "outreach_body", "") or (
                     f"Hi {first_name},\n\n"
                     f"We set up a live feed tracking daily {getattr(lead, 'target_portal_name', 'registry')} dockets for {company_name} so you don't have to pull records manually.\n\n"

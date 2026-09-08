@@ -754,7 +754,7 @@ class ScoutBackgroundWorker:
                 clean_title = (job.get("job_title") or "open role").lower().strip()
                 clean_co = re.sub(r"(?i)\s+(inc\.?|llc|corp\.?|ltd\.?|co\.?)$", "", target["company_name"]).strip()
                 pitch = PitchMessage(
-                    subject=f"quick note re: {clean_title} at {clean_co}",
+                    subject=f"note re: {clean_title} at {clean_co}",
                     body_text=body_txt,
                     body_html=body_txt.replace("\n", "<br>"),
                     sandbox_url=sandbox_link,
@@ -1196,9 +1196,9 @@ class B2BWebScoutWorker:
         suggested_fields = dossier.get("suggested_fields") or live_records_data.get("fields") or ["record_id", "date", "status"]
         tier_key = dossier.get("tier_key") or "weekly"
         clean_portal_short = re.sub(r"(?i)\s*(portal|registry|court|system|division|clerk|records)\s*", "", portal_name).strip() or portal_name
-        default_natural_subj = f"quick question re: {clean_portal_short.lower()} records"
+        default_natural_subj = f"{clean_portal_short.lower()} records"
         pitch_subject = dossier.get("pitch_subject") or default_natural_subj
-        if any(ai_w in pitch_subject.lower() for ai_w in ["automating", "streamlining", "sample", "data feed for", "unlocking", "elevating", "efficiency"]):
+        if any(ai_w in pitch_subject.lower() for ai_w in ["quick", "automating", "streamlining", "sample", "data feed for", "unlocking", "elevating", "efficiency"]):
             pitch_subject = default_natural_subj
         pitch_body = dossier.get("pitch_body") or "Hi, we can stream public records to your team automatically."
 

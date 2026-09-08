@@ -99,8 +99,11 @@ class EmailVoiceHumanizerAgent:
             "7. SIGN-OFF: Rotate between 'Best, Alex', 'Cheers, Alex', 'Alex | LeadOps', or 'Talk soon, Alex'.\n"
             "8. NATURAL HUMAN SUBJECT LINES (ZERO AI CLICHÉS):\n"
             "   - If Subject to Review contains 'Sample ... data feed', 'Automating', 'Streamlining', 'Unlocking', 'Transforming', or corporate jargon, REWRITE IT.\n"
-            "   - Must be 2-4 words, all lowercase or casual sentence case (e.g. 'travis county permits', 'quick question {prospect_name}', 'court records / {company_name}').\n"
-            "9. Output STRICT JSON ONLY."
+            "   - Must be 2-4 words, all lowercase or casual sentence case (e.g. 'travis county permits', 'records for {company_name}', 'court records / {company_name}').\n"
+            "9. BANNED VOCABULARY (AI DEAD-GIVEAWAY):\n"
+            "   - NEVER use the word 'quick' anywhere in subject or body ('quick question', 'quick note', 'quick call', 'quick chat', 'take a quick look'). It is an instant giveaway of generic automated cold outreach.\n"
+            "   - Be direct: use 'Question re: ...', 'Noticed ...', 'Had a question', or simply 'records for {company_name}'.\n"
+            "10. Output STRICT JSON ONLY."
         )
 
         user_prompt = f"""
@@ -129,16 +132,21 @@ Inspect this email and return JSON:
         clean_co = re.sub(r"\s+\d+$", "", clean_co).strip()
         first_name = (prospect_name or "").split()[0].strip()
         topic_short = niche.split("&")[0].split("and")[0].strip().lower()
-        natural_fallback_subj = f"quick question {first_name}" if first_name and first_name.lower() != "there" else f"{clean_co.lower()} / public records"
+        natural_fallback_subj = f"question {first_name}" if first_name and first_name.lower() != "there" else f"{clean_co.lower()} / public records"
 
         if not res or not isinstance(res, dict) or not res.get("humanized_body_text"):
             # Sanitize fallback
             clean_body = re.sub(r"https?://\S+", "", body_text).strip()
             clean_body = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", clean_body).strip()
+            clean_body = re.sub(r"(?i)\bquick\s+", "", clean_body).strip()
             
             clean_subj = subject
-            if any(bad in clean_subj.lower() for bad in ["sample", "data feed for", "automating", "streamlining", "unlocking", "elevating", "efficiency"]):
+            if any(bad in clean_subj.lower() for bad in ["quick", "sample", "data feed for", "automating", "streamlining", "unlocking", "elevating", "efficiency"]):
                 clean_subj = natural_fallback_subj
+            else:
+                clean_subj = re.sub(r"(?i)\bquick\s*", "", clean_subj).strip()
+                if not clean_subj or clean_subj == "question":
+                    clean_subj = natural_fallback_subj
             return {
                 "is_voice_compliant": True,
                 "word_count": len(clean_body.split()),
@@ -147,11 +155,21 @@ Inspect this email and return JSON:
                 "voice_notes": "Preserved sanitized verified copy",
             }
         
-        # Sanitize LLM response to guarantee zero links
+        # Sanitize LLM response to guarantee zero links and no banned words
         clean_text = re.sub(r"https?://\S+", "", res.get("humanized_body_text", "")).strip()
         clean_text = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", clean_text).strip()
+        clean_text = re.sub(r"(?i)\bquick\s+", "", clean_text).strip()
         res["humanized_body_text"] = clean_text
         res["word_count"] = len(clean_text.split())
+
+        subj = str(res.get("humanized_subject", "")).strip()
+        if not subj or any(bad in subj.lower() for bad in ["quick", "sample", "data feed for", "automating", "streamlining", "unlocking", "elevating", "efficiency"]):
+            subj = natural_fallback_subj
+        else:
+            subj = re.sub(r"(?i)\bquick\s*", "", subj).strip()
+            if not subj or subj == "question":
+                subj = natural_fallback_subj
+        res["humanized_subject"] = subj.lower().strip()
         
         # Guarantee non-AI subject in result
         subj = str(res.get("humanized_subject") or subject)
@@ -198,7 +216,8 @@ class InboundReplyAgent:
             "   - Delivery: Streams directly to Google Sheets, CRM webhooks, or CSV exports every morning at 6:00 AM UTC.\n"
             "   - No sign-in or sales demo required to test their sandbox.\n"
             "5. LENGTH: Under 85 words. End with a natural, low-friction question.\n"
-            "6. Output STRICT JSON ONLY."
+            "6. BANNED VOCABULARY: NEVER use the word 'quick' (e.g. do not say 'quick question', 'quick call', 'quick note', 'take a quick look'). Be direct and natural.\n"
+            "7. Output STRICT JSON ONLY."
         )
 
         history_lines = []
@@ -234,6 +253,12 @@ class InboundReplyAgent:
 
         user_prompt = "\n\n".join(prompt_sections)
         res = self.llm.generate_structured_json(system_prompt, user_prompt)
+        if res and isinstance(res, dict):
+            if "draft_reply_text" in res and isinstance(res["draft_reply_text"], str):
+                res["draft_reply_text"] = re.sub(r"(?i)\bquick\s+", "", res["draft_reply_text"]).strip()
+            if "draft_subject" in res and isinstance(res["draft_subject"], str):
+                res["draft_subject"] = re.sub(r"(?i)\bquick\s*", "", res["draft_subject"]).strip()
+
         if not res or not isinstance(res, dict):
             # Fallback
             inbound_lower = inbound_text.lower()

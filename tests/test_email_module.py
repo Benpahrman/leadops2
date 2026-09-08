@@ -514,4 +514,45 @@ def test_inbound_watcher_does_not_reply_or_create_lead_for_ignored_senders():
     assert len(records) == 0
 
 
+def test_word_quick_banned_from_vocabulary():
+    """Verify that the word 'quick' is strictly banned and purged from subjects, body copy, and AI humanizers."""
+    from agents.pitcher import generate_natural_subject, render_sub_60_word_pitch
+    import re
+
+    # 1. Subject line generator must never emit 'quick'
+    for _ in range(50):
+        subj = generate_natural_subject(
+            company_name="Apex Roofing Corp",
+            niche="roofing permits",
+            portal_name="Travis County Permits",
+            contact_name="Bob",
+        )
+        assert not re.search(r"\bquick\b", subj, re.I), f"Found 'quick' in subject: {subj}"
+
+    # 2. Pitch generator must never emit 'quick' in subject or body
+    pitch = render_sub_60_word_pitch(
+        company_name="Apex Roofing",
+        niche="roofing permits",
+        portal_name="Travis County Permits",
+        sample_count=5,
+        slug="apex-roofing",
+        contact_name="Bob",
+    )
+    assert not re.search(r"\bquick\b", pitch.subject, re.I), f"Found 'quick' in pitch subject: {pitch.subject}"
+    assert not re.search(r"\bquick\b", pitch.body_text, re.I), f"Found 'quick' in pitch body: {pitch.body_text}"
+
+    # 3. Voice Humanizer purges 'quick' from input text and fallback subject
+    humanizer = EmailVoiceHumanizerAgent()
+    res = humanizer.review_and_humanize(
+        subject="quick question re: permits",
+        body_text="Got a quick question about your permits. Let me know if you want to take a quick look.",
+        prospect_name="Bob Vance",
+        company_name="Vance Refrigeration",
+        niche="HVAC & Refrigeration",
+    )
+    assert not re.search(r"\bquick\b", res["humanized_subject"], re.I), f"Found 'quick' in humanized subject: {res['humanized_subject']}"
+    assert not re.search(r"\bquick\b", res["humanized_body_text"], re.I), f"Found 'quick' in humanized body: {res['humanized_body_text']}"
+
+
+
 

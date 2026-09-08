@@ -399,11 +399,11 @@ class LLMAgentEngine:
                 pass
 
         if res:
-            subject = f"quick note re: {portal} filings for {company}"
+            subject = f"{portal.lower()} filings for {company}"
             return {"subject": subject, "body": res}
 
         return {
-            "subject": f"quick note re: {portal} filings for {company}",
+            "subject": f"{portal.lower()} filings for {company}",
             "body": (
                 f"Hi {contact_name},\n\n"
                 f"Saw {company}'s work in {niche}. We put together a live feed tracking new {portal} dockets daily so your team doesn't have to pull records manually.\n\n"
@@ -1300,8 +1300,9 @@ class LLMAgentEngine:
             "6. NATURAL HUMAN SUBJECT LINES (ZERO AI CLICHÉS):\n"
             "   - NEVER write robotic phrases like 'Sample ... data feed for ...', 'Automating your...', 'Streamlining...', 'Unlocking...', 'Transforming...'.\n"
             "   - Strictly 2–4 words max. Must be all-lowercase or casual sentence case.\n"
-            "   - Must sound like an engineer or operator writing a quick 1-on-1 note.\n"
-            "   - Authentic examples: 'travis county permits', 'quick question {first_name}', 'harris county deeds', 'cook county filings', 'question re: {portal}'.\n\n"
+            "   - Must sound like an engineer or operator writing a direct, thoughtful 1-on-1 note.\n"
+            "   - Authentic examples: 'travis county permits', 'records for {company_name}', 'harris county deeds', 'cook county filings', 'question re: {portal}'.\n"
+            "   - BANNED WORD: NEVER use the word 'quick' anywhere in subject or body ('quick question', 'quick note', 'quick call', 'quick chat', etc.). It is an instant giveaway of automated cold outreach.\n\n"
             f"### DYNAMIC VARIATION FOR THIS DRAFT:\n"
             f"- Angle: {selected_angle}\n"
             f"- Tone: {selected_tone}\n"
@@ -1333,22 +1334,25 @@ class LLMAgentEngine:
                 pitch_data = json.loads(res[start:end])
                 raw_body = pitch_data.get("body") or pitch_data.get("body_text", "")
                 
-                # Sanitize: Strip any accidental URLs or markdown links
+                # Sanitize: Strip any accidental URLs, markdown links, or banned words
                 import re
                 clean_body = re.sub(r"https?://\S+", "", raw_body).strip()
                 clean_body = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", clean_body).strip()
+                clean_body = re.sub(r"(?i)\bquick\s+", "", clean_body).strip()
 
                 words = len(clean_body.split())
                 raw_subject = pitch_data.get("subject", "").strip()
                 # Anti-AI subject sanitizer
                 clean_portal = re.sub(r"(?i)\s*(portal|registry|court|system|division|clerk|records)\s*", "", str(lead_info.get('portal_name', ''))).strip() or "public records"
                 clean_fn = (lead_info.get('contact_name') or '').strip()
-                fallback_subject = f"quick question {clean_fn}" if clean_fn and clean_fn.lower() != 'there' else f"{clean_portal.lower()} records"
+                fallback_subject = f"question {clean_fn}" if clean_fn and clean_fn.lower() != 'there' else f"{clean_portal.lower()} records"
                 
-                if not raw_subject or any(bad in raw_subject.lower() for bad in ["sample", "data feed for", "automating", "streamlining", "unlocking", "elevating", "efficiency"]):
+                if not raw_subject or any(bad in raw_subject.lower() for bad in ["quick", "sample", "data feed for", "automating", "streamlining", "unlocking", "elevating", "efficiency"]):
                     subject = fallback_subject
                 else:
-                    subject = raw_subject.lower().strip()
+                    subject = re.sub(r"(?i)\bquick\s*", "", raw_subject).lower().strip()
+                    if not subject or subject == "question":
+                        subject = fallback_subject
 
                 # Build clean HTML representation matching brand guidelines (Pine Slate / Forest Deep)
                 html_paragraphs = "".join(f"<p style='margin: 0 0 14px 0;'>{p.strip()}</p>" for p in clean_body.split("\n\n") if p.strip())

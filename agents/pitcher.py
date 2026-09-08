@@ -79,9 +79,9 @@ def generate_natural_subject(
 
     candidates = [
         f"{topic_clean} records",
-        f"quick question re: {topic_clean}",
+        f"question re: {topic_clean}",
         f"{clean_co.lower()} / public records" if clean_co else f"{topic_clean} records",
-        f"quick question {first_name}" if first_name and first_name.lower() != "there" else f"question re: {clean_co.lower()}" if clean_co else f"{topic_clean} records",
+        f"question {first_name}" if first_name and first_name.lower() != "there" else f"question re: {clean_co.lower()}" if clean_co else f"{topic_clean} records",
         f"record lookups at {clean_co.lower()}" if clean_co else f"{topic_clean} filings",
     ]
     return random.choice(candidates)
@@ -170,11 +170,13 @@ def render_sub_60_word_pitch(
                         f"<p style='margin-top: 18px; color: #64748b; font-size: 14px;'>Best,<br><strong style='color: #15251F;'>Alex</strong> &bull; LeadOps</p></div>"
                     )
                 chosen_subject = ai_pitch.get("subject", default_subject).strip()
-                if any(bad in chosen_subject.lower() for bad in ["sample", "data feed for", "automating", "streamlining", "unlocking", "elevating", "efficiency"]):
+                if any(bad in chosen_subject.lower() for bad in ["quick", "sample", "data feed for", "automating", "streamlining", "unlocking", "elevating", "efficiency"]):
                     chosen_subject = default_subject
+                body_clean = re.sub(r"(?i)\bquick\s+", "", ai_pitch["body_text"]).strip()
+                words = len(body_clean.split())
                 return PitchMessage(
                     subject=chosen_subject,
-                    body_text=ai_pitch["body_text"],
+                    body_text=body_clean,
                     body_html=ai_pitch.get("body_html") if (active_link_mode != "permission_first" or "href" not in str(ai_pitch.get("body_html", ""))) else default_html,
                     sandbox_url=sandbox_url,
                     word_count=words,
@@ -700,12 +702,13 @@ class EmailTemplate:
 LIFECYCLE_EMAIL_TEMPLATES = [
     EmailTemplate(
         name="outreach_pitch",
-        subject_template="quick note re: {portal_name} dockets for {company_name}",
+        subject_template="{portal_name} dockets for {company_name}",
         prompt_template=(
             "Write a natural, concise peer email from Alex at LeadOps to {contact_name} at {company_name}. "
             "Explain that we set up a live feed tracking {portal_name} dockets daily so their team doesn't have to pull records by hand. "
             "Invite them to check out their live sandbox at {sandbox_url}. "
-            "Close with a friendly binary question. Keep it natural, peer-to-peer, and strictly under 60 words."
+            "Close with a friendly binary question. Keep it natural, peer-to-peer, and strictly under 60 words. "
+            "Never use the word 'quick' (e.g. do not say 'quick question' or 'quick note')."
         ),
         variables=["company_name", "contact_name", "portal_name", "sandbox_url"],
     ),
