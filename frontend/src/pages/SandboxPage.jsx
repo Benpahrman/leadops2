@@ -69,15 +69,27 @@ export default function SandboxPage() {
 
   if (loading) {
     return (
-      <div className="container" style={{ padding: '80px 24px', textAlign: 'center' }}>
-        <div style={{ fontSize: '36px', animation: 'spin 1.5s linear infinite', display: 'inline-block' }}>⚡</div>
-        <h2 style={{ fontSize: '20px', color: '#fff', marginTop: '16px' }}>Connecting to Live Government Open Data Endpoints...</h2>
+      <div className="container" style={{ padding: '90px 24px', textAlign: 'center' }}>
+        <div style={{
+          width: '44px',
+          height: '44px',
+          border: '3px solid rgba(56, 189, 248, 0.2)',
+          borderTopColor: 'var(--cyan)',
+          borderRadius: '50%',
+          animation: 'spin 0.8s linear infinite',
+          margin: '0 auto',
+        }}></div>
+        <h2 style={{ fontSize: '20px', fontWeight: 800, color: '#fff', marginTop: '20px' }}>Connecting to Official Government Open Data Endpoints...</h2>
         <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginTop: '6px' }}>
-          Extracting authentic filings and building your preview sandbox. Zero mock data.
+          Querying live public records registry and constructing schema preview. Zero mock records.
         </p>
       </div>
     );
   }
+
+  const hostUrl = (() => {
+    try { return new URL(sourceUrl).hostname; } catch { return 'data.cityofchicago.org'; }
+  })();
 
   return (
     <main style={{ padding: '36px 0 80px' }}>
@@ -89,7 +101,7 @@ export default function SandboxPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', flexWrap: 'wrap' }}>
                 <span className="badge-tag badge-green" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                   <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--green)', display: 'inline-block', boxShadow: '0 0 8px var(--green)' }}></span>
-                  AUTHENTIC GOVERNMENT STREAM
+                  OFFICIAL GOVERNMENT FEED
                 </span>
                 <span style={{ color: 'var(--text-dim)' }}>•</span>
                 <a
@@ -97,10 +109,18 @@ export default function SandboxPage() {
                   target="_blank"
                   rel="noopener noreferrer"
                   className="badge-tag badge-cyan"
-                  style={{ textDecoration: 'none' }}
+                  style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                   title="Official Open Data Registry Endpoint"
                 >
-                  🏛️ Portal: {new URL(sourceUrl).hostname} ↗
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                    <polyline points="9 22 9 12 15 12 15 22"/>
+                  </svg>
+                  <span>Endpoint: {hostUrl}</span>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="7" y1="17" x2="17" y2="7"/>
+                    <polyline points="7 7 17 7 17 17"/>
+                  </svg>
                 </a>
                 <button
                   type="button"
@@ -112,11 +132,11 @@ export default function SandboxPage() {
                     border: '1px solid rgba(56, 189, 248, 0.3)',
                     cursor: 'pointer',
                     fontSize: '11px',
-                    fontWeight: 600,
+                    fontWeight: 700,
                   }}
                   title="Confirm or change the target docket URL for your pipeline"
                 >
-                  🎯 Target URL Configured
+                  Configure Pipeline Target
                 </button>
               </div>
 
@@ -141,18 +161,18 @@ export default function SandboxPage() {
                   boxShadow: '0 4px 20px rgba(16, 185, 129, 0.35)',
                 }}
               >
-                💳 Start $99 Setup Sprint ➔
+                Start $99 Setup Sprint ➔
               </button>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-muted)' }}>
-                <span style={{ color: 'var(--green)' }}>✓ 100% Escrow Protected</span>
+                <span style={{ color: 'var(--green)', fontWeight: 700 }}>✓ 100% Escrow Protected</span>
                 <span>•</span>
-                <span>$151 Due Only on QA Pass</span>
+                <span>$151 Balance Due on QA Pass</span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* 4-Metric Glassmorphic KPI Strip */}
+        {/* 4-Metric Precision KPI Strip */}
         <div className="sandbox-kpi-grid">
           <div className="sandbox-kpi-card">
             <div className="sandbox-kpi-header">
@@ -161,7 +181,10 @@ export default function SandboxPage() {
             </div>
             <div className="sandbox-kpi-value">{rows.length > 0 ? `${rows.length} Records` : '25 Records'}</div>
             <div className="sandbox-kpi-subtext">
-              <span>✓ 100% authentic government dockets</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>100% authentic government records</span>
             </div>
           </div>
 
@@ -170,11 +193,15 @@ export default function SandboxPage() {
               <span className="sandbox-kpi-title">Active Jurisdiction</span>
               <span className="badge-tag badge-cyan">PORTAL</span>
             </div>
-            <div className="sandbox-kpi-value" style={{ fontSize: '18px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={jurisdiction}>
+            <div className="sandbox-kpi-value" style={{ fontSize: '17px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={jurisdiction}>
               {jurisdiction}
             </div>
             <div className="sandbox-kpi-subtext">
-              <span>🏛️ Municipal Open Data Registry</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="2" y1="12" x2="22" y2="12" />
+              </svg>
+              <span>Municipal Open Data Registry</span>
             </div>
           </div>
 
@@ -185,18 +212,25 @@ export default function SandboxPage() {
             </div>
             <div className="sandbox-kpi-value">Daily 06:00 UTC</div>
             <div className="sandbox-kpi-subtext">
-              <span>📊 Sheets, Webhook, or API sync</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+              <span>Google Sheets &amp; Webhook sync</span>
             </div>
           </div>
 
           <div className="sandbox-kpi-card">
             <div className="sandbox-kpi-header">
-              <span className="sandbox-kpi-title">QA Verification</span>
+              <span className="sandbox-kpi-title">QA Certification</span>
               <span className="badge-tag badge-green">CERTIFIED</span>
             </div>
             <div className="sandbox-kpi-value" style={{ color: 'var(--green)' }}>100% Schema Pass</div>
             <div className="sandbox-kpi-subtext">
-              <span>🛡️ Zero mock data • 1-click proof</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+              <span>Zero mock records • 1-click proof</span>
             </div>
           </div>
         </div>

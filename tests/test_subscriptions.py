@@ -20,8 +20,9 @@ class SubscriptionTests(unittest.TestCase):
 
     def test_activation_requires_delivery_and_plan_id(self):
         lead = Lead("lead-sub", "weekly", state=State.DELIVERED)
-        with self.assertRaises(ValueError):
-            subscription_activation(lead)
+        with mock.patch.dict("os.environ", {"PAYPAL_PLAN_ID_WEEKLY": ""}):
+            with self.assertRaises(ValueError):
+                subscription_activation(lead)
 
         with mock.patch.dict("os.environ", {"PAYPAL_PLAN_ID_WEEKLY": "P-WEEKLY"}, clear=True):
             activation = subscription_activation(lead)

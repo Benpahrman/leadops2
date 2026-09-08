@@ -11,6 +11,7 @@ def test_sqlite_storage_lead_persistence(tmp_path):
     db_path = str(tmp_path / "test_leads.db")
     storage = SqliteStorageBackend(db_path=db_path)
     lead = Lead("lead-123", "weekly")
+    
     lead.transition(State.REVIEW, "prospect approved")
     lead.select_fields(["case_number", "filing_date"])
     storage.save_lead(lead)

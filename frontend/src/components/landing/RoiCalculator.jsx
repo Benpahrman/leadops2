@@ -12,8 +12,8 @@ export default function RoiCalculator() {
     const manualMonthlyCost = Math.round(monthlyHours * hourlyWage);
     const manualAnnualCost = manualMonthlyCost * 12;
 
-    const leadopsMonthlyCost = 495; // Average Daily Sync Plan
-    const leadopsAnnualCost = leadopsMonthlyCost * 12 + 250; // Setup deposit included
+    const leadopsMonthlyCost = 250; // Flagship Production Sync Plan ($250/mo)
+    const leadopsAnnualCost = leadopsMonthlyCost * 12; // $99 setup sprint is 100% credited to Month 1
 
     const netMonthlySavings = Math.max(0, manualMonthlyCost - leadopsMonthlyCost);
     const netAnnualSavings = Math.max(0, manualAnnualCost - leadopsAnnualCost);

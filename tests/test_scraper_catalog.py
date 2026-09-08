@@ -82,9 +82,9 @@ def test_api_search_scrapers(client):
 
 
 def test_api_get_scraper_code_and_output(client):
-    catalog = get_catalog()
-    # Find a scraper that has code and output
-    candidate = next((c for c in catalog if c["has_scraper_code"] and c["has_output_data"]), None)
+    catalog = get_catalog(refresh=True)
+    # Find a scraper that has code and output on the local filesystem
+    candidate = next((c for c in catalog if c["has_scraper_code"] and c["has_output_data"] and (Path("build_artifacts") / c["lead_id"]).exists()), None)
     if not candidate:
         pytest.skip("No candidate scraper with code and output found in build_artifacts")
 

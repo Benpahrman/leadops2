@@ -46,8 +46,8 @@ export default function HeroSection() {
           </div>
           <div className="stat-card">
             <div className="stat-label">Milestone Guarantee</div>
-            <div className="stat-value" style={{ color: 'var(--cyan)', fontSize: '20px' }}>50% Escrow</div>
-            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>Pay remaining balance only on pass</div>
+            <div className="stat-value" style={{ color: 'var(--cyan)', fontSize: '20px' }}>$99 Sprint</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>100% credited to Month 1 in escrow</div>
           </div>
           <div className="stat-card">
             <div className="stat-label">Delivery Target</div>

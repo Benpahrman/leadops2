@@ -192,13 +192,13 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
       <div className="sandbox-stream-bar">
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--green)', display: 'inline-block', boxShadow: '0 0 10px var(--green)' }}></span>
-          <span style={{ fontWeight: 700, color: '#fff' }}>LIVE TELEMETRY STREAM</span>
+          <span style={{ fontWeight: 800, color: '#fff', letterSpacing: '0.4px' }}>LIVE TELEMETRY STREAM</span>
           <span style={{ color: 'var(--text-dim)' }}>•</span>
           <span style={{ color: 'var(--text-muted)' }}>Portal: <b style={{ color: 'var(--cyan)' }}>{hostDisplay}</b></span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px', color: 'var(--text-muted)', fontSize: '11px' }}>
-          <span>⏱️ Latency: <b style={{ color: '#fff' }}>32ms</b></span>
-          <span>🔄 Daily Cycle: <b style={{ color: '#fff' }}>06:00 UTC</b></span>
+          <span>Latency: <b style={{ color: '#fff' }}>32ms</b></span>
+          <span>Cycle: <b style={{ color: '#fff' }}>06:00 UTC</b></span>
           <span style={{ color: 'var(--green)', fontWeight: 700 }}>✓ 100% Zero-Mock Guarantee</span>
         </div>
       </div>
@@ -211,28 +211,28 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
             className={`filter-pill ${filterCategory === 'all' ? 'active' : ''}`}
             onClick={() => { setFilterCategory('all'); setCurrentPage(1); }}
           >
-            🌟 All Records ({rows.length > 0 ? rows.length : initialRows.length})
+            All Filings ({rows.length > 0 ? rows.length : initialRows.length})
           </button>
           <button
             type="button"
             className={`filter-pill ${filterCategory === 'high_value' ? 'active' : ''}`}
             onClick={() => { setFilterCategory('high_value'); setCurrentPage(1); }}
           >
-            💰 High Valuation (&gt;$50k)
+            High Valuation (&ge;$50k)
           </button>
           <button
             type="button"
             className={`filter-pill ${filterCategory === 'commercial' ? 'active' : ''}`}
             onClick={() => { setFilterCategory('commercial'); setCurrentPage(1); }}
           >
-            🏢 Commercial &amp; Contractors
+            Commercial Entities
           </button>
           <button
             type="button"
             className={`filter-pill ${filterCategory === 'permits' ? 'active' : ''}`}
             onClick={() => { setFilterCategory('permits'); setCurrentPage(1); }}
           >
-            📋 Permits &amp; Liens
+            Permits &amp; Liens
           </button>
         </div>
 
@@ -262,12 +262,15 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
       {/* Search & Actions Bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px', marginBottom: '14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: '280px', maxWidth: '440px', position: 'relative' }}>
-          <span style={{ position: 'absolute', left: '12px', color: 'var(--text-dim)', fontSize: '14px' }}>🔍</span>
+          <svg style={{ position: 'absolute', left: '12px', color: 'var(--text-dim)' }} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
           <input
             type="text"
             className="form-input"
-            style={{ paddingLeft: '34px', paddingRight: searchTerm ? '32px' : '14px' }}
-            placeholder="Search verified dockets, names, addresses..."
+            style={{ paddingLeft: '36px', paddingRight: searchTerm ? '32px' : '14px' }}
+            placeholder="Search docket number, entity name, address..."
             value={searchTerm}
             onChange={(e) => {
               setSearchTerm(e.target.value);
@@ -277,17 +280,25 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
           {searchTerm && (
             <button
               onClick={() => setSearchTerm('')}
-              style={{ position: 'absolute', right: '10px', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '14px' }}
+              style={{ position: 'absolute', right: '10px', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
               title="Clear search"
             >
-              ✕
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
             </button>
           )}
         </div>
 
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button className="btn btn-outline" onClick={handleExportCsv} style={{ fontSize: '12px', padding: '9px 16px' }}>
-            📥 Download Verified CSV
+          <button className="btn btn-outline" onClick={handleExportCsv} style={{ fontSize: '12px', padding: '9px 16px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <span>Export Verified CSV</span>
           </button>
           <button
             className="btn btn-primary"
@@ -297,6 +308,9 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
               fontWeight: 700,
               fontSize: '12px',
               padding: '9px 16px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
             }}
             onClick={() => {
               if (isUnlocked && rows.length > 25) {
@@ -306,7 +320,10 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
               }
             }}
           >
-            {isUnlocked ? '⚡ Download Full 30-Day Backlog' : '⚡ Unlock 30-Day Historical Backlog • $49'}
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+            <span>{isUnlocked ? 'Download 30-Day Dataset' : 'Unlock 30-Day Historical Backlog ($49)'}</span>
           </button>
         </div>
       </div>
@@ -317,7 +334,7 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
           <thead>
             <tr>
               <th className="sortable-th" onClick={() => handleSort('id')} style={{ width: '20%' }}>
-                Record / Filing ID {sortField === 'id' ? (sortAsc ? '▲' : '▼') : ''}
+                Record / Docket ID {sortField === 'id' ? (sortAsc ? '▲' : '▼') : ''}
               </th>
               <th className="sortable-th" onClick={() => handleSort('entity')} style={{ width: '28%' }}>
                 Primary Party / Entity {sortField === 'entity' ? (sortAsc ? '▲' : '▼') : ''}
@@ -336,7 +353,9 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
             {paginatedRows.length === 0 ? (
               <tr>
                 <td colSpan="6" style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--text-muted)' }}>
-                  <div style={{ fontSize: '32px', marginBottom: '8px' }}>📂</div>
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ margin: '0 auto 8px', display: 'block' }}>
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                  </svg>
                   <b>No records match your filter criteria.</b>
                   <div style={{ fontSize: '12px', marginTop: '4px' }}>Try switching filter tabs or clearing your search.</div>
                 </td>
@@ -360,18 +379,41 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
                   >
                     <td>
                       <div className="docket-id-badge">
-                        <span>📄</span>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                          <polyline points="14 2 14 8 20 8"/>
+                        </svg>
                         <span>{idVal}</span>
                       </div>
                     </td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                        <span style={{ fontSize: '14px', marginTop: '1px' }}>{isCorp ? '🏢' : '👤'}</span>
+                        {isCorp ? (
+                          <svg style={{ flexShrink: 0, marginTop: '3px', color: 'var(--cyan)' }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
+                            <line x1="9" y1="6" x2="9" y2="6.01"/>
+                            <line x1="15" y1="6" x2="15" y2="6.01"/>
+                            <line x1="9" y1="10" x2="9" y2="10.01"/>
+                            <line x1="15" y1="10" x2="15" y2="10.01"/>
+                            <line x1="9" y1="14" x2="9" y2="14.01"/>
+                            <line x1="15" y1="14" x2="15" y2="14.01"/>
+                            <line x1="9" y1="18" x2="15" y2="18"/>
+                          </svg>
+                        ) : (
+                          <svg style={{ flexShrink: 0, marginTop: '3px', color: 'var(--purple)' }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                            <circle cx="12" cy="7" r="4"/>
+                          </svg>
+                        )}
                         <div>
                           <b style={{ color: '#fff', fontSize: '13px' }}>{entityVal}</b>
                           {row.debtor_address && (
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                              📍 {row.debtor_address}
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                                <circle cx="12" cy="10" r="3"/>
+                              </svg>
+                              <span>{row.debtor_address}</span>
                             </div>
                           )}
                         </div>
@@ -385,7 +427,7 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
                     </td>
                     <td>
                       <span style={{ color: 'var(--text-muted)', fontSize: '11px', display: 'inline-block', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={secVal}>
-                        🏛️ {secVal}
+                        {secVal}
                       </span>
                     </td>
                     <td style={{ textAlign: 'right' }}>
@@ -411,7 +453,11 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
                           style={{ textDecoration: 'none' }}
                           title="Inspect authentic source docket on government portal in new tab"
                         >
-                          ✓ Proof ↗
+                          <span>Proof</span>
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="7" y1="17" x2="17" y2="7"/>
+                            <polyline points="7 7 17 7 17 17"/>
+                          </svg>
                         </a>
                       </div>
                     </td>
@@ -479,17 +525,26 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn btn-primary"
-                style={{ fontSize: '12px', padding: '8px 14px', textDecoration: 'none' }}
+                style={{ fontSize: '12px', padding: '8px 14px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               >
-                🏛️ Open Government Source Docket ↗
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+                <span>Open Government Source Docket</span>
               </a>
               <button
                 type="button"
                 className="btn btn-outline"
                 onClick={() => handleCopyJson(selectedRecord)}
-                style={{ fontSize: '12px', padding: '8px 14px' }}
+                style={{ fontSize: '12px', padding: '8px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               >
-                {copiedJson ? '✓ Copied!' : '📋 Copy JSON'}
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+                <span>{copiedJson ? '✓ Copied' : 'Copy JSON'}</span>
               </button>
             </div>
 
@@ -540,7 +595,21 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
             <button className="modal-close" onClick={() => setIsBacklogModalOpen(false)}>✕</button>
 
             <div style={{ textAlign: 'center', marginBottom: '18px' }}>
-              <div style={{ fontSize: '32px', marginBottom: '6px' }}>⚡</div>
+              <div style={{
+                width: '44px',
+                height: '44px',
+                borderRadius: '50%',
+                background: 'rgba(56, 189, 248, 0.12)',
+                border: '1px solid rgba(56, 189, 248, 0.3)',
+                display: 'grid',
+                placeItems: 'center',
+                margin: '0 auto 12px',
+                color: 'var(--cyan)',
+              }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                </svg>
+              </div>
               <h2 style={{ fontSize: '20px', fontWeight: 800, color: '#fff' }}>
                 Instant Backlog Unlock: 30-Day Records ($49)
               </h2>
@@ -564,7 +633,7 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
                 <span style={{ color: 'var(--green)', fontWeight: 800, fontFamily: 'var(--mono)', fontSize: '14px' }}>$49.00 USD</span>
               </div>
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '8px', color: 'var(--green)', fontWeight: 600 }}>
-                💡 100% Credited: Upgrade to an automated daily feed anytime, and your $49 is credited straight toward your setup sprint!
+                100% Credited: Upgrade to an automated daily feed anytime, and your $49 is credited straight toward your setup sprint!
               </div>
             </div>
 
@@ -596,12 +665,12 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
                 }}
                 disabled={isProcessing}
               >
-                {isProcessing ? '⚡ Unlocking & Generating CSV...' : '💳 Pay $49 & Download Full 30-Day CSV ➔'}
+                {isProcessing ? 'Processing CSV Extraction...' : 'Pay $49 & Download Full 30-Day CSV ➔'}
               </button>
             </form>
 
             <div style={{ textAlign: 'center', marginTop: '16px', fontSize: '11px', color: 'var(--text-dim)' }}>
-              🔒 Instant Delivery • Secure Payment • PayPal &amp; Cards
+              Instant Delivery • Secure Stripe / PayPal Escrow
             </div>
           </div>
         </div>
@@ -609,3 +678,4 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
     </div>
   );
 }
+
