@@ -1374,8 +1374,12 @@ class PostgresStorageBackend:
                     body TEXT DEFAULT '',
                     lead_id VARCHAR(255),
                     intent VARCHAR(64) DEFAULT 'unclassified',
+                    draft_reply TEXT DEFAULT '',
                     received_at VARCHAR(64) NOT NULL
                 )
+            """))
+            conn.execute(text("""
+                ALTER TABLE inbound_emails ADD COLUMN IF NOT EXISTS draft_reply TEXT DEFAULT ''
             """))
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS inbox_accounts (
