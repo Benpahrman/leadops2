@@ -283,6 +283,10 @@ class EmailClient:
             for h in ["smtp.zoho.com", "smtppro.zoho.com"]:
                 if h not in smtp_hosts_to_try:
                     smtp_hosts_to_try.append(h)
+        elif inbox.provider in ("outlook", "office365", "microsoft") or any(inbox.email_address.lower().endswith(d) for d in ("@outlook.com", "@hotmail.com", "@live.com", "@office365.com")):
+            for h in ["smtp-mail.outlook.com", "smtp.office365.com"]:
+                if h not in smtp_hosts_to_try:
+                    smtp_hosts_to_try.append(h)
         elif not smtp_hosts_to_try:
             smtp_hosts_to_try = [self.settings.smtp_host]
 
@@ -313,10 +317,33 @@ class EmailClient:
         if not results["smtp_ok"]:
             results["smtp_message"] = f"SMTP auth failed: {last_smtp_err}"
 
-        # 2. Test IMAP connection & auth
-        if not getattr(inbox, "imap_enabled", True):
+        # 2. Test IMAP connection & auth (or Microsoft Graph API if Outlook)
+        is_outlook_inbox = (
+            inbox.provider in ("outlook", "office365", "microsoft")
+            or any(inbox.email_address.lower().endswith(d) for d in ("@outlook.com", "@hotmail.com", "@live.com", "@office365.com"))
+            or inbox.email_address.lower().strip() == "omnileadfeeder@outlook.com"
+        )
+
+        if is_outlook_inbox:
+            try:
+                from .microsoft_graph import get_microsoft_graph_client
+                graph_client = get_microsoft_graph_client()
+                graph_test = graph_client.test_connection()
+                if graph_test.get("success"):
+                    results["imap_ok"] = True
+                    results["imap_message"] = f"Microsoft Graph API connected successfully via OAuth2 ({graph_test.get('account_email')})"
+                elif graph_test.get("configured"):
+                    results["imap_ok"] = False
+                    results["imap_message"] = "Azure App Registered. 1-Click Outlook authorization required — click 'Connect Outlook Account' in Admin."
+                else:
+                    results["imap_ok"] = False
+                    results["imap_message"] = "Microsoft OAuth2 setup pending. Configure Azure App Registration in .env (MICROSOFT_CLIENT_ID & MICROSOFT_CLIENT_SECRET)."
+            except Exception as graph_err:
+                results["imap_ok"] = False
+                results["imap_message"] = f"Microsoft Graph verification error: {graph_err}"
+        elif not getattr(inbox, "imap_enabled", True):
             results["imap_ok"] = True
-            results["imap_message"] = "IMAP intentionally disabled in settings (Inbound handled via Cloudflare Email Routing to Gmail)"
+            results["imap_message"] = "IMAP intentionally disabled in settings (Inbound handled via Cloudflare Email Routing to Gmail/Outlook)"
         else:
             imap_hosts_to_try = [inbox.imap_host] if inbox.imap_host else []
             if inbox.provider == "zoho":
@@ -345,7 +372,7 @@ class EmailClient:
                 except Exception as e:
                     err_str = str(e)
                     if "enable IMAP" in err_str or "yet to enable IMAP" in err_str:
-                        last_imap_err = "IMAP is disabled for this account in Zoho. To enable: in Zoho Mail web, go to Settings -> Mail Accounts -> check 'IMAP Access' (or mailadmin.zoho.com -> Users -> Mail Settings -> Email Incoming/Outgoing Protocols -> Enable IMAP)."
+                        last_imap_err = "IMAP is disabled for this account in Zoho. To enable: in Zoho Mail web, go to Settings -> Mail Accounts -> check 'IMAP Access'."
                         inbox.imap_host = host
                         break
                     last_imap_err = err_str
@@ -362,13 +389,36 @@ class EmailClient:
         mark_as_read: bool = False,
         inbox: InboxAccountConfig | None = None,
     ) -> list[dict[str, Any]]:
-        """Fetch unread emails from IMAP (primary Gmail or specific Zoho/inbox account)."""
+        """Fetch unread emails from IMAP (primary Gmail or specific Zoho/inbox account) or Microsoft Graph."""
         imap_user = inbox.email_address if inbox else self.settings.user
         imap_pwd = inbox.password if inbox else self.settings.app_password
         imap_host = (inbox.imap_host if inbox and inbox.imap_host else self.settings.imap_host)
         imap_port = (inbox.imap_port if inbox else self.settings.imap_port)
         imap_ssl = (inbox.imap_use_ssl if inbox else self.settings.imap_use_ssl)
         inbox_id = inbox.id if inbox else "primary"
+
+        # Check if target is an Outlook account
+        is_outlook = (
+            (inbox and inbox.provider in ("outlook", "office365", "microsoft"))
+            or (imap_user and any(imap_user.lower().endswith(d) for d in ("@outlook.com", "@hotmail.com", "@live.com", "@office365.com")))
+            or imap_user.lower().strip() == "omnileadfeeder@outlook.com"
+        )
+
+        if is_outlook:
+            try:
+                from .microsoft_graph import get_microsoft_graph_client
+                graph_client = get_microsoft_graph_client()
+                if graph_client.is_authorized:
+                    return graph_client.fetch_unseen_emails(mark_as_read=mark_as_read)
+                elif graph_client.is_configured:
+                    logger.debug("Microsoft Graph OAuth configured but not authorized yet. Skipping fetch.")
+                    return []
+                else:
+                    logger.debug("Microsoft Graph credentials not configured in .env. Skipping fetch.")
+                    return []
+            except Exception as graph_exc:
+                logger.warning(f"Error querying Microsoft Graph for unseen emails: {graph_exc}")
+                return []
 
         if not imap_user or not imap_pwd:
             logger.debug(f"No IMAP credentials configured for fetching unseen emails on inbox '{inbox_id}'.")
@@ -465,6 +515,13 @@ class EmailClient:
 
             mail.logout()
         except Exception as exc:
-            logger.error(f"Failed to fetch emails via IMAP for inbox '{inbox_id}' ({imap_host}): {exc}")
+            err_str = str(exc)
+            if "Basic authentication is disabled" in err_str:
+                logger.warning(
+                    f"⚠️ [OUTLOOK NOTICE] Microsoft disabled Basic Auth (app passwords) for consumer Outlook.com accounts on Sept 16, 2024. "
+                    f"To forward replies automatically, set up forwarding in Outlook.com Web (Settings ➔ Mail ➔ Forwarding) or enable IMAP on Zoho."
+                )
+            else:
+                logger.error(f"Failed to fetch emails via IMAP for inbox '{inbox_id}' ({imap_host}): {exc}")
 
         return messages

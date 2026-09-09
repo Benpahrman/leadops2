@@ -345,9 +345,20 @@ class PitcherService:
                     f"Outbound cold outreach sending is restricted to office hours (8:00 AM - 5:00 PM CST Mon-Fri). {msg}"
                 )
 
+        def _persist_archive():
+            if self.storage_backend:
+                try:
+                    if hasattr(self.storage_backend, "save_lead"):
+                        self.storage_backend.save_lead(lead)
+                    elif hasattr(self.storage_backend, "update_lead"):
+                        self.storage_backend.update_lead(lead)
+                except Exception as save_err:
+                    logger.warning(f"Failed to persist lead archival: {save_err}")
+
         # 1. Opt-out suppression check
         if self.is_opted_out(recipient_email):
             lead.transition(State.ARCHIVED, "Prospect opted out of communications")
+            _persist_archive()
             raise ValueError(f"Recipient {recipient_email} is on the opt-out suppression list")
 
         # 1b. Anti-duplicate suppression check (45-day cooldown per domain/company/recipient)
@@ -360,6 +371,7 @@ class PitcherService:
                 exclude_lead_id=lead.lead_id,
             ):
                 lead.transition(State.ARCHIVED, f"Recipient {recipient_email} or company {lead.company_name} already contacted within 45 days")
+                _persist_archive()
                 raise ValueError(f"Recipient {recipient_email} / {lead.company_name} was already contacted within 45 days (anti-duplicate suppression)")
 
         # 2. Run Unified Outreach Quality Gatekeeper
@@ -368,6 +380,7 @@ class PitcherService:
             if gate_res.gate_failed == "DELIVERABILITY_BOUNCE_CHECK":
                 reason = gate_res.metrics.get("deliverability_reason", "undeliverable")
                 lead.transition(State.ARCHIVED, f"Email {recipient_email} failed deliverability check: {reason}")
+                _persist_archive()
                 raise ValueError(f"Recipient {recipient_email} failed pre-send deliverability check: {reason}")
             elif gate_res.gate_failed == "WARMUP_QUOTA_REACHED":
                 quota = gate_res.quota_info.get("daily_quota", 25)
@@ -378,6 +391,7 @@ class PitcherService:
                 )
             elif gate_res.gate_failed == "COMMERCIAL_DUE_DILIGENCE":
                 lead.transition(State.ARCHIVED, "Website failed commercial due diligence")
+                _persist_archive()
                 raise ValueError(f"Prospect failed commercial due diligence gate")
             else:
                 raise ValueError(f"Outreach Quality Gate failed: {'; '.join(gate_res.reasons)}")
@@ -409,7 +423,12 @@ class PitcherService:
             inbox=chosen_inbox,
         )
 
-        self.warmup_manager.record_send(inbox_id=inbox_id, recipient=recipient_email, lead_id=lead.lead_id)
+        # Only count towards warmup quota if an actual email was transmitted (not dry-run simulation)
+        is_simulated = isinstance(send_result, dict) and send_result.get("status") in ("SIMULATED_DISPATCH_FROZEN", "SIMULATED_NO_CREDENTIALS")
+        if not is_simulated:
+            self.warmup_manager.record_send(inbox_id=inbox_id, recipient=recipient_email, lead_id=lead.lead_id)
+        else:
+            logger.info(f"ℹ️ [WARMUP QUOTA] Skipped recording send for simulated dispatch on inbox '{inbox_id}'.")
         
         # Enforce per-inbox 5-30 min jitter cooldown for this specific account
         try:

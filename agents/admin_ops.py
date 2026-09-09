@@ -36,6 +36,7 @@ NEXT_ACTIONS_MAP: dict[State, dict[str, Any]] = {
     State.ESCROW_PREVIEW: {"label": "🚀 Finalize & Deliver Feed", "target": State.DELIVERED, "color": "success"},
     State.DELIVERED: {"label": "🔄 Activate Retainer Subscription", "target": State.WARRANTY_ACTIVE, "color": "success"},
     State.WARRANTY_ACTIVE: {"label": "Healthy Retainer Active", "target": None, "color": "muted"},
+    State.ARCHIVED: {"label": "⚡ AI Contact Enricher", "target": State.REVIEW, "color": "warning"},
 }
 
 
@@ -65,6 +66,7 @@ class AdminMissionControlService:
             "DELIVERED": [],
             "WARRANTY_ACTIVE": [],
         }
+        archived_leads: list[dict[str, Any]] = []
 
         # Deduplicate leads by company name, keeping highest progress state
         seen_companies: dict[str, Lead] = {}
@@ -81,6 +83,7 @@ class AdminMissionControlService:
             State.REVIEW: 2,
             State.PROSPECTING: 1,
             State.BLOCKED_NEEDS_REVIEW: 0,
+            State.ARCHIVED: -1,
         }
 
         for lead in leads:
@@ -162,6 +165,19 @@ class AdminMissionControlService:
                 "next_target_state": action_info["target"].value if action_info["target"] else None,
                 "action_color": action_info["color"],
             }
+            if state_val == State.ARCHIVED:
+                reason = "Archived (failed deliverability or suppressed)"
+                for ev in reversed(lead.audit_log):
+                    det = str(ev.get("details", "") or ev.get("reason", ""))
+                    if "ARCHIVED" in det.upper() or ev.get("to") == "ARCHIVED" or ev.get("state") == "ARCHIVED":
+                        reason = det
+                        break
+                entry["archive_reason"] = reason
+                entry["archived_at"] = (lead.audit_log[-1].get("timestamp") if lead.audit_log else datetime.now(timezone.utc).isoformat())
+                entry["recovery_history"] = getattr(lead, "research", {}).get("contact_enricher_recovery", None)
+                archived_leads.append(entry)
+                continue
+
             state_key = state_val.value
             if state_key in kanban:
                 kanban[state_key].append(entry)
@@ -169,10 +185,53 @@ class AdminMissionControlService:
                 kanban["PROSPECTING"].append(entry)
 
         return {
-            "total_leads": len(unique_leads),
+            "total_leads": len(unique_leads) - len(archived_leads),
             "columns": kanban,
+            "archived": archived_leads,
+            "archived_count": len(archived_leads),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
+
+    def enrich_and_recover_lead(self, lead_id: str) -> dict[str, Any]:
+        """Trigger ContactEnricherResearcherAgent to research and recover deliverable contact for a lead."""
+        from .contact_enricher_agent import ContactEnricherResearcherAgent
+        lead = self.storage.get_lead(lead_id)
+        if not lead:
+            return {"ok": False, "error": f"Lead '{lead_id}' not found"}
+
+        agent = ContactEnricherResearcherAgent()
+        result = agent.enrich_and_recover_lead(lead, storage_backend=self.storage)
+        return result
+
+    def get_archived_leads(self) -> list[dict[str, Any]]:
+        """Retrieve all archived leads with failure reasons and recovery history."""
+        leads = self.storage.list_leads()
+        archived = []
+        for lead in leads:
+            state_val = lead.state if isinstance(lead.state, State) else State(str(lead.state).replace("State.", "").strip()) if str(lead.state).replace("State.", "").strip() in State.__members__ else State.PROSPECTING
+            if state_val == State.ARCHIVED:
+                reason = "Archived"
+                for ev in reversed(lead.audit_log):
+                    det = str(ev.get("details", "") or ev.get("reason", ""))
+                    if "ARCHIVED" in det.upper() or ev.get("to") == "ARCHIVED" or ev.get("state") == "ARCHIVED":
+                        reason = det
+                        break
+                slug = getattr(lead, "slug", "") or lead.lead_id or "lead"
+                company_name = getattr(lead, "company_name", "") or lead.lead_id.replace("lead-", "").replace("-", " ").title()
+                archived.append({
+                    "lead_id": lead.lead_id,
+                    "company_name": company_name,
+                    "contact_name": getattr(lead, "contact_name", "") or "",
+                    "contact_email": getattr(lead, "contact_email", "") or "",
+                    "contact_role": getattr(lead, "contact_role", "") or "",
+                    "website": getattr(lead, "website", "") or "",
+                    "niche": getattr(lead, "niche", "") or "",
+                    "archive_reason": reason,
+                    "archived_at": lead.audit_log[-1].get("timestamp") if lead.audit_log else datetime.now(timezone.utc).isoformat(),
+                    "discovery_channel": getattr(lead, "discovery_channel", "CATALOG_SEARCH") or "CATALOG_SEARCH",
+                    "recovery_history": getattr(lead, "research", {}).get("contact_enricher_recovery", None),
+                })
+        return archived
 
     def advance_lead_state(self, lead_id: str) -> dict[str, Any]:
         """One-click approval action to transition a lead forward safely."""
@@ -606,6 +665,11 @@ class AdminMissionControlService:
                     "subject": pitch.subject,
                 })
             except Exception as exc:
+                if lead.state == State.ARCHIVED:
+                    try:
+                        self.storage.save_lead(lead)
+                    except Exception as s_err:
+                        logger.warning(f"Error saving archived lead {lead.lead_id}: {s_err}")
                 errors.append({
                     "lead_id": lead.lead_id,
                     "company": lead.company_name,

@@ -57,18 +57,25 @@ class VerificationResult:
     domain: str = ""
     mx_records: list[str] = field(default_factory=list)
     smtp_check_passed: bool = False
+    is_domain_active: bool = True
 
     @property
     def is_safe_to_send(self) -> bool:
-        """Only genuine DELIVERABLE emails with active mail exchangers are safe to dispatch."""
-        return self.status == DeliverabilityStatus.DELIVERABLE
+        """Only genuine DELIVERABLE emails with active mail exchangers and responsive domains are safe to dispatch."""
+        return self.status == DeliverabilityStatus.DELIVERABLE and self.is_domain_active
 
 
 class DeliverabilityVerifier:
     """Performs layered pre-flight verification on outbound email addresses to eliminate bounces."""
 
-    def __init__(self, probe_smtp: bool = True, timeout_seconds: float = 4.0):
+    def __init__(
+        self,
+        probe_smtp: bool = True,
+        probe_web: bool = True,
+        timeout_seconds: float = 4.0,
+    ):
         self.probe_smtp = probe_smtp
+        self.probe_web = probe_web
         self.timeout_seconds = timeout_seconds
 
     def check_syntax(self, email: str) -> tuple[bool, str, str]:
@@ -85,6 +92,53 @@ class DeliverabilityVerifier:
         if ".." in domain or domain.startswith(".") or domain.endswith("."):
             return False, "", ""
         return True, local_part, domain
+
+    def check_domain_active(self, domain: str) -> tuple[bool, str]:
+        """Verify that the target domain is active, resolves via DNS, and has operational network routing."""
+        clean_domain = domain.strip().lower()
+        if not clean_domain:
+            return False, "Empty domain name"
+
+        # 1. DNS A/AAAA record host resolution
+        try:
+            socket.getaddrinfo(clean_domain, 80, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        except socket.gaierror as e:
+            # Fallback check for www subdomain
+            try:
+                socket.getaddrinfo(f"www.{clean_domain}", 80, socket.AF_UNSPEC, socket.SOCK_STREAM)
+            except Exception:
+                logger.debug(f"Domain host resolution failed for {clean_domain}: {e}")
+                return False, f"Domain {clean_domain} has no active DNS A/AAAA host records (NXDOMAIN/unreachable)"
+        except Exception as e:
+            logger.debug(f"Unexpected DNS resolution error for {clean_domain}: {e}")
+
+        # 2. Optional fast web connection probe if probe_web is active
+        if self.probe_web:
+            try:
+                import httpx
+                # Fast HEAD/GET probe to verify live web server
+                with httpx.Client(
+                    timeout=self.timeout_seconds,
+                    follow_redirects=True,
+                    verify=False,
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) LeadOps Deliverability Prober"},
+                ) as client:
+                    try:
+                        resp = client.get(f"https://{clean_domain}")
+                    except Exception:
+                        resp = client.get(f"http://{clean_domain}")
+                    
+                    if resp.status_code >= 500:
+                        logger.debug(f"Web probe returned server error {resp.status_code} for {clean_domain}")
+                        # DNS is valid, server is responding with 5xx - keep active
+                        return True, f"Domain active (HTTP {resp.status_code})"
+                    return True, f"Domain web host active (HTTP {resp.status_code})"
+            except Exception as e:
+                # If web port 80/443 is blocked or firewalled but DNS resolved, treat domain as resolving
+                logger.debug(f"Domain web connection probe notice for {clean_domain}: {e}")
+                return True, "Domain resolves via DNS"
+
+        return True, "Domain resolves via DNS"
 
     def resolve_mx_records(self, domain: str) -> list[str]:
         """Resolve DNS MX records for target domain, sorting by preference priority."""
@@ -136,10 +190,11 @@ class DeliverabilityVerifier:
                 is_disposable=False,
                 is_role_account=False,
                 domain=domain,
+                is_domain_active=False,
             )
 
         # Check dummy/placeholder domains
-        if domain in DUMMY_DOMAINS or domain.endswith(".example.com"):
+        if domain in DUMMY_DOMAINS or domain.endswith(".example.com") or domain.endswith(".test") or domain.endswith(".invalid"):
             return VerificationResult(
                 email=email,
                 status=DeliverabilityStatus.UNDELIVERABLE,
@@ -148,6 +203,7 @@ class DeliverabilityVerifier:
                 is_disposable=False,
                 is_role_account=False,
                 domain=domain,
+                is_domain_active=False,
             )
 
         # Check disposable domains
@@ -163,6 +219,20 @@ class DeliverabilityVerifier:
                 domain=domain,
             )
 
+        # Check active domain DNS and network routing
+        is_domain_live, domain_reason = self.check_domain_active(domain)
+        if not is_domain_live:
+            return VerificationResult(
+                email=email,
+                status=DeliverabilityStatus.UNDELIVERABLE,
+                reason=f"Domain is inactive or unreachable: {domain_reason}",
+                is_valid_format=True,
+                is_disposable=False,
+                is_role_account=False,
+                domain=domain,
+                is_domain_active=False,
+            )
+
         # Check DNS MX records before evaluating mailbox or role accounts
         mx_records = self.resolve_mx_records(domain)
         if not mx_records:
@@ -175,6 +245,7 @@ class DeliverabilityVerifier:
                 is_role_account=False,
                 domain=domain,
                 mx_records=[],
+                is_domain_active=is_domain_live,
             )
 
         # Check role-based accounts
@@ -189,11 +260,12 @@ class DeliverabilityVerifier:
                 is_role_account=True,
                 domain=domain,
                 mx_records=mx_records,
+                is_domain_active=is_domain_live,
             )
 
         # Optional SMTP handshake probe on primary MX
         smtp_passed = True
-        reason = "Valid syntax and active MX exchangers"
+        reason = "Valid syntax, active domain, and verified MX exchangers"
         if self.probe_smtp and mx_records:
             primary_mx = mx_records[0]
             passed, probe_msg = self.probe_mailbox_smtp(primary_mx, email)
@@ -209,6 +281,7 @@ class DeliverabilityVerifier:
                     domain=domain,
                     mx_records=mx_records,
                     smtp_check_passed=False,
+                    is_domain_active=is_domain_live,
                 )
             reason = f"Verified: {probe_msg}"
 
@@ -222,4 +295,5 @@ class DeliverabilityVerifier:
             domain=domain,
             mx_records=mx_records,
             smtp_check_passed=smtp_passed,
+            is_domain_active=is_domain_live,
         )

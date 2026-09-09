@@ -30,7 +30,11 @@ class NotificationSettings:
     @classmethod
     def from_env(cls) -> "NotificationSettings":
         enabled_str = os.environ.get("NOTIFICATIONS_ENABLED", "true").lower().strip()
-        default_discord = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
+        default_discord = (
+            os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
+            or os.environ.get("DISCORD_WEBHOOK_ALERTS", "").strip()
+            or os.environ.get("DISCORD_WEBHOOK_OUTREACH", "").strip()
+        )
         return cls(
             enabled=enabled_str in ("true", "1", "yes"),
             discord_webhook_url=default_discord,

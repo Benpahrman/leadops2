@@ -64,6 +64,8 @@ class InboundEmailWatcher:
             "googlemail.com",
             "omnileadfeeder.tech",
         }
+        if clean_sender in ("omnileadfeeder@outlook.com", "omnileadfeeder.tech@gmail.com"):
+            return True
         if domain in blocked_domains or any(domain.endswith(f".{bd}") for bd in blocked_domains):
             return True
 

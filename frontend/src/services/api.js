@@ -660,3 +660,80 @@ export async function triggerOutreachFlush(token = '') {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
+
+export async function enrichLeadContact(leadId, token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/leads/${leadId}/enrich-contact`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function batchEnrichArchivedLeads(token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/leads/batch-enrich-archived`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function fetchArchivedLeads(token = '') {
+  const headers = {};
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/leads/archived`, { headers });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function fetchMicrosoftOAuthStatus(token = '') {
+  const headers = {};
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/oauth/microsoft/status`, { headers });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function fetchMicrosoftOAuthAuthorizeUrl(token = '') {
+  const headers = {};
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/oauth/microsoft/authorize`, { headers });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function disconnectMicrosoftOAuth(token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/oauth/microsoft/disconnect`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+

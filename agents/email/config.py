@@ -43,6 +43,20 @@ class InboxAccountConfig:
                 self.smtp_host = "smtp.gmail.com"
             if not self.imap_host:
                 self.imap_host = "imap.gmail.com"
+        elif self.provider in ("outlook", "office365", "microsoft") or any(clean_email.endswith(d) for d in ("@outlook.com", "@hotmail.com", "@live.com", "@office365.com")):
+            if not self.provider or self.provider in ("smtp_generic", "primary"):
+                self.provider = "outlook"
+            if not self.smtp_host:
+                self.smtp_host = "smtp-mail.outlook.com"
+            if not self.smtp_port or self.smtp_port == 465:
+                self.smtp_port = 587
+                self.smtp_use_ssl = False
+                self.smtp_use_tls = True
+            if not self.imap_host:
+                self.imap_host = "outlook.office365.com"
+            if not self.imap_port:
+                self.imap_port = 993
+                self.imap_use_ssl = True
 
 
 @dataclass
@@ -108,6 +122,17 @@ class EmailSettings:
     # Outbound Dispatch Policy: When False, strictly use dedicated custom domain/Zoho inboxes for outbound pitches, reserving Gmail for inbound replies and monitoring
     outbound_use_gmail: bool = False
 
+    # Microsoft OAuth2 & Graph API Integration (Option 3 for watched Outlook inbox)
+    microsoft_client_id: str = ""
+    microsoft_client_secret: str = ""
+    microsoft_tenant_id: str = "common"
+    microsoft_refresh_token: str = ""
+    microsoft_redirect_uri: str = "http://localhost:8000/api/admin/oauth/microsoft/callback"
+
+    def is_microsoft_oauth_ready(self) -> bool:
+        """Return True if Microsoft OAuth is configured and authorized with a refresh token."""
+        return bool(self.microsoft_client_id and self.microsoft_client_secret and self.microsoft_refresh_token)
+
     def resolve_sender_email(self, hint: str = "", preferred_domain: str | None = None) -> str:
         """Resolve the authentic From: address enforcing registered Cloudflare sending domains.
         
@@ -159,7 +184,19 @@ class EmailSettings:
         accounts: list[InboxAccountConfig] = []
 
         # 1. Primary Inbox (always default to primary inbox slot)
-        primary_provider = "gmail" if ("gmail" in self.smtp_host.lower() or not self.smtp_host) else "smtp_generic"
+        user_lower = (self.user or "").lower()
+        if (
+            "outlook" in self.smtp_host.lower()
+            or "office365" in self.smtp_host.lower()
+            or "outlook" in self.imap_host.lower()
+            or "office365" in self.imap_host.lower()
+            or any(user_lower.endswith(d) for d in ("@outlook.com", "@hotmail.com", "@live.com", "@office365.com"))
+        ):
+            primary_provider = "outlook"
+        elif "gmail" in self.smtp_host.lower() or not self.smtp_host:
+            primary_provider = "gmail"
+        else:
+            primary_provider = "smtp_generic"
         accounts.append(
             InboxAccountConfig(
                 id="primary",
@@ -221,18 +258,45 @@ class EmailSettings:
     def from_environment(cls) -> "EmailSettings":
         """Load email configuration dynamically from environment variables."""
         user = (
-            os.environ.get("GMAIL_USER")
+            os.environ.get("INBOX_WATCHER_EMAIL")
+            or os.environ.get("OUTLOOK_USER")
+            or os.environ.get("OUTLOOK_EMAIL")
+            or os.environ.get("GMAIL_USER")
             or os.environ.get("LEADOPS_EMAIL_USER")
             or os.environ.get("SMTP_USER")
             or ""
         ).strip()
 
-        app_password = (
-            os.environ.get("GMAIL_APP_PASSWORD")
-            or os.environ.get("LEADOPS_EMAIL_PASSWORD")
-            or os.environ.get("SMTP_PASSWORD")
-            or ""
-        ).strip()
+        user_lower = user.lower()
+        is_outlook = any(user_lower.endswith(d) for d in ("@outlook.com", "@hotmail.com", "@live.com", "@office365.com")) or "outlook" in user_lower
+        is_gmail = any(user_lower.endswith(d) for d in ("@gmail.com", "@googlemail.com")) or "gmail" in user_lower
+
+        if is_gmail:
+            app_password = (
+                os.environ.get("GMAIL_APP_PASSWORD")
+                or os.environ.get("INBOX_WATCHER_PASSWORD")
+                or os.environ.get("LEADOPS_EMAIL_PASSWORD")
+                or os.environ.get("SMTP_PASSWORD")
+                or ""
+            ).strip()
+        elif is_outlook:
+            app_password = (
+                os.environ.get("OUTLOOK_APP_PASSWORD")
+                or os.environ.get("OUTLOOK_PASSWORD")
+                or os.environ.get("INBOX_WATCHER_PASSWORD")
+                or os.environ.get("LEADOPS_EMAIL_PASSWORD")
+                or os.environ.get("SMTP_PASSWORD")
+                or ""
+            ).strip()
+        else:
+            app_password = (
+                os.environ.get("INBOX_WATCHER_PASSWORD")
+                or os.environ.get("OUTLOOK_APP_PASSWORD")
+                or os.environ.get("GMAIL_APP_PASSWORD")
+                or os.environ.get("LEADOPS_EMAIL_PASSWORD")
+                or os.environ.get("SMTP_PASSWORD")
+                or ""
+            ).strip()
 
         from_name = os.environ.get("EMAIL_FROM_NAME", "Alex | OmniLeadFeeder").strip()
         from_email = (
@@ -262,12 +326,38 @@ class EmailSettings:
             except (ValueError, TypeError):
                 return default
 
-        smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
-        smtp_port = _clean_int(os.environ.get("SMTP_PORT", "465"), 465)
-        smtp_use_ssl = smtp_port == 465 or os.environ.get("SMTP_USE_SSL", "true").lower() == "true"
-        smtp_use_tls = smtp_port == 587 or os.environ.get("SMTP_USE_TLS", "false").lower() == "true"
+        user_lower = user.lower()
+        is_outlook = any(user_lower.endswith(d) for d in ("@outlook.com", "@hotmail.com", "@live.com", "@office365.com")) or "outlook" in user_lower
+        is_gmail = any(user_lower.endswith(d) for d in ("@gmail.com", "@googlemail.com")) or "gmail" in user_lower
 
-        imap_host = os.environ.get("IMAP_HOST", "imap.gmail.com").strip()
+        default_smtp_host = "smtp-mail.outlook.com" if is_outlook else "smtp.gmail.com"
+        default_imap_host = "outlook.office365.com" if is_outlook else "imap.gmail.com"
+        default_smtp_port = 587 if is_outlook else 465
+
+        smtp_host = os.environ.get("SMTP_HOST", default_smtp_host).strip()
+        smtp_port = _clean_int(os.environ.get("SMTP_PORT", str(default_smtp_port)), default_smtp_port)
+        smtp_use_ssl = (
+            (str(os.environ.get("SMTP_USE_SSL", "").lower()) == "true")
+            if os.environ.get("SMTP_USE_SSL")
+            else (smtp_port == 465 and not is_outlook)
+        )
+        smtp_use_tls = (
+            (str(os.environ.get("SMTP_USE_TLS", "").lower()) == "true")
+            if os.environ.get("SMTP_USE_TLS")
+            else (smtp_port == 587 or is_outlook)
+        )
+
+        if is_gmail:
+            imap_host = os.environ.get("IMAP_HOST", "imap.gmail.com").strip()
+            if imap_host == "outlook.office365.com":
+                imap_host = "imap.gmail.com"
+        elif is_outlook:
+            imap_host = os.environ.get("IMAP_HOST", "outlook.office365.com").strip()
+            if imap_host == "imap.gmail.com":
+                imap_host = "outlook.office365.com"
+        else:
+            imap_host = os.environ.get("IMAP_HOST", default_imap_host).strip()
+
         imap_port = _clean_int(os.environ.get("IMAP_PORT", "993"), 993)
         imap_use_ssl = os.environ.get("IMAP_USE_SSL", "true").lower() == "true"
         imap_poll_interval_seconds = _clean_int(os.environ.get("IMAP_POLL_INTERVAL_SECONDS", "60"), 60)
@@ -368,6 +458,12 @@ class EmailSettings:
 
         outbound_use_gmail = os.environ.get("OUTBOUND_USE_GMAIL", "false").strip().lower() in ("true", "1", "yes")
 
+        microsoft_client_id = (os.environ.get("MICROSOFT_CLIENT_ID") or os.environ.get("AZURE_CLIENT_ID") or "").strip().strip("\"'")
+        microsoft_client_secret = (os.environ.get("MICROSOFT_CLIENT_SECRET") or os.environ.get("AZURE_CLIENT_SECRET") or "").strip().strip("\"'")
+        microsoft_tenant_id = (os.environ.get("MICROSOFT_TENANT_ID") or "common").strip().strip("\"'")
+        microsoft_refresh_token = (os.environ.get("MICROSOFT_REFRESH_TOKEN") or "").strip().strip("\"'")
+        microsoft_redirect_uri = (os.environ.get("MICROSOFT_REDIRECT_URI") or "http://localhost:8000/api/admin/oauth/microsoft/callback").strip().strip("\"'")
+
         return cls(
             user=user,
             app_password=app_password,
@@ -393,4 +489,9 @@ class EmailSettings:
             outreach_dispatch_enabled=outreach_dispatch_enabled,
             outbound_use_gmail=outbound_use_gmail,
             inbox_pool=inbox_pool,
+            microsoft_client_id=microsoft_client_id,
+            microsoft_client_secret=microsoft_client_secret,
+            microsoft_tenant_id=microsoft_tenant_id,
+            microsoft_refresh_token=microsoft_refresh_token,
+            microsoft_redirect_uri=microsoft_redirect_uri,
         )

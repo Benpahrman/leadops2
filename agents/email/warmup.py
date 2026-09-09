@@ -128,6 +128,46 @@ class WarmupManager:
                 logger.warning(f"Storage query for email quota failed: {e}. Using in-memory counter.")
         return self._in_memory_daily_counts.get(today_key, 0)
 
+    def get_fleet_sent_count_today(self, outbound_only: bool = True) -> int:
+        """Fetch total count of emails dispatched today across all active configured inboxes."""
+        accounts = self.get_all_configured_accounts(outbound_only=outbound_only)
+        if not accounts:
+            return self.get_sent_count_today("primary")
+        return sum(self.get_sent_count_today(acc.id) for acc in accounts if acc.is_active)
+
+    def get_fleet_daily_quota(self, outbound_only: bool = True) -> int:
+        """Calculate total daily send quota across all active inboxes (e.g. 5 inboxes * 25 = 125 emails/day)."""
+        accounts = self.get_all_configured_accounts(outbound_only=outbound_only)
+        if not accounts:
+            tier = self.get_warmup_tier()
+            return tier.daily_quota
+        tier = self.get_warmup_tier()
+        total = 0
+        for acc in accounts:
+            if not acc.is_active:
+                continue
+            limit = acc.daily_limit if (acc.daily_limit and acc.daily_limit != 25) else tier.daily_quota
+            total += limit
+        return total
+
+    def get_fleet_capacity_summary(self) -> dict[str, Any]:
+        """Return comprehensive fleet-wide dispatch capacity and warmup metrics."""
+        accounts = self.get_all_configured_accounts(outbound_only=True)
+        active_inboxes = [acc for acc in accounts if acc.is_active]
+        total_quota = self.get_fleet_daily_quota(outbound_only=True)
+        total_sent = self.get_fleet_sent_count_today(outbound_only=True)
+        tier = self.get_warmup_tier()
+        return {
+            "fleet_size": len(active_inboxes),
+            "fleet_daily_quota": total_quota,
+            "fleet_sent_today": total_sent,
+            "fleet_remaining": max(0, total_quota - total_sent),
+            "warmup_week": tier.week_number,
+            "warmup_name": tier.name,
+            "per_inbox_quota": tier.daily_quota,
+            "can_send": total_sent < total_quota and self.get_available_inbox() is not None,
+        }
+
     def get_all_configured_accounts(self, outbound_only: bool = False) -> list[InboxAccountConfig]:
         """Return all inboxes configured via environment settings and database storage."""
         if outbound_only:
@@ -173,8 +213,14 @@ class WarmupManager:
                 return inb
         return None
 
-    def can_send_today(self, inbox_id: str = "primary", warmup_start: datetime | None = None) -> tuple[bool, int, int]:
-        """Determine if inbox has remaining quota for today. Returns (can_send, sent_today, daily_quota)."""
+    def can_send_today(self, inbox_id: str | None = None, warmup_start: datetime | None = None) -> tuple[bool, int, int]:
+        """Determine if inbox (or fleet if None) has remaining quota for today. Returns (can_send, sent_today, daily_quota)."""
+        if inbox_id is None:
+            total_sent = self.get_fleet_sent_count_today()
+            total_quota = self.get_fleet_daily_quota()
+            available = self.get_available_inbox()
+            return (total_sent < total_quota and available is not None), total_sent, total_quota
+
         if self.is_inbox_rate_limited(inbox_id):
             sent_today = self.get_sent_count_today(inbox_id)
             return False, sent_today, 0

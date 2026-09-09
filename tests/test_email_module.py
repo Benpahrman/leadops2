@@ -27,6 +27,8 @@ from agents.storage import InMemoryStorageBackend
 
 
 def test_email_settings_from_env(monkeypatch):
+    monkeypatch.delenv("INBOX_WATCHER_EMAIL", raising=False)
+    monkeypatch.delenv("OUTLOOK_USER", raising=False)
     monkeypatch.setenv("GMAIL_USER", "testops@gmail.com")
     monkeypatch.setenv("GMAIL_APP_PASSWORD", "abcd-efgh-ijkl-mnop")
     monkeypatch.setenv("COLD_EMAIL_LINK_MODE", "permission_first")
@@ -39,6 +41,34 @@ def test_email_settings_from_env(monkeypatch):
     assert settings.warmup_week1_limit == 20
     assert settings.smtp_host == "smtp.gmail.com"
     assert settings.imap_host == "imap.gmail.com"
+
+
+def test_email_settings_outlook_watched_inbox(monkeypatch):
+    monkeypatch.setenv("INBOX_WATCHER_EMAIL", "omnileadfeeder@outlook.com")
+    monkeypatch.setenv("OUTLOOK_APP_PASSWORD", "test-outlook-password")
+    monkeypatch.delenv("IMAP_HOST", raising=False)
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+
+    settings = EmailSettings.from_environment()
+    assert settings.user == "omnileadfeeder@outlook.com"
+    assert settings.app_password == "test-outlook-password"
+    assert settings.imap_host == "outlook.office365.com"
+    assert settings.imap_port == 993
+    assert settings.smtp_host == "smtp-mail.outlook.com"
+    assert settings.smtp_port == 587
+    assert settings.smtp_use_ssl is False
+    assert settings.smtp_use_tls is True
+
+    # Verify primary inbox account config
+    inboxes = settings.get_all_inboxes()
+    primary = inboxes[0]
+    assert primary.id == "primary"
+    assert primary.email_address == "omnileadfeeder@outlook.com"
+    assert primary.provider == "outlook"
+    assert primary.imap_host == "outlook.office365.com"
+    assert primary.imap_port == 993
+    assert primary.smtp_host == "smtp-mail.outlook.com"
+    assert primary.smtp_port == 587
 
 
 def test_deliverability_verifier_syntax_and_disposable():
@@ -785,6 +815,69 @@ def test_storage_inbox_accounts_crud():
     storage.delete_inbox_account("zoho_test_inbox")
     assert storage.get_inbox_account("zoho_test_inbox") is None
     assert len(storage.list_inbox_accounts()) == 0
+
+
+def test_deliverability_verifier_active_domain_and_bounce_prevention():
+    """Verify DeliverabilityVerifier flags inactive/non-existent domains and verifies real email deliverability."""
+    verifier = DeliverabilityVerifier(probe_smtp=False, probe_web=False)
+
+    # 1. Non-existent / inactive domain
+    fake_domain = "nonexistent-domain-xyz-98741-def.org"
+    is_live, msg = verifier.check_domain_active(fake_domain)
+    assert not is_live
+    assert "no active DNS" in msg or "NXDOMAIN" in msg
+
+    # 2. Email on non-existent domain should be UNDELIVERABLE
+    res_fake = verifier.verify(f"alex@{fake_domain}")
+    assert res_fake.status == DeliverabilityStatus.UNDELIVERABLE
+    assert not res_fake.is_domain_active
+    assert not res_fake.is_safe_to_send
+
+    # 3. Active legitimate domain
+    live_domain = "google.com"
+    is_live_google, _ = verifier.check_domain_active(live_domain)
+    assert is_live_google
+
+    # 4. Valid email on active domain with MX
+    res_real = verifier.verify("engineering@github.com")
+    assert res_real.status == DeliverabilityStatus.DELIVERABLE
+    assert res_real.is_domain_active
+    assert res_real.is_safe_to_send
+
+
+def test_auto_outreach_rejection_window_and_autonomous_dispatch():
+    """Verify AutoOutreachScheduler registers lead with 3-minute grace period and supports mobile cancellation."""
+    from agents.auto_outreach import AutoOutreachScheduler
+    from agents.domain import Lead, State
+
+    scheduler = AutoOutreachScheduler(grace_period_seconds=180)
+    assert scheduler.grace_period_seconds == 180
+
+    storage = InMemoryStorageBackend()
+    lead = Lead(
+        lead_id="lead-test-autonomous-1",
+        state=State.PITCH_PENDING_APPROVAL,
+        company_name="Lone Star Construction",
+        contact_email="chris@getyomnileadfeeder.cyou",
+        tier_key="daily",
+    )
+    storage.save_lead(lead)
+
+    # Schedule lead for dispatch
+    schedule_res = scheduler.schedule_lead_for_dispatch(
+        lead=lead,
+        pitch=None,
+        storage_backend=storage,
+    )
+    assert schedule_res["ok"]
+    assert schedule_res["grace_period_seconds"] == 180
+    assert scheduler.is_pending("lead-test-autonomous-1")
+
+    # Operator cancels via rejection window
+    cancelled = scheduler.cancel_dispatch("lead-test-autonomous-1", reason="Operator test rejection")
+    assert cancelled
+    assert not scheduler.is_pending("lead-test-autonomous-1")
+
 
 
 

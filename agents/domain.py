@@ -91,7 +91,7 @@ ALLOWED_TRANSITIONS = {
     State.WARRANTY_ACTIVE: {State.WARRANTY_EXPIRED, State.ARCHIVED},
     State.WARRANTY_EXPIRED: {State.WARRANTY_RENEWAL, State.ARCHIVED},
     State.WARRANTY_RENEWAL: {State.WARRANTY_ACTIVE, State.ARCHIVED},
-    State.ARCHIVED: set(),
+    State.ARCHIVED: {State.REVIEW, State.PITCH_PENDING_APPROVAL},
 }
 
 
@@ -128,6 +128,7 @@ class Lead:
     outreach_subject: str = ""
     outreach_body: str = ""
     repo_url: str = ""
+    website: str = ""
     niche: str = ""
     delivery_count: int = 0
     last_login_at: str = ""
@@ -201,6 +202,14 @@ class Lead:
             "from": previous_state.value,
             "to": target.value,
             "reason": reason,
+            "at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    def log_event(self, event_type: str, details: str) -> None:
+        self.audit_log.append({
+            "event": event_type,
+            "details": details,
+            "reason": details,
             "at": datetime.now(timezone.utc).isoformat(),
         })
 

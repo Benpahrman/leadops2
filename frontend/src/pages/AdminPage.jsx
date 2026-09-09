@@ -29,6 +29,13 @@ import {
   upsertAdminInbox,
   testAdminInbox,
   deleteAdminInbox,
+  triggerOutreachFlush,
+  enrichLeadContact,
+  batchEnrichArchivedLeads,
+  fetchArchivedLeads,
+  fetchMicrosoftOAuthStatus,
+  fetchMicrosoftOAuthAuthorizeUrl,
+  disconnectMicrosoftOAuth,
 } from '../services/api';
 import { useToast } from '../context/ToastContext';
 import ConfirmModal from '../components/common/ConfirmModal';
@@ -88,6 +95,9 @@ export default function AdminPage() {
 
   // Pipeline & Data
   const [pipeline, setPipeline] = useState([]);
+  const [archivedLeads, setArchivedLeads] = useState([]);
+  const [enrichingLeadId, setEnrichingLeadId] = useState(null);
+  const [batchEnriching, setBatchEnriching] = useState(false);
   const [metrics, setMetrics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionInProgress, setActionInProgress] = useState({});
@@ -225,6 +235,7 @@ export default function AdminPage() {
   const [inboxesLoading, setInboxesLoading] = useState(false);
   const [testingInboxId, setTestingInboxId] = useState(null);
   const [testResults, setTestResults] = useState({});
+  const [flushingQueue, setFlushingQueue] = useState(false);
   const [showAddInboxModal, setShowAddInboxModal] = useState(false);
   const [inboxFormData, setInboxFormData] = useState({
     inbox_id: '',
@@ -234,6 +245,76 @@ export default function AdminPage() {
     provider: 'zoho',
     daily_limit: 25,
   });
+
+  // Microsoft OAuth2 State
+  const [msOAuthStatus, setMsOAuthStatus] = useState(null);
+  const [msOAuthLoading, setMsOAuthLoading] = useState(false);
+  const [msOAuthConnecting, setMsOAuthConnecting] = useState(false);
+
+  const loadMsOAuthStatus = async () => {
+    setMsOAuthLoading(true);
+    try {
+      const token = await resolveToken();
+      const res = await fetchMicrosoftOAuthStatus(token);
+      if (res && res.status) {
+        setMsOAuthStatus(res.status);
+      }
+    } catch (err) {
+      console.warn('Could not load Microsoft OAuth status:', err);
+    } finally {
+      setMsOAuthLoading(false);
+    }
+  };
+
+  const handleConnectMicrosoftOAuth = async () => {
+    setMsOAuthConnecting(true);
+    try {
+      const token = await resolveToken();
+      const res = await fetchMicrosoftOAuthAuthorizeUrl(token);
+      if (res && res.auth_url) {
+        window.location.href = res.auth_url;
+      }
+    } catch (err) {
+      showToast(`Microsoft OAuth error: ${err.message}`, 'error');
+      setMsOAuthConnecting(false);
+    }
+  };
+
+  const handleDisconnectMicrosoftOAuth = async () => {
+    try {
+      const token = await resolveToken();
+      await disconnectMicrosoftOAuth(token);
+      showToast('Outlook account disconnected successfully.', 'info');
+      await loadMsOAuthStatus();
+      await loadInboxes();
+    } catch (err) {
+      showToast(`Disconnect error: ${err.message}`, 'error');
+    }
+  };
+
+  // Listen for OAuth callback query parameters on redirect
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('oauth') === 'microsoft_success') {
+        const authedEmail = urlParams.get('email') || 'omnileadfeeder@outlook.com';
+        showToast(`🎉 Microsoft Outlook (${authedEmail}) connected successfully via OAuth2!`, 'success');
+        urlParams.delete('oauth');
+        urlParams.delete('email');
+        const cleanUrl = `${window.location.pathname}?${urlParams.toString()}`;
+        window.history.replaceState(null, '', cleanUrl);
+        loadMsOAuthStatus();
+      } else if (urlParams.get('oauth_error')) {
+        showToast(`❌ Microsoft OAuth error: ${decodeURIComponent(urlParams.get('oauth_error'))}`, 'error');
+        urlParams.delete('oauth_error');
+        const cleanUrl = `${window.location.pathname}?${urlParams.toString()}`;
+        window.history.replaceState(null, '', cleanUrl);
+      }
+    } catch (e) {
+      console.warn('OAuth URL listener note:', e);
+    }
+  }, []);
 
   // Load Admin Data
   const loadAdminData = async () => {
@@ -252,6 +333,9 @@ export default function AdminPage() {
         const raw = pipeData.value || {};
         const list = Array.isArray(raw) ? raw : (raw.leads || raw.pipeline || []);
         setPipeline(list);
+        if (raw.archived && Array.isArray(raw.archived)) {
+          setArchivedLeads(raw.archived);
+        }
       } else {
         console.warn('Pipeline fetch error:', pipeData.reason);
         showToast(`Pipeline load error: ${pipeData.reason?.message || 'Authentication required'}`, 'error');
@@ -276,7 +360,19 @@ export default function AdminPage() {
     }
   };
 
-  // Load Scrapers / Inboxes when tab changes
+  const loadArchivedLeads = async () => {
+    try {
+      const token = await resolveToken();
+      const res = await fetchArchivedLeads(token);
+      if (res && res.leads) {
+        setArchivedLeads(res.leads);
+      }
+    } catch (err) {
+      console.warn('Could not load archived leads:', err);
+    }
+  };
+
+  // Load Scrapers / Inboxes / Archived when tab changes
   useEffect(() => {
     if (activeTab === 'scrapers' && scrapers.length === 0) {
       loadScrapers();
@@ -284,6 +380,9 @@ export default function AdminPage() {
       loadDailyGrid();
     } else if (activeTab === 'inboxes') {
       loadInboxes();
+      loadMsOAuthStatus();
+    } else if (activeTab === 'archived') {
+      loadArchivedLeads();
     }
   }, [activeTab]);
 
@@ -295,6 +394,7 @@ export default function AdminPage() {
       if (res && res.inboxes) {
         setInboxes(res.inboxes);
       }
+      loadMsOAuthStatus();
     } catch (err) {
       console.warn('Could not load inboxes:', err);
     } finally {
@@ -319,6 +419,22 @@ export default function AdminPage() {
       showToast(`Test error: ${err.message}`, 'error');
     } finally {
       setTestingInboxId(null);
+    }
+  };
+
+  const handleFlushOutreachQueue = async () => {
+    setFlushingQueue(true);
+    showToast('⚡ Flushing outreach queue across all active Zoho inboxes...', 'info');
+    try {
+      const token = await resolveToken();
+      const res = await triggerOutreachFlush(token);
+      showToast(res.message || 'Outreach dispatch worker triggered with anti-spam jitter!', 'success');
+      await loadInboxes();
+      await loadAdminData();
+    } catch (err) {
+      showToast(`Flush queue failed: ${err.message}`, 'error');
+    } finally {
+      setFlushingQueue(false);
     }
   };
 
@@ -549,12 +665,51 @@ export default function AdminPage() {
       await cancelAutoOutreach(leadId, token);
       showToast(`Auto-outreach cancelled for ${companyName || leadId}. Pitch archived.`, 'success');
       await loadAdminData();
+      await loadArchivedLeads();
     } catch (err) {
       showToast(`Cancel outreach error: ${err.message}`, 'error');
     } finally {
       setActionInProgress((p) => ({ ...p, [leadId]: false }));
     }
   };
+
+  const handleEnrichLead = async (leadId, companyName) => {
+    setEnrichingLeadId(leadId);
+    showToast(`🤖 Contact Enricher Agent researching alternatives for ${companyName || leadId}...`, 'info');
+    try {
+      const token = await resolveToken();
+      const res = await enrichLeadContact(leadId, token);
+      if (res.recovered) {
+        showToast(`🎉 Contact Recovered! ${res.company_name} updated to ${res.new_email} and moved to Review stage!`, 'success');
+        await loadAdminData();
+        await loadArchivedLeads();
+      } else {
+        showToast(`⚠️ Research complete for ${companyName || leadId}: ${res.reason || 'No deliverable contact found'}. Lead remains archived.`, 'warning');
+        await loadArchivedLeads();
+      }
+    } catch (err) {
+      showToast(`Contact enrichment error: ${err.message}`, 'error');
+    } finally {
+      setEnrichingLeadId(null);
+    }
+  };
+
+  const handleBatchEnrichArchived = async () => {
+    setBatchEnriching(true);
+    showToast('🤖 Triggering Contact Enricher Researcher Agent across all archived leads...', 'info');
+    try {
+      const token = await resolveToken();
+      const res = await batchEnrichArchivedLeads(token);
+      showToast(res.message || `Processed ${res.total_archived} archived leads, recovering ${res.recovered_count}.`, 'success');
+      await loadAdminData();
+      await loadArchivedLeads();
+    } catch (err) {
+      showToast(`Batch recovery error: ${err.message}`, 'error');
+    } finally {
+      setBatchEnriching(false);
+    }
+  };
+
 
 
   const handleTriggerSwarm = async (leadId) => {
@@ -1088,6 +1243,16 @@ export default function AdminPage() {
             onClick={() => setActiveTab('kanban')}
           >
             📌 Stage Kanban
+          </button>
+          <button
+            className={`admin-tab-btn ${activeTab === 'archived' ? 'active' : ''}`}
+            onClick={() => setActiveTab('archived')}
+            style={{
+              borderColor: activeTab === 'archived' ? 'var(--amber, #f59e0b)' : undefined,
+              color: activeTab === 'archived' ? '#fbbf24' : undefined,
+            }}
+          >
+            📦 Archived &amp; Recovery ({archivedLeads.length})
           </button>
           <button
             className={`admin-tab-btn ${activeTab === 'swarm' ? 'active' : ''}`}
@@ -1719,6 +1884,250 @@ export default function AdminPage() {
         )}
 
         {/* =========================================================
+            TAB 2B: ARCHIVED & RECOVERY VAULT
+           ========================================================= */}
+        {activeTab === 'archived' && (
+          <div>
+            {/* Header & Batch Controls */}
+            <div
+              style={{
+                background: 'var(--card)',
+                border: '1px solid rgba(245, 158, 11, 0.25)',
+                borderRadius: 'var(--radius-md)',
+                padding: '20px 24px',
+                marginBottom: '20px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '16px',
+              }}
+            >
+              <div>
+                <h2 style={{ fontSize: '18px', fontWeight: 800, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                  <span>📦</span> Archived &amp; Recovery Vault
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      background: 'rgba(245, 158, 11, 0.2)',
+                      color: '#fde68a',
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      border: '1px solid rgba(245, 158, 11, 0.4)',
+                    }}
+                  >
+                    {archivedLeads.length} Isolated Leads
+                  </span>
+                </h2>
+                <p style={{ fontSize: '12px', color: 'var(--text-dim)', margin: '6px 0 0 0', maxWidth: '720px' }}>
+                  Leads isolated from active Kanban and Deals Funnel due to 45-day duplicate contact suppression,
+                  bad/undeliverable emails, or delivery bounces. The autonomous <strong>Contact Enricher Researcher Agent</strong>{' '}
+                  can research corporate filings, team directories, and executive email permutations to recover verified decision-makers.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <button
+                  className="btn btn-outline"
+                  onClick={loadArchivedLeads}
+                  style={{ fontSize: '11px', padding: '7px 12px' }}
+                >
+                  🔄 Refresh
+                </button>
+                <button
+                  className="btn btn-primary"
+                  style={{
+                    background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                    border: 'none',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    padding: '8px 16px',
+                    boxShadow: '0 2px 10px rgba(245, 158, 11, 0.35)',
+                    color: '#fff',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                  onClick={handleBatchEnrichArchived}
+                  disabled={batchEnriching || archivedLeads.length === 0}
+                  title="Run autonomous Contact Enricher Agent across all archived leads"
+                >
+                  <span>{batchEnriching ? '⏳ Researching All Leads...' : `⚡ Run AI Contact Enricher on All (${archivedLeads.length})`}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Archived Cards List */}
+            {archivedLeads.length === 0 ? (
+              <div
+                style={{
+                  background: 'var(--card)',
+                  border: '1px dashed rgba(255, 255, 255, 0.15)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '60px 24px',
+                  textAlign: 'center',
+                }}
+              >
+                <div style={{ fontSize: '36px', marginBottom: '12px' }}>✨</div>
+                <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#fff', marginBottom: '6px' }}>
+                  Zero Archived Leads
+                </h3>
+                <p style={{ fontSize: '13px', color: 'var(--text-dim)', maxWidth: '480px', margin: '0 auto' }}>
+                  All leads currently have deliverable email addresses and active outreach viability.
+                  Any leads that trigger 45-day cooldowns or deliverability failures will be automatically quarantined here.
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '16px' }}>
+                {archivedLeads.map((lead) => {
+                  const reason = lead.archive_reason || 'Archived';
+                  const is45Days = reason.includes('45');
+                  const isBadEmail = reason.toLowerCase().includes('email') || reason.toLowerCase().includes('deliverability') || reason.toLowerCase().includes('bounce');
+                  const isEnriching = enrichingLeadId === lead.lead_id;
+
+                  return (
+                    <div
+                      key={lead.lead_id}
+                      className="card"
+                      style={{
+                        background: 'rgba(15, 23, 42, 0.65)',
+                        border: '1px solid rgba(245, 158, 11, 0.25)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '18px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        gap: '14px',
+                        position: 'relative',
+                      }}
+                    >
+                      <div>
+                        {/* Status Badges */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                          <div style={{ fontWeight: 800, fontSize: '15px', color: '#fff' }}>
+                            {lead.company_name || 'Prospect Firm'}
+                          </div>
+                          <span
+                            style={{
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              padding: '3px 8px',
+                              borderRadius: '4px',
+                              background: is45Days
+                                ? 'rgba(239, 68, 68, 0.18)'
+                                : isBadEmail
+                                ? 'rgba(245, 158, 11, 0.18)'
+                                : 'rgba(148, 163, 184, 0.18)',
+                              color: is45Days ? '#f87171' : isBadEmail ? '#fbbf24' : '#cbd5e1',
+                              border: `1px solid ${is45Days ? 'rgba(239, 68, 68, 0.35)' : isBadEmail ? 'rgba(245, 158, 11, 0.35)' : 'rgba(148, 163, 184, 0.3)'}`,
+                            }}
+                          >
+                            {is45Days ? '🛑 45-Day Suppression' : isBadEmail ? '⚠️ Bad / Bounced Email' : '📦 Archived'}
+                          </span>
+                        </div>
+
+                        {/* Contact Info with Strikethrough/Warning */}
+                        <div
+                          style={{
+                            background: 'rgba(0, 0, 0, 0.25)',
+                            padding: '10px 12px',
+                            borderRadius: '6px',
+                            border: '1px solid rgba(255, 255, 255, 0.06)',
+                            fontSize: '12px',
+                            marginBottom: '10px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                            <span>Decision Maker:</span>
+                            <span style={{ fontWeight: 600, color: '#fff' }}>
+                              {lead.contact_name || 'Unknown Officer'} {lead.contact_role ? `(${lead.contact_role})` : ''}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
+                            <span>Failed / Quarantined Email:</span>
+                            <span style={{ color: '#f87171', fontFamily: 'var(--mono)', textDecoration: isBadEmail ? 'line-through' : 'none' }}>
+                              {lead.contact_email || 'No email recorded'}
+                            </span>
+                          </div>
+                          {lead.website && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', marginTop: '4px' }}>
+                              <span>Domain / Website:</span>
+                              <a
+                                href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{ color: 'var(--cyan)', textDecoration: 'none' }}
+                              >
+                                {lead.website.replace(/^https?:\/\//, '').replace(/\/$/, '')} ↗
+                              </a>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Reason Box */}
+                        <div
+                          style={{
+                            fontSize: '11px',
+                            color: '#fbbf24',
+                            background: 'rgba(245, 158, 11, 0.08)',
+                            padding: '8px 10px',
+                            borderRadius: '5px',
+                            border: '1px solid rgba(245, 158, 11, 0.2)',
+                            lineHeight: 1.4,
+                          }}
+                        >
+                          <strong>Reason:</strong> {reason}
+                        </div>
+
+                        {/* Previous Enrichment Attempt Notice */}
+                        {lead.recovery_history && (
+                          <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '6px', fontStyle: 'italic' }}>
+                            Last Agent Run: {lead.recovery_history.attempted_at ? new Date(lead.recovery_history.attempted_at).toLocaleTimeString() : 'Recent'} ({lead.recovery_history.status || 'Executed'})
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Action Bar */}
+                      <div style={{ display: 'flex', gap: '8px', paddingTop: '10px', borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                        <button
+                          className="btn btn-primary"
+                          style={{
+                            flex: 1,
+                            background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
+                            border: 'none',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            padding: '7px 10px',
+                            color: '#fff',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '5px',
+                          }}
+                          onClick={() => handleEnrichLead(lead.lead_id, lead.company_name)}
+                          disabled={isEnriching}
+                          title="Trigger Contact Enricher Agent to research and verify substitute contacts"
+                        >
+                          <span>{isEnriching ? '⏳ Researching Web & MX...' : '🤖 AI Contact Enricher'}</span>
+                        </button>
+                        <button
+                          className="btn btn-outline"
+                          style={{ borderColor: 'rgba(239, 68, 68, 0.4)', color: '#f87171', fontSize: '11px', padding: '7px 10px' }}
+                          onClick={() => handleDeleteLead(lead.lead_id, lead.company_name)}
+                          title="Permanently remove lead from database"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* =========================================================
             TAB 3: DEV SWARMS & QA TELEMETRY
            ========================================================= */}
         {activeTab === 'swarm' && (
@@ -2164,6 +2573,15 @@ export default function AdminPage() {
                   {inboxesLoading ? '🔄 Refreshing...' : '🔄 Refresh Fleet'}
                 </button>
                 <button
+                  className="btn btn-secondary"
+                  style={{ fontSize: '12px', padding: '8px 14px', borderColor: 'var(--accent)' }}
+                  onClick={handleFlushOutreachQueue}
+                  disabled={flushingQueue}
+                  title="Flush pending outreach queue immediately across inboxes with anti-spam jitter"
+                >
+                  {flushingQueue ? '⏳ Dispatching...' : '⚡ Flush Outreach Queue'}
+                </button>
+                <button
                   className="btn btn-primary"
                   style={{ fontSize: '12px', padding: '8px 16px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                   onClick={() => setShowAddInboxModal(true)}
@@ -2190,26 +2608,146 @@ export default function AdminPage() {
                   {inboxes.filter((i) => i.provider === 'zoho').length}
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-                  smtppro.zoho.com (SSL 465)
+                  smtp.zoho.com (SSL 465)
                 </div>
               </div>
               <div className="stat-card">
                 <div className="stat-label">📈 Total Fleet Daily Capacity</div>
                 <div className="stat-value" style={{ color: 'var(--cyan)' }}>
-                  {inboxes.filter((i) => i.is_active).reduce((sum, i) => sum + (i.daily_limit || 25), 0)} emails/day
+                  {inboxes.filter((i) => i.is_active && (i.provider === 'zoho' || i.inbox_id !== 'primary')).reduce((sum, i) => sum + (i.daily_limit || 25), 0) || (inboxes.filter((i) => i.is_active).length * 25)} emails/day
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-                  Enforcing warmup ramp-up
+                  5 Zoho inboxes × 25/day (Week 1 Warmup)
                 </div>
               </div>
               <div className="stat-card">
                 <div className="stat-label">📨 Dispatched Today</div>
                 <div className="stat-value" style={{ color: '#fff' }}>
-                  {inboxes.reduce((sum, i) => sum + (i.sent_today || 0), 0)} sent
+                  {inboxes.reduce((sum, i) => sum + (i.sent_today || 0), 0)} / {inboxes.filter((i) => i.is_active && (i.provider === 'zoho' || i.inbox_id !== 'primary')).reduce((sum, i) => sum + (i.daily_limit || 25), 0) || 125} sent
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
                   Across all active inboxes
                 </div>
+              </div>
+            </div>
+
+            {/* Microsoft Outlook (OAuth2 Graph API) Watched Inbound Reply Box */}
+            <div
+              style={{
+                background: msOAuthStatus?.authorized
+                  ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.08) 0%, rgba(15, 23, 42, 0.7) 100%)'
+                  : msOAuthStatus?.configured
+                  ? 'linear-gradient(135deg, rgba(234, 179, 8, 0.08) 0%, rgba(15, 23, 42, 0.7) 100%)'
+                  : 'linear-gradient(135deg, rgba(56, 189, 248, 0.06) 0%, rgba(15, 23, 42, 0.7) 100%)',
+                borderRadius: 'var(--radius-md)',
+                border: msOAuthStatus?.authorized
+                  ? '1px solid rgba(34, 197, 94, 0.35)'
+                  : msOAuthStatus?.configured
+                  ? '1px solid rgba(234, 179, 8, 0.35)'
+                  : '1px solid rgba(56, 189, 248, 0.3)',
+                padding: '20px 24px',
+                marginBottom: '24px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '16px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div
+                  style={{
+                    width: '46px',
+                    height: '46px',
+                    borderRadius: '12px',
+                    background: 'rgba(234, 88, 12, 0.15)',
+                    border: '1px solid rgba(234, 88, 12, 0.4)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '22px',
+                    flexShrink: 0,
+                  }}
+                >
+                  🟧
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#fff', margin: 0 }}>
+                      Inbound Reply Listener: omnileadfeeder@outlook.com
+                    </h3>
+                    {msOAuthStatus?.authorized ? (
+                      <span className="badge-tag badge-green" style={{ fontSize: '11px' }}>
+                        🟢 Microsoft OAuth2 Connected
+                      </span>
+                    ) : msOAuthStatus?.configured ? (
+                      <span
+                        className="badge-tag"
+                        style={{ fontSize: '11px', background: 'rgba(234, 179, 8, 0.15)', color: '#facc15', border: '1px solid rgba(234, 179, 8, 0.35)' }}
+                      >
+                        ⚠️ Authorization Required
+                      </span>
+                    ) : (
+                      <span
+                        className="badge-tag"
+                        style={{ fontSize: '11px', background: 'rgba(148, 163, 184, 0.15)', color: '#94a3b8', border: '1px solid rgba(148, 163, 184, 0.3)' }}
+                      >
+                        ⚙️ Azure App Setup Pending
+                      </span>
+                    )}
+                  </div>
+                  <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '4px 0 0' }}>
+                    {msOAuthStatus?.authorized
+                      ? `Perpetual silent token refresh active. Polling Microsoft Graph API every 60s for inbound prospect replies.`
+                      : msOAuthStatus?.configured
+                      ? `Azure App Registered! Click 'Connect Outlook Account' below to grant 1-click permission for omnileadfeeder@outlook.com.`
+                      : `Option 3 Provisioning: Add MICROSOFT_CLIENT_ID & MICROSOFT_CLIENT_SECRET to .env, then click Connect Outlook.`}
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                {msOAuthStatus?.authorized ? (
+                  <>
+                    <button
+                      className="btn btn-outline"
+                      style={{ fontSize: '12px', padding: '7px 14px' }}
+                      onClick={() => handleTestInbox('primary')}
+                      disabled={testingInboxId === 'primary'}
+                      title="Test live Microsoft Graph API inbox connection"
+                    >
+                      {testingInboxId === 'primary' ? '⚡ Testing...' : '⚡ Test Graph Connection'}
+                    </button>
+                    <button
+                      className="btn btn-outline"
+                      style={{ fontSize: '12px', padding: '7px 14px', color: '#f87171', borderColor: 'rgba(239, 68, 68, 0.3)' }}
+                      onClick={handleDisconnectMicrosoftOAuth}
+                      title="Disconnect Outlook account and revoke local refresh token"
+                    >
+                      Disconnect
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    className="btn btn-primary"
+                    style={{
+                      fontSize: '13px',
+                      padding: '9px 20px',
+                      background: 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)',
+                      border: '1px solid #38bdf8',
+                      boxShadow: '0 0 16px rgba(56, 189, 248, 0.35)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      fontWeight: 700,
+                    }}
+                    onClick={handleConnectMicrosoftOAuth}
+                    disabled={msOAuthConnecting}
+                  >
+                    <span>{msOAuthConnecting ? '⏳' : '🔗'}</span>
+                    {msOAuthConnecting ? 'Redirecting to Microsoft...' : 'Connect Outlook Account (OAuth2)'}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -2268,8 +2806,8 @@ export default function AdminPage() {
                               gap: '6px',
                             }}
                           >
-                            <span>{inbox.provider === 'zoho' ? '🟣' : '🔵'}</span>
-                            {inbox.provider === 'zoho' ? 'Zoho Workplace' : inbox.provider === 'gmail' ? 'Google / Gmail' : 'Custom SMTP'}
+                            <span>{inbox.provider === 'zoho' ? '🟣' : inbox.provider === 'outlook' ? '🟧' : '🔵'}</span>
+                            {inbox.provider === 'zoho' ? 'Zoho Workplace' : inbox.provider === 'outlook' ? 'Microsoft Outlook' : inbox.provider === 'gmail' ? 'Google / Gmail' : 'Custom SMTP'}
                           </span>
 
                           <span
@@ -2453,6 +2991,7 @@ export default function AdminPage() {
                 >
                   <option value="zoho">🟣 Zoho Workplace (smtppro.zoho.com:465 / imappro.zoho.com:993)</option>
                   <option value="gmail">🔵 Google / Gmail (smtp.gmail.com:465 / imap.gmail.com:993)</option>
+                  <option value="outlook">🟧 Microsoft Outlook / 365 (smtp-mail.outlook.com:587 / outlook.office365.com:993)</option>
                   <option value="smtp_generic">⚪ Generic Custom SMTP / IMAP</option>
                 </select>
               </div>
@@ -2463,7 +3002,7 @@ export default function AdminPage() {
                 </label>
                 <input
                   type="email"
-                  placeholder="e.g. alex@yourdomain.com"
+                  placeholder="e.g. alex@yourdomain.com or omnileadfeeder@outlook.com"
                   value={inboxFormData.email_address}
                   onChange={(e) => setInboxFormData((p) => ({ ...p, email_address: e.target.value }))}
                   style={{
@@ -2480,11 +3019,11 @@ export default function AdminPage() {
 
               <div>
                 <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
-                  Zoho App-Specific Password *
+                  {inboxFormData.provider === 'zoho' ? 'Zoho App-Specific Password *' : inboxFormData.provider === 'outlook' ? 'Outlook App Password *' : 'App-Specific Password *'}
                 </label>
                 <input
                   type="password"
-                  placeholder="16-character generated app password"
+                  placeholder="App password or account password"
                   value={inboxFormData.password}
                   onChange={(e) => setInboxFormData((p) => ({ ...p, password: e.target.value }))}
                   style={{

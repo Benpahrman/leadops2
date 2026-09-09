@@ -3,7 +3,7 @@ import logging
 import os
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
@@ -116,6 +116,8 @@ def get_pipeline_kanban(
             "leads": all_leads,
             "pipeline": all_leads,
             "kanban": kanban_res,
+            "archived": kanban_res.get("archived", []) if isinstance(kanban_res, dict) else [],
+            "archived_count": kanban_res.get("archived_count", 0) if isinstance(kanban_res, dict) else 0,
             "telemetry": admin_service.get_sandbox_telemetry(),
         }
     except Exception as e:
@@ -136,6 +138,7 @@ def advance_lead_state(
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/api/admin/leads/batch-approve", tags=["Admin Operations"])
+@router.post("/api/admin/pipeline/batch-approve", tags=["Admin Operations"])
 def batch_approve_pitches(
     _: ClerkUser = Depends(require_admin),
     admin_service=Depends(get_admin_service),
@@ -1621,7 +1624,16 @@ def list_admin_inboxes(
             "password_configured": bool(acc.password),
         })
 
-    return {"ok": True, "inboxes": inbox_list, "total": len(inbox_list)}
+    fleet_summary = warmup.get_fleet_capacity_summary()
+    return {
+        "ok": True,
+        "inboxes": inbox_list,
+        "total": len(inbox_list),
+        "fleet_daily_quota": fleet_summary["fleet_daily_quota"],
+        "fleet_sent_today": fleet_summary["fleet_sent_today"],
+        "fleet_capacity": fleet_summary["fleet_daily_quota"],
+        "fleet_summary": fleet_summary,
+    }
 
 
 @router.post("/api/admin/inboxes", tags=["Admin Inboxes"])
@@ -1720,40 +1732,6 @@ def delete_admin_inbox(
     return {"ok": True, "inbox_id": inbox_id, "message": f"Inbox '{inbox_id}' removed from storage."}
 
 
-@router.post("/api/admin/pipeline/batch-approve", tags=["Admin Operations"])
-@router.post("/api/admin/leads/batch-approve", tags=["Admin Operations"])
-def batch_approve_pitches(
-    storage_backend=Depends(get_storage),
-    user: ClerkUser = Depends(require_admin),
-):
-    """Approve all pending pitches in PITCH_PENDING_APPROVAL and trigger Alex auto-dispatch across Zoho inboxes."""
-    from ..auto_outreach import auto_outreach_scheduler
-    from ..notifications import notification_manager
-    import threading
-
-    leads = storage_backend.list_leads()
-    pending = [
-        l for l in leads
-        if l.state == State.PITCH_PENDING_APPROVAL
-        and (l.contact_email or "").strip()
-        and not getattr(l, "opt_out", False)
-    ]
-
-    approved_count = len(pending)
-    if approved_count > 0:
-        threading.Thread(
-            target=auto_outreach_scheduler.flush_pending_office_hours_queue,
-            args=(storage_backend, notification_manager),
-            daemon=True,
-            name="batch-approve-flush",
-        ).start()
-
-    return {
-        "ok": True,
-        "approved_count": approved_count,
-        "message": f"Approved {approved_count} pitch(es). Alex sequential dispatch queue initiated across 5 Zoho inboxes.",
-    }
-
 
 @router.post("/api/admin/auto-outreach/flush", tags=["Admin Operations"])
 def trigger_outreach_flush(
@@ -1776,3 +1754,132 @@ def trigger_outreach_flush(
         "ok": True,
         "message": "Outreach dispatch worker triggered. Processing pending pitches with anti-spam human jitter.",
     }
+
+
+@router.post("/api/admin/leads/{lead_id}/enrich-contact", tags=["Admin Operations"])
+def enrich_lead_contact(
+    lead_id: str,
+    admin_service=Depends(get_admin_service),
+    _: ClerkUser = Depends(require_admin),
+):
+    """Trigger the Contact Enricher Researcher Agent to find and verify alternative contacts for a lead."""
+    res = admin_service.enrich_and_recover_lead(lead_id)
+    return res
+
+
+@router.post("/api/admin/leads/batch-enrich-archived", tags=["Admin Operations"])
+def batch_enrich_archived_leads(
+    admin_service=Depends(get_admin_service),
+    _: ClerkUser = Depends(require_admin),
+):
+    """Trigger the Contact Enricher Researcher Agent across all archived leads."""
+    archived = admin_service.get_archived_leads()
+    recovered_count = 0
+    results = []
+    for item in archived:
+        lid = item["lead_id"]
+        res = admin_service.enrich_and_recover_lead(lid)
+        results.append(res)
+        if res.get("recovered"):
+            recovered_count += 1
+
+    return {
+        "ok": True,
+        "total_archived": len(archived),
+        "recovered_count": recovered_count,
+        "results": results,
+        "message": f"Contact Enricher Agent processed {len(archived)} archived leads, recovering {recovered_count}.",
+    }
+
+
+@router.get("/api/admin/leads/archived", tags=["Admin Operations"])
+def get_archived_leads(
+    admin_service=Depends(get_admin_service),
+    _: ClerkUser = Depends(require_admin),
+):
+    """Retrieve all archived leads with failure reasons and recovery history."""
+    archived = admin_service.get_archived_leads()
+    return {"ok": True, "count": len(archived), "leads": archived}
+
+
+# -------------------------------------------------------------
+# Microsoft OAuth2 & Graph API Integration Endpoints
+# -------------------------------------------------------------
+
+@router.get("/api/admin/oauth/microsoft/status", tags=["Admin OAuth"])
+def get_microsoft_oauth_status(
+    _: Optional[ClerkUser] = Depends(get_current_user_optional),
+):
+    """Retrieve current Microsoft OAuth2 configuration and connection status."""
+    from ..email.microsoft_graph import get_microsoft_graph_client
+    client = get_microsoft_graph_client()
+    return {"ok": True, "status": client.test_connection()}
+
+
+@router.get("/api/admin/oauth/microsoft/authorize", tags=["Admin OAuth"])
+def get_microsoft_oauth_authorize_url(
+    redirect: bool = False,
+    redirect_uri: Optional[str] = None,
+    _: Optional[ClerkUser] = Depends(get_current_user_optional),
+):
+    """Generate Microsoft OAuth 2.0 authorization URL for human 1-click consent."""
+    from ..email.microsoft_graph import get_microsoft_graph_client
+    client = get_microsoft_graph_client()
+    if not client.client_id:
+        raise HTTPException(
+            status_code=400,
+            detail="MICROSOFT_CLIENT_ID is not configured in .env. Please configure your Azure App Registration credentials first.",
+        )
+    try:
+        auth_url = client.get_authorization_url(redirect_uri=redirect_uri)
+        if redirect:
+            return RedirectResponse(url=auth_url)
+        return {"ok": True, "auth_url": auth_url}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/api/admin/oauth/microsoft/callback", tags=["Admin OAuth"])
+def handle_microsoft_oauth_callback(
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+    error_description: Optional[str] = None,
+):
+    """Receive authorization code from Microsoft OAuth redirect and complete token exchange."""
+    import urllib.parse
+    from ..email.microsoft_graph import get_microsoft_graph_client
+
+    if error:
+        err_msg = error_description or error or "Unknown OAuth error"
+        logger.error(f"❌ Microsoft OAuth callback error: {err_msg}")
+        return RedirectResponse(url=f"/admin?tab=inboxes&oauth_error={urllib.parse.quote(err_msg)}")
+
+    if not code:
+        return RedirectResponse(url="/admin?tab=inboxes&oauth_error=No+authorization+code+received")
+
+    client = get_microsoft_graph_client()
+    try:
+        tokens = client.exchange_code_for_tokens(code)
+        account_email = tokens.account_email or client.account_email
+        logger.info(f"✅ Microsoft OAuth completed for '{account_email}'.")
+        return RedirectResponse(
+            url=f"/admin?tab=inboxes&oauth=microsoft_success&email={urllib.parse.quote(account_email)}"
+        )
+    except Exception as exc:
+        logger.error(f"❌ Failed to exchange Microsoft code: {exc}")
+        return RedirectResponse(url=f"/admin?tab=inboxes&oauth_error={urllib.parse.quote(str(exc))}")
+
+
+@router.post("/api/admin/oauth/microsoft/disconnect", tags=["Admin OAuth"])
+def disconnect_microsoft_oauth(
+    _: ClerkUser = Depends(require_admin),
+):
+    """Disconnect Outlook account and revoke local refresh token."""
+    from ..email.microsoft_graph import get_microsoft_graph_client
+    client = get_microsoft_graph_client()
+    client.disconnect()
+    return {"ok": True, "message": "Microsoft Outlook account disconnected successfully."}
+
+
+
