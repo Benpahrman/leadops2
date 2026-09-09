@@ -6,7 +6,7 @@ import './styles.css';
 
 const clerkPubKey = (typeof window !== 'undefined' && window.__CLERK_PUBLISHABLE_KEY__)
   || import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
-  || 'pk_test_ZmluZXItdG91Y2FuLTk2OTIuY2xlcmsuYWNjb3VudHMuZGV2JA';
+  || 'pk_live_Y2xlcmsub21uaWxlYWRmZWVkZXIudGVjaCQ';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

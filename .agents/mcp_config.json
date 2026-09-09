@@ -16,7 +16,7 @@
         "-p=local-mcp"
       ],
       "env": {
-        "CLERK_SECRET_KEY": "sk_test_nmUjaHRso3K6ESjDKBcW1lyXOsKmwdsRYBRMg0nQef"
+        "CLERK_SECRET_KEY": "${CLERK_SECRET_KEY}"
       }
     },
     "azure": {
@@ -35,8 +35,8 @@
         "@cloudflare/mcp-server-cloudflare"
       ],
       "env": {
-        "CLOUDFLARE_API_TOKEN": "${CLOUDFLARE_API_TOKEN:-}",
-        "CLOUDFLARE_ACCOUNT_ID": "${CLOUDFLARE_ACCOUNT_ID:-}"
+        "CLOUDFLARE_API_TOKEN": "${CLOUDFLARE_API_TOKEN}",
+        "CLOUDFLARE_ACCOUNT_ID": "${CLOUDFLARE_ACCOUNT_ID}"
       }
     },
     "cloudflare-docs": {
