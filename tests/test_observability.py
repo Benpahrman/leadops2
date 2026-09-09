@@ -109,18 +109,20 @@ def test_dashboard_feed_health_api(test_env):
 
 
 def test_dashboard_destination_ping_api(test_env):
+    from unittest.mock import patch
     _, client, _ = test_env
     headers = {"Authorization": "Bearer mock_user_client_lead_test-obs"}
     
-    res = client.post(
-        "/api/dashboard/lead-test-obs/destination/test",
-        headers=headers,
-        json={"destination_type": "google_sheets", "url": "https://docs.google.com/spreadsheets/d/12345"},
-    )
-    assert res.status_code == 200
-    data = res.json()
-    assert data["ok"] is True
-    assert data["status_code"] == 200
+    with patch("agents.google_sheets.test_google_sheet_connection", return_value={"ok": True, "spreadsheet_id": "12345", "service_account_active": True}):
+        res = client.post(
+            "/api/dashboard/lead-test-obs/destination/test",
+            headers=headers,
+            json={"destination_type": "google_sheets", "url": "https://docs.google.com/spreadsheets/d/12345"},
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["ok"] is True
+        assert data["status_code"] == 200
 
 
 def test_admin_live_telemetry_api(test_env):
