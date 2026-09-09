@@ -155,6 +155,8 @@ class AdminMissionControlService:
                     "negative_signals": [],
                 },
                 "research": getattr(lead, "research", {}) or {},
+                "discovery_channel": getattr(lead, "discovery_channel", "CATALOG_SEARCH") or "CATALOG_SEARCH",
+                "filing_case_number": getattr(lead, "filing_case_number", "") or "",
                 "audit_events_count": len(lead.audit_log),
                 "action_label": action_info["label"],
                 "next_target_state": action_info["target"].value if action_info["target"] else None,

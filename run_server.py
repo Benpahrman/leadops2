@@ -16,6 +16,7 @@ os.environ.setdefault("ENV", "development")
 os.environ.setdefault("LEADOPS_CORS_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173,http://127.0.0.1:5173")
 os.environ.setdefault("LEADOPS_EMAIL_OVERRIDE", "benpahrman@gmail.com")
 os.environ.setdefault("LEADOPS_REQUIRE_HUMAN_APPROVAL", "false")
+os.environ.setdefault("LEADOPS_API_TOKEN", "0baac74dfda043fdaf84c5d0b38e259b")
 
 # Configure UTF-8 encoding for Windows standard output
 if sys.platform == "win32":
@@ -279,6 +280,43 @@ def run_daily_automation(
         log.warning(f"Batch delivery run error: {e}")
 
 
+    # TRIG-04: Scheduled build heartbeats for DEV_BUILDING leads (every 8h, max 3)
+    for lead in leads:
+        if lead.state == State.DEV_BUILDING and getattr(lead, "heartbeat_count", 0) < 3:
+            try:
+                send_lifecycle_email(lead, "build_heartbeat", base_url=base_url, extra_variables={
+                    "progress": min(40 + (getattr(lead, "heartbeat_count", 0) * 25), 90),
+                    "current_agent": ["planner", "builder", "qa_verifier"][min(getattr(lead, "heartbeat_count", 0), 2)],
+                    "eta": "within 24 hours",
+                    "milestone": ["Build plan formulated", "Extraction pipeline compiled", "QA verification in progress"][min(getattr(lead, "heartbeat_count", 0), 2)],
+                })
+                lead.heartbeat_count = getattr(lead, "heartbeat_count", 0) + 1
+                storage.save_lead(lead)
+                log.info(f"📬 [BUILD HEARTBEAT] Heartbeat #{lead.heartbeat_count} sent to {lead.contact_email}")
+            except Exception as e:
+                log.warning(f"Could not send build heartbeat: {e}")
+
+    # TRIG-05: Abandoned sandbox recovery (24h after sandbox view, no deposit)
+    now = datetime.now(timezone.utc)
+    for lead in leads:
+        if lead.state in {State.ARCHIVED, State.WARRANTY_EXPIRED}:
+            continue
+        sandbox_viewed_at = getattr(lead, "sandbox_first_viewed_at", "")
+        abandoned_sandbox_sent = getattr(lead, "abandoned_sandbox_sent", False)
+        if (sandbox_viewed_at and not lead.deposit_paid and not abandoned_sandbox_sent
+                and lead.state in {State.PROSPECTING, State.REVIEW, State.OUTREACH_SENT, State.PITCH_PENDING_APPROVAL}
+                and getattr(lead, "winback_stage", 0) == 0):
+            try:
+                viewed_dt = datetime.fromisoformat(sandbox_viewed_at.replace('Z', '+00:00'))
+                hours_since_view = (now - viewed_dt).total_seconds() / 3600
+                if hours_since_view >= 24:
+                    send_lifecycle_email(lead, "abandoned_sandbox", base_url=base_url)
+                    lead.abandoned_sandbox_sent = True
+                    storage.save_lead(lead)
+                    log.info(f"📬 [ABANDONED SANDBOX] Recovery email sent to {lead.contact_email} ({hours_since_view:.0f}h since view)")
+            except Exception as e:
+                log.warning(f"Could not send abandoned sandbox recovery: {e}")
+
     # Check each lead for lifecycle triggers
     for lead in leads:
         if lead.state in {State.ARCHIVED, State.WARRANTY_EXPIRED}:
@@ -347,8 +385,8 @@ def run_daily_automation(
             except Exception as e:
                 log.warning(f"Could not send upsell: {e}")
         
-        # Referral ask (delivery_count >= 1)
-        if delivery_count >= 1 and not referral_sent:
+        # TRIG-12: Referral ask (moved from delivery >= 1 to delivery >= 3 for better timing)
+        if delivery_count >= 3 and not referral_sent:
             try:
                 send_lifecycle_email(lead, "referral_ask", base_url=base_url)
                 lead.referral_sent = True
@@ -356,6 +394,19 @@ def run_daily_automation(
                 log.info(f"📬 [REFERRAL] Sent to {lead.contact_email}")
             except Exception as e:
                 log.warning(f"Could not send referral: {e}")
+        
+        # TRIG-01: Multi-county bundle offer (delivery >= 5, supersedes upsell if not responded)
+        multi_county_bundle_sent = getattr(lead, "multi_county_bundle_sent", False)
+        if delivery_count >= 5 and not multi_county_bundle_sent:
+            try:
+                send_lifecycle_email(lead, "multi_county_bundle", base_url=base_url, extra_variables={
+                    "delivery_count": delivery_count,
+                })
+                lead.multi_county_bundle_sent = True
+                storage.save_lead(lead)
+                log.info(f"📬 [MULTI-COUNTY BUNDLE] Expansion offer sent to {lead.contact_email}")
+            except Exception as e:
+                log.warning(f"Could not send multi_county_bundle: {e}")
         
         # LIFE-01: Buyout offer trigger at Month 3 for active subscribers
         buyout_offered = getattr(lead, "buyout_offered", False)

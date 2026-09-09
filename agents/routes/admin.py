@@ -199,6 +199,7 @@ def toggle_auto_outreach(
 
 class TriggerWebScoutRequest(BaseModel):
     niche: Optional[str] = None
+    channel: Optional[str] = None
 
 
 @router.post("/api/admin/scout/trigger-web-scout", tags=["Admin Operations"])
@@ -209,8 +210,9 @@ def trigger_web_scout_run(
     portal_service=Depends(get_portal_service),
 ):
     niche = req.niche if req else None
+    channel = req.channel if req else None
     worker = B2BWebScoutWorker(storage=storage_backend, portal=portal_service)
-    return worker.discover_next_candidate(custom_niche=niche)
+    return worker.discover_next_candidate(custom_niche=niche, channel=channel)
 
 @router.post("/api/admin/leads/{lead_id}/override-transition", tags=["Admin Operations"])
 def override_lead_transition(

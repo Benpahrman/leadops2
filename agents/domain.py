@@ -149,7 +149,16 @@ class Lead:
     research: dict = field(default_factory=dict)
     custom_goal: str = ""
     preferred_destination: str = ""
+    discovery_channel: str = "CATALOG_SEARCH"
+    filing_case_number: str = ""
     updated_at: str = ""
+    # Audit-triggered lifecycle fields
+    sandbox_first_viewed_at: str = ""  # TRIG-05: tracks when prospect first viewed sandbox
+    abandoned_sandbox_sent: bool = False  # TRIG-05: abandoned sandbox recovery email sent
+    multi_county_bundle_sent: bool = False  # TRIG-01: multi-county expansion offer sent
+    last_lifecycle_email_at: str = ""  # TRIG-07: fatigue guard — last lifecycle email timestamp
+    checkout_initiated_at: str = ""  # TRIG-06: PayPal checkout window opened timestamp
+    welcome_sent: bool = False  # TRIG-02: welcome email auto-fired on intake
 
     def __post_init__(self) -> None:
         now_str = datetime.now(timezone.utc).isoformat()

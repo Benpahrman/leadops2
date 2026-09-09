@@ -552,7 +552,7 @@ export async function toggleAutoOutreach(enabled, token = '') {
   return res.json();
 }
 
-export async function triggerScoutDiscovery(niche = null, token = '') {
+export async function triggerScoutDiscovery(niche = null, token = '', channel = null) {
   const headers = { 'Content-Type': 'application/json' };
   const resolved = resolveAdminAuth(token);
   if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
@@ -560,7 +560,7 @@ export async function triggerScoutDiscovery(niche = null, token = '') {
   const res = await fetch(`${API_BASE}/api/admin/scout/trigger-web-scout`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ niche }),
+    body: JSON.stringify({ niche, channel }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();

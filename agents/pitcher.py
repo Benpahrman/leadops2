@@ -412,8 +412,14 @@ class PitcherService:
         self.warmup_manager.record_send(inbox_id=inbox_id, recipient=recipient_email, lead_id=lead.lead_id)
         
         # Enforce per-inbox 5-30 min jitter cooldown for this specific account
-        min_j = int(os.environ.get("AUTO_OUTREACH_MIN_JITTER_SECONDS", "300"))
-        max_j = int(os.environ.get("AUTO_OUTREACH_MAX_JITTER_SECONDS", "1800"))
+        try:
+            min_j = int(str(os.environ.get("AUTO_OUTREACH_MIN_JITTER_SECONDS", "300")).split("#")[0].strip().strip("\"'"))
+        except (ValueError, TypeError):
+            min_j = 300
+        try:
+            max_j = int(str(os.environ.get("AUTO_OUTREACH_MAX_JITTER_SECONDS", "1800")).split("#")[0].strip().strip("\"'"))
+        except (ValueError, TypeError):
+            max_j = 1800
         jitter_dur = 0.01 if os.environ.get("PYTEST_CURRENT_TEST") else random.uniform(min_j, max_j)
         if hasattr(self.warmup_manager, "record_inbox_jitter"):
             self.warmup_manager.record_inbox_jitter(inbox_id, jitter_dur)
@@ -933,6 +939,34 @@ LIFECYCLE_EMAIL_TEMPLATES = [
             "Keep it under 90 words. Reassuring, helpful tone."
         ),
         variables=["company_name", "contact_name", "paused_until", "dashboard_url"],
+    ),
+    EmailTemplate(
+        name="abandoned_sandbox",
+        trigger_condition="sandbox_viewed_24h_no_checkout",
+        subject_template="Still looking at those {jurisdiction} {niche} records?",
+        prompt_template=(
+            "Write a friendly, specific follow-up email from Alex to {contact_name} at {company_name}. "
+            "They viewed their live data preview sandbox for {niche} records from {jurisdiction} but haven't "
+            "started the checkout process. Let them know new filings have been added since their last visit. "
+            "Offer to walk them through the delivery setup in 5 minutes. "
+            "Keep it under 80 words. Warm, helpful, specific tone. "
+            "Include sandbox URL: {sandbox_url}."
+        ),
+        variables=["company_name", "contact_name", "niche", "jurisdiction", "sandbox_url"],
+    ),
+    EmailTemplate(
+        name="cart_abandonment",
+        trigger_condition="checkout_initiated_2h_no_capture",
+        subject_template="Your {jurisdiction} data feed is ready for setup — just one step left",
+        prompt_template=(
+            "Write a reassuring follow-up email from Alex to {contact_name} at {company_name}. "
+            "They started the checkout process for their {niche} data pipeline from {jurisdiction} "
+            "but didn't complete payment. Reassure them: the $250 deposit is held in third-party escrow, "
+            "fully refundable if our extractor doesn't meet 95% QA accuracy. Zero risk. "
+            "Keep it under 90 words. Reassuring, low-pressure tone. "
+            "Include sandbox URL: {sandbox_url}."
+        ),
+        variables=["company_name", "contact_name", "niche", "jurisdiction", "sandbox_url"],
     ),
 ]
 

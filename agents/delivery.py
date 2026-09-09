@@ -302,10 +302,11 @@ class EmailCsvDestination:
 class AirtableDestination:
     """Delivers records directly into an Airtable Base & Table."""
 
-    base_id: str
-    table_name: str
-    api_key: str  # Airtable Personal Access Token (PAT)
+    base_id: str = ""
+    table_name: str = ""
+    api_key: str = ""  # Airtable Personal Access Token (PAT)
     http_requester: Any | None = None
+    http_poster: Any | None = None
 
     def append(self, rows: list[dict[str, str]]) -> int:
         if not rows:
@@ -323,6 +324,7 @@ class AirtableDestination:
         total_appended = 0
         # Airtable accepts max 10 records per batch
         batch_size = 10
+        sender = self.http_poster or self.http_requester
         for i in range(0, len(rows), batch_size):
             batch = rows[i : i + batch_size]
             payload = {
@@ -331,19 +333,24 @@ class AirtableDestination:
             }
             body_bytes = json.dumps(payload).encode("utf-8")
 
-            if self.http_requester is not None:
-                status, resp = self.http_requester("POST", endpoint, headers, body_bytes)
-                if status in (200, 201):
+            if sender is not None:
+                try:
+                    res = sender(endpoint, headers, body_bytes)
+                except TypeError:
+                    res = sender("POST", endpoint, headers, body_bytes)
+                status = res[0] if isinstance(res, (tuple, list)) else res
+                if 200 <= status < 300:
                     total_appended += len(batch)
                 else:
-                    raise RuntimeError(f"Airtable API batch error: HTTP {status} - {resp}")
+                    raise RuntimeError(f"Airtable API batch error: HTTP {status}")
             else:
                 req = urllib.request.Request(endpoint, data=body_bytes, headers=headers, method="POST")
                 with urllib.request.urlopen(req, timeout=15) as response:
-                    if response.status in (200, 201):
+                    res_code = _extract_status_code(response)
+                    if res_code in (200, 201):
                         total_appended += len(batch)
                     else:
-                        raise RuntimeError(f"Airtable API error: HTTP {response.status}")
+                        raise RuntimeError(f"Airtable API error: HTTP {res_code}")
 
         return total_appended
 
@@ -432,9 +439,17 @@ def test_airtable_connection(
 class NotionDestination:
     """Delivers records directly as pages into a Notion Database."""
 
-    database_id: str
-    integration_token: str  # Notion Internal Integration Secret
+    database_id: str = ""
+    integration_token: str = ""  # Notion Internal Integration Secret
+    api_key: str = ""  # Alias for integration_token
     http_requester: Any | None = None
+    http_poster: Any | None = None
+
+    def __post_init__(self):
+        if self.api_key and not self.integration_token:
+            self.integration_token = self.api_key
+        elif self.integration_token and not self.api_key:
+            self.api_key = self.integration_token
 
     def append(self, rows: list[dict[str, str]]) -> int:
         if not rows:
@@ -442,14 +457,16 @@ class NotionDestination:
 
         clean_db = self.database_id.strip().replace("-", "")
         endpoint = "https://api.notion.com/v1/pages"
+        token = (self.integration_token or self.api_key).strip()
         headers = {
-            "Authorization": f"Bearer {self.integration_token.strip()}",
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
             "Notion-Version": "2022-06-28",
             "User-Agent": "LeadOps-NotionSync/1.0",
         }
 
         total_appended = 0
+        sender = self.http_poster or self.http_requester
         for row in rows:
             properties: dict[str, Any] = {}
             for k, v in row.items():
@@ -467,19 +484,24 @@ class NotionDestination:
             }
             body_bytes = json.dumps(payload).encode("utf-8")
 
-            if self.http_requester is not None:
-                status, resp = self.http_requester("POST", endpoint, headers, body_bytes)
-                if status in (200, 201):
+            if sender is not None:
+                try:
+                    res = sender(endpoint, headers, body_bytes)
+                except TypeError:
+                    res = sender("POST", endpoint, headers, body_bytes)
+                status = res[0] if isinstance(res, (tuple, list)) else res
+                if 200 <= status < 300:
                     total_appended += 1
                 else:
-                    raise RuntimeError(f"Notion API page create error: HTTP {status} - {resp}")
+                    raise RuntimeError(f"Notion API page create error: HTTP {status}")
             else:
                 req = urllib.request.Request(endpoint, data=body_bytes, headers=headers, method="POST")
                 with urllib.request.urlopen(req, timeout=15) as response:
-                    if response.status in (200, 201):
+                    res_code = _extract_status_code(response)
+                    if res_code in (200, 201):
                         total_appended += 1
                     else:
-                        raise RuntimeError(f"Notion API error: HTTP {response.status}")
+                        raise RuntimeError(f"Notion API error: HTTP {res_code}")
 
         return total_appended
 

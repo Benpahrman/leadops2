@@ -647,6 +647,21 @@ def test_pipeline_initialize(client):
     assert sandbox_data["company_name"] == "Acme Legal Research"
 
 
+def test_dashboard_save_schema(client):
+    auth_headers = {"Authorization": "Bearer mock_user_client_lead_test-lead-1"}
+    res = client.post(
+        "/api/dashboard/test-lead-1/schema",
+        json={"active_fields": ["case_number", "filing_date", "status"]},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert "case_number" in data["active_fields"]
+    assert len(data["active_fields"]) == 3
+
+
+
 
 
 

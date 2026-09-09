@@ -172,8 +172,12 @@ def search_yahoo_http(query: str, max_results: int = 5) -> list[dict[str, str]]:
 
 def find_linkedin_decision_maker(company_name: str, domain_hint: str = "") -> dict[str, str] | None:
     """Find public LinkedIn profile for business owners, founders, CEOs, and Operations leaders."""
-    logger.info(f"👔 [LINKEDIN SEARCH] Searching for executive decision-maker at: {company_name}")
-    clean_name = re.sub(r"(?i)\s*(llc|inc|corp|corporation|co|company|group|builders|construction|partners)\b", "", company_name).strip()
+    c_name_str = str(company_name or "").strip()
+    if not c_name_str or len(c_name_str) < 2:
+        return None
+    logger.info(f"👔 [LINKEDIN SEARCH] Searching for executive decision-maker at: {c_name_str}")
+    clean_name = re.sub(r"(?i)\s*(llc|inc|corp|corporation|co|company|group|builders|construction|partners)\b", "", c_name_str).strip()
+    company_name = c_name_str
     
     queries = [
         f'site:linkedin.com/in "{company_name}" ("President" OR "Founder" OR "Owner" OR "CEO" OR "Managing Partner" OR "Operations")',

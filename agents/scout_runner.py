@@ -101,6 +101,17 @@ from .tools.web_search import (
 )
 from .tools.web_fetcher import extract_contact_info_from_url, fetch_page_content
 from .llm_client import LLMAgentEngine, is_disallowed_buyer
+from .county_filing_extractor import CountyFilingPartyExtractor
+from .state_bar_prospector import StateBarProspector
+from .sos_entity_prospector import SOSEntityProspector
+from .local_business_prospector import LocalBusinessProspector
+from .outreach_playbooks import (
+    format_county_filing_pitch,
+    format_state_bar_pitch,
+    format_sos_new_business_pitch,
+    format_linkedin_connection_note,
+    format_referral_amplification_ask,
+)
 
 logger = get_logger("scout")
 
@@ -259,8 +270,12 @@ class ScoutBackgroundWorker:
     is_running: bool = False
     discovery_history: list[dict[str, Any]] = field(default_factory=list)
     _task: asyncio.Task | None = None
+    county_extractor: CountyFilingPartyExtractor = field(default_factory=CountyFilingPartyExtractor)
+    bar_prospector: StateBarProspector = field(default_factory=StateBarProspector)
+    sos_prospector: SOSEntityProspector = field(default_factory=SOSEntityProspector)
+    local_prospector: LocalBusinessProspector = field(default_factory=LocalBusinessProspector)
 
-    def discover_next_candidate(self) -> dict[str, Any]:
+    def discover_next_candidate(self, channel: str | None = None, custom_niche: str | None = None, **kwargs) -> dict[str, Any]:
         """Execute full autonomous prospecting cycle powered by live Web Search, Web Visit, and LLM Market Intelligence."""
         import re
 
@@ -274,6 +289,165 @@ class ScoutBackgroundWorker:
             for l in existing_leads
             if getattr(l, "website", "")
         }
+
+        # Multi-Channel Priority Dispatch
+        selected_channel = channel or os.environ.get("SCOUT_DISCOVERY_CHANNEL")
+
+        # Channel 1: County Docket Filing Party Extractor (Highest ROI: turns scraped court dockets into prospects)
+        if selected_channel == "county_filing_party" or (selected_channel is None and not os.environ.get("PYTEST_CURRENT_TEST")):
+            try:
+                docket_keys = ["cook-county-probate", "harris-foreclosure", "orange-foreclosure", "state-ucc-filings", "austin-commercial-permits"]
+                random_docket_key = random.choice(docket_keys)
+                ds_entry = AUTHENTIC_REGISTRY_DATASETS.get(random_docket_key, list(AUTHENTIC_REGISTRY_DATASETS.values())[0])
+                sample_records = ds_entry["sample_data"]
+                if sample_records:
+                    discovered_filers = self.county_extractor.extract_candidates_from_records(
+                        records=sample_records,
+                        portal_name=ds_entry.get("portal_name", "County Court Docket Portal"),
+                        jurisdiction=ds_entry.get("jurisdiction", "Regional Jurisdiction"),
+                        source_url=ds_entry.get("target_url", "https://data.gov"),
+                    )
+                    for filer in discovered_filers:
+                        if filer.entity_name.lower() in existing_companies or any(c in filer.entity_name.lower() for c in existing_companies if len(c) > 4):
+                            continue
+                        enriched_filer = self.county_extractor.enrich_filing_prospect(filer, existing_companies)
+                        if enriched_filer and enriched_filer.get("website"):
+                            enriched_filer["sample_data"] = sample_records[:25]
+                            logger.info(f"🏛️ [COUNTY FILING PARTY CANDIDATE FOUND] {enriched_filer['company_name']} | Case: {enriched_filer.get('filing_case_number')}")
+                            cat_entry = {
+                                "niche": enriched_filer["niche"],
+                                "portal_name": enriched_filer["portal_name"],
+                                "jurisdiction": enriched_filer["jurisdiction"],
+                                "dataset_key": random_docket_key,
+                                "target_url": enriched_filer["target_url"],
+                                "pain_point": enriched_filer["pain_point"],
+                                "tier_key": enriched_filer["tier_key"],
+                            }
+                            return self._process_discovered_target(enriched_filer, existing_companies, cat_entry)
+            except Exception as cfp_err:
+                logger.error(f"County filing party probe error: {cfp_err}", exc_info=True)
+                if selected_channel == "county_filing_party":
+                    return {
+                        "ok": False,
+                        "status": "CHANNEL_DISCOVERY_ERROR",
+                        "channel": selected_channel,
+                        "reason": str(cfp_err),
+                    }
+
+        # Channel 2: State Bar Association Directory Prospector
+        if selected_channel == "state_bar":
+            try:
+                state_choice = random.choice(["TX", "CA", "FL", "IL", "GA"])
+                practice_choice = random.choice([
+                    "Probate and Estate Administration",
+                    "Real Estate and Title Law",
+                    "Commercial Real Estate and Liens",
+                ])
+                bar_attorneys = self.bar_prospector.discover_attorneys(state_code=state_choice, practice_area=practice_choice, max_results=3)
+                for aty in bar_attorneys:
+                    if aty.firm_name.lower() in existing_companies or aty.attorney_name.lower() in existing_companies:
+                        continue
+                    enriched_bar = self.bar_prospector.enrich_bar_prospect(aty, existing_companies)
+                    if enriched_bar and enriched_bar.get("website"):
+                        logger.info(f"⚖️ [STATE BAR CANDIDATE FOUND] {enriched_bar['company_name']} ({enriched_bar['contact_name']})")
+                        dkey = aty.target_portal.get("dataset_key", "cook-county-probate")
+                        enriched_bar["sample_data"] = AUTHENTIC_REGISTRY_DATASETS[dkey]["sample_data"][:25]
+                        cat_entry = {
+                            "niche": enriched_bar["niche"],
+                            "portal_name": enriched_bar["portal_name"],
+                            "jurisdiction": enriched_bar["jurisdiction"],
+                            "dataset_key": dkey,
+                            "target_url": enriched_bar["target_url"],
+                            "pain_point": enriched_bar["pain_point"],
+                            "tier_key": enriched_bar["tier_key"],
+                        }
+                        return self._process_discovered_target(enriched_bar, existing_companies, cat_entry)
+            except Exception as sb_err:
+                logger.error(f"State bar directory probe error: {sb_err}", exc_info=True)
+                return {
+                    "ok": False,
+                    "status": "CHANNEL_DISCOVERY_ERROR",
+                    "channel": selected_channel,
+                    "reason": str(sb_err),
+                }
+
+        # Channel 3: Local Business & Map Directory Search
+        if selected_channel == "local_business":
+            try:
+                metro = random.choice([
+                    {"city": "Dallas", "state": "TX", "category": "Title Company"},
+                    {"city": "Houston", "state": "TX", "category": "Title Company"},
+                    {"city": "Orlando", "state": "FL", "category": "Title Company"},
+                    {"city": "Chicago", "state": "IL", "category": "Probate Law Firm"},
+                    {"city": "Atlanta", "state": "GA", "category": "Probate Law Firm"},
+                ])
+                local_ops = self.local_prospector.discover_local_operators(city=metro["city"], state=metro["state"], category=metro["category"], max_results=3)
+                for op in local_ops:
+                    if op.business_name.lower() in existing_companies:
+                        continue
+                    enriched_local = self.local_prospector.enrich_local_prospect(op, existing_companies)
+                    if enriched_local and enriched_local.get("website"):
+                        logger.info(f"📍 [LOCAL BUSINESS CANDIDATE FOUND] {enriched_local['company_name']}")
+                        enriched_local["sample_data"] = AUTHENTIC_REGISTRY_DATASETS["harris-foreclosure"]["sample_data"][:25]
+                        cat_entry = {
+                            "niche": enriched_local["niche"],
+                            "portal_name": enriched_local["portal_name"],
+                            "jurisdiction": enriched_local["jurisdiction"],
+                            "dataset_key": "harris-foreclosure",
+                            "target_url": enriched_local["target_url"],
+                            "pain_point": enriched_local["pain_point"],
+                            "tier_key": enriched_local["tier_key"],
+                        }
+                        return self._process_discovered_target(enriched_local, existing_companies, cat_entry)
+            except Exception as lb_err:
+                logger.error(f"Local business probe error: {lb_err}", exc_info=True)
+                return {
+                    "ok": False,
+                    "status": "CHANNEL_DISCOVERY_ERROR",
+                    "channel": selected_channel,
+                    "reason": str(lb_err),
+                }
+
+        # Channel 4: Secretary of State New Entity Registration
+        if selected_channel == "sos_entity":
+            try:
+                state_choice = random.choice(["TX", "FL", "DE", "CA"])
+                kw_choice = random.choice(["Title Company", "Abstract & Title", "Settlement Services", "Escrow Services"])
+                sos_entities = self.sos_prospector.discover_new_registrations(state_code=state_choice, keyword=kw_choice, max_results=3)
+                for ent in sos_entities:
+                    if ent.company_name.lower() in existing_companies:
+                        continue
+                    enriched_sos = self.sos_prospector.enrich_sos_prospect(ent, existing_companies)
+                    if enriched_sos and enriched_sos.get("website"):
+                        logger.info(f"🏢 [SOS ENTITY CANDIDATE FOUND] {enriched_sos['company_name']}")
+                        enriched_sos["sample_data"] = AUTHENTIC_REGISTRY_DATASETS["texas-open-data"]["sample_data"][:25]
+                        cat_entry = {
+                            "niche": enriched_sos["niche"],
+                            "portal_name": enriched_sos["portal_name"],
+                            "jurisdiction": enriched_sos["jurisdiction"],
+                            "dataset_key": "texas-open-data",
+                            "target_url": enriched_sos["target_url"],
+                            "pain_point": enriched_sos["pain_point"],
+                            "tier_key": enriched_sos["tier_key"],
+                        }
+                        return self._process_discovered_target(enriched_sos, existing_companies, cat_entry)
+            except Exception as sos_err:
+                logger.error(f"SOS entity probe error: {sos_err}", exc_info=True)
+                return {
+                    "ok": False,
+                    "status": "CHANNEL_DISCOVERY_ERROR",
+                    "channel": selected_channel,
+                    "reason": str(sos_err),
+                }
+
+        # If a specific high-ROI channel was requested but no candidates were found, do not fall back to generic search
+        if selected_channel in ("county_filing_party", "state_bar", "local_business", "sos_entity"):
+            return {
+                "ok": False,
+                "status": "CHANNEL_DISCOVERY_EXHAUSTED",
+                "channel": selected_channel,
+                "reason": f"No new uncontacted candidates discovered via {selected_channel} channel",
+            }
         
         # 1. Step 1: Check for High-Intent Job Board Requisitions (SMBs hiring for manual data entry, permit coordinators, etc.)
         job_board_hit = None
@@ -514,6 +688,27 @@ class ScoutBackgroundWorker:
             "pitch_body": llm_candidate.get("pitch_body"),
             "job_intent": job_intent,
         }
+        return self._process_discovered_target(target, existing_companies, catalog_entry)
+
+    def _process_discovered_target(
+        self,
+        target: dict[str, Any],
+        existing_companies: set[str],
+        catalog_entry: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Process, verify, publish sandbox, qualify, and queue outreach for a discovered prospect."""
+        import re
+        cat_entry = catalog_entry or {
+            "dataset_key": "texas-open-data",
+            "niche": target.get("niche", "Commercial Operations"),
+            "portal_name": target.get("portal_name", "Public Registry"),
+            "jurisdiction": target.get("jurisdiction", "Statewide"),
+            "target_url": target.get("target_url", "https://data.gov"),
+            "pain_point": target.get("pain_point", ""),
+            "tier_key": target.get("tier_key", "weekly"),
+        }
+        company_website = target.get("website", "")
+        discovered_name = target.get("company_name", "")
 
         # Deduplication check against persistent contact history
         if self.storage and hasattr(self.storage, "is_recipient_or_domain_contacted"):
@@ -675,6 +870,17 @@ class ScoutBackgroundWorker:
 
         # 3. AI Lead Enrichment & Sample Data Verification Agent
         logger.info(f"🔬 [SCOUT ENRICHMENT] Running AI Research Agent to enrich contacts & verify sample data for {target['company_name']}")
+        contact_info = {
+            "contact_name": target.get("contact_name", ""),
+            "contact_role": target.get("contact_role", ""),
+            "contact_email": target.get("contact_email", ""),
+            "contact_phone": target.get("contact_phone", ""),
+        }
+        linkedin_contact = {
+            "name": target.get("contact_name", ""),
+            "role": target.get("contact_role", ""),
+            "profile_url": target.get("linkedin_url", ""),
+        }
         enrichment = self.llm_engine.run_lead_enrichment_agent(
             company_name=target["company_name"],
             website=target["website"],
@@ -735,7 +941,8 @@ class ScoutBackgroundWorker:
             lead.target_portal_name = target["portal_name"]
             lead.jurisdiction = target.get("jurisdiction", "")
             lead.source_url = target.get("target_url", "")
-            lead.niche = target["niche"]
+            lead.discovery_channel = target.get("discovery_channel", "CATALOG_SEARCH")
+            lead.filing_case_number = target.get("filing_case_number", "")
             
             lead.automation_opportunity_score = opp_score
             lead.purchase_probability = purchase_prob
@@ -747,6 +954,12 @@ class ScoutBackgroundWorker:
                 "linkedin_url": target.get("linkedin_url", ""),
                 "decision_maker_name": target["contact_name"],
                 "decision_maker_role": target["contact_role"],
+                "discovery_channel": target.get("discovery_channel", "CATALOG_SEARCH"),
+                "filing_case_number": target.get("filing_case_number", ""),
+                "filing_date": target.get("filing_date", ""),
+                "matter_description": target.get("matter_description", ""),
+                "proof_hook": target.get("proof_hook"),
+                "bar_number": target.get("bar_number", ""),
                 "job_intent": target.get("job_intent"),
                 "business_specialty": target.get("business_specialty", ""),
                 "human_observation": target.get("human_observation", ""),
@@ -765,7 +978,18 @@ class ScoutBackgroundWorker:
                 lead.research = research_payload
             
             # Generate natural, human-to-human peer pitch email using AI Pitcher Agent
-            if target.get("job_intent"):
+            if target.get("pitch_subject") and target.get("pitch_body"):
+                from .pitcher import PitchMessage
+                sandbox_link = f"https://www.omnileadfeeder.tech/sandbox/{candidate.slug}"
+                b_text = target["pitch_body"].replace("{sandbox_url}", sandbox_link)
+                pitch = PitchMessage(
+                    subject=target["pitch_subject"],
+                    body_text=b_text,
+                    body_html=b_text.replace("\n", "<br>"),
+                    sandbox_url=sandbox_link,
+                    word_count=len(b_text.split()),
+                )
+            elif target.get("job_intent"):
                 job = target["job_intent"]
                 first_name = (target.get("contact_name") or "").strip().split()[0] if (target.get("contact_name") or "").strip() else "there"
                 from .pitcher import PitchMessage
@@ -874,6 +1098,45 @@ class ScoutBackgroundWorker:
                     description="Hyper-personalized sub-60-word cold outreach copy"
                 )
 
+                # Persist High-ROI discovery channel trace
+                artifact_store.save_artifact(
+                    lead_id=candidate.lead_id,
+                    stage="01_SCOUT_DISCOVERY",
+                    agent_name="High-ROI Multi-Channel Scout Engine",
+                    filename="01_discovery_channel_trace.json",
+                    content={
+                        "discovery_channel": target.get("discovery_channel", "CATALOG_SEARCH"),
+                        "company_name": target["company_name"],
+                        "filing_case_number": target.get("filing_case_number", ""),
+                        "filing_date": target.get("filing_date", ""),
+                        "matter_description": target.get("matter_description", ""),
+                        "bar_number": target.get("bar_number", ""),
+                        "proof_hook": target.get("proof_hook"),
+                        "portal_name": target["portal_name"],
+                        "jurisdiction": target["jurisdiction"],
+                    },
+                    description="High-ROI discovery channel attribution, docket filing evidence, and proof hooks"
+                )
+
+                if target.get("discovery_channel") == "COUNTY_FILING_PARTY":
+                    artifact_store.save_artifact(
+                        lead_id=candidate.lead_id,
+                        stage="01_SCOUT_DISCOVERY",
+                        agent_name="County Filing Party Extractor",
+                        filename="01_filing_party_evidence.json",
+                        content={
+                            "filing_company": target["company_name"],
+                            "attorney_of_record": target["contact_name"],
+                            "filing_case_number": target.get("filing_case_number", ""),
+                            "filing_date": target.get("filing_date", ""),
+                            "court_portal": target["portal_name"],
+                            "docket_source_url": target["target_url"],
+                            "matter_description": target.get("matter_description", ""),
+                            "contextual_hook": target.get("proof_hook"),
+                        },
+                        description="Authentic public record filing evidence establishing immediate proof of need"
+                    )
+
                 if recon_resolution:
                     artifact_store.save_artifact(
                         lead_id=candidate.lead_id,
@@ -914,8 +1177,8 @@ class ScoutBackgroundWorker:
                     # Pull fresh live records from the correct vertical dataset
                     fresh_rows = target.get("sample_data") or []
                     if not fresh_rows:
-                        from .datasets import AUTHENTIC_REGISTRY_DATASETS
-                        ds = AUTHENTIC_REGISTRY_DATASETS[catalog_entry.get("dataset_key", candidate.slug)]
+                        dkey = cat_entry.get("dataset_key", candidate.slug)
+                        ds = AUTHENTIC_REGISTRY_DATASETS.get(dkey, list(AUTHENTIC_REGISTRY_DATASETS.values())[0])
                         fresh_rows = list(ds.get("sample_data", []))
 
                     # Ensure every row carries a verifiable source_url
@@ -1139,7 +1402,10 @@ class ScoutAutomationSupervisor:
                     continue
 
                 # Check pending review/dispatch queue backlog
-                max_pending = int(os.environ.get("SCOUT_MAX_PENDING_QUEUE", "5"))
+                try:
+                    max_pending = int(str(os.environ.get("SCOUT_MAX_PENDING_QUEUE", "5")).split("#")[0].strip().strip("\"'"))
+                except (ValueError, TypeError):
+                    max_pending = 5
                 if self.storage and hasattr(self.storage, "list_leads"):
                     leads = self.storage.list_leads()
                     pending_count = sum(1 for l in leads if l.state in (State.PITCH_PENDING_APPROVAL, State.REVIEW))

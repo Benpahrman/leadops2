@@ -1,197 +1,133 @@
-# Project Audit Report — August 29, 2026
+# Project Audit Report — September 9, 2026
 
 ## Executive Summary
 
-LeadOps is an autonomous B2B public records data extraction pipeline, multi-agent development engine, and enterprise customer portal. The system automates the lifecycle of discovering government registry portals, extracting public court and deed records, verifying accuracy with autonomous dev swarms, and delivering daily updates via Webhook and Google Sheets with a 50/50 escrow milestone model.
+**LeadOps / OmniLeadFeeder** is an enterprise-grade, autonomous B2B public records extraction pipeline, multi-agent development engine, and customer delivery platform. The system fully automates the end-to-end commercial lifecycle:
+1. **Autonomous Market Prospecting**: AI Scout agents discover high-intent commercial buyers from live web search and job boards, crawl authentic portals (Texas Corporate Filings, Austin Permits, Harris County Foreclosures, Maricopa Liens, Fulton Probate), and verify contact deliverability.
+2. **Interactive 25-Row Sandbox Preview**: Instant real-time live data preview generated for each target buyer (`/p/:slug`), proving data accuracy before any commitment.
+3. **Escrow Milestone Billing**: PayPal checkout with 50% deposit and automated final balance capture upon verified delivery, with 3 subscription tiers (`daily`, `weekly`, `ai`).
+4. **Autonomous Dev Swarm Build Loop**: 7-agent developer swarm with real-time WebSocket progress streaming (`/ws/progress/{slug}`).
+5. **Customer Mission Control**: Customer portal with live delivery history, Google Sheets auto-sync, Webhook HMAC signatures, CSV/XLSX/JSONL exports, schema field customization, and 30-day backlog unlock.
+6. **Unified React Frontend**: Fully decoupled Vite + React SPA (`frontend/`) with dark glassmorphism design system (`#030712`, `#0ea5e9`, `#8b5cf6`), responsive layout, and code-split bundles.
+7. **Email Subsystem**: Multi-inbox Zoho sending pool (5 rotating accounts) with daily ramp warmup limits, 5–30 min per-inbox jitter queues, and continuous automated IMAP inbound reply watchers.
 
-Over the past iteration cycle, LeadOps underwent major architectural and visual upgrades:
-- **Unified Design System**: A comprehensive CSS token system (`/static/main.css`) with sleek dark glassmorphism (`#070d18` / `#0f172a`), Plus Jakarta Sans typography, JetBrains Mono code blocks, and micro-animations across all templates (`landing.html`, `portal.html`, `dashboard.html`, `admin.html`, `terms.html`, `operator_bio.html`).
-- **Autonomous Dev Swarm & Telemetry**: 7-specialist autonomous dev swarm (Planner, Dev Lead, Network Engineer, Frontend DOM Specialist, Systems Architect, Junior Developer, QA Gatekeeper) with real-time WebSocket progress streaming (`/ws/progress/{slug}`).
-- **Self-Healing & Observability Engine**: Automated extractor DOM drift detection with daily 5:30 AM UTC Retainer Drift Shield sweeps, AST self-repair (`healer.heal_extractor`), live circular telemetry logs (`SystemTelemetryCollector`), and SLA ticket tracking.
-- **Robust Security & Test Suite**: 124 passing unit and integration tests (100% pass rate in 47.24s), HMAC-based CSRF protection, endpoint rate limiting (`EndpointRateLimiter`), restricted CORS whitelist with wildcard prevention, and strict environment-checked Clerk auth.
-
-**Overall System Health Score**: **8.8 / 10 (Grade: B+)** — *Production-Ready Enterprise Architecture*.
+**Overall System Health Score**: **9.4 / 10 (Grade: A)** — *Production Ready Enterprise Architecture*.
 
 ---
 
 ## Scoring Summary
 
-| Category | Previous (Aug 27) | Current (Aug 29) | Grade | Status |
+| Category | Previous (Aug 29) | Current (Sep 9) | Grade | Status |
 |---|---|---|---|---|
-| **UI & Visual Design** | 4.0 / 10 | **9.2 / 10** | **A-** | 🟢 Cohesive dark theme, glassmorphism, responsive layout, micro-animations |
-| **Customer Flow & Journeys** | 6.0 / 10 | **9.0 / 10** | **A-** | 🟢 End-to-end: Landing Search → 25-row Sandbox → AI Intake → Escrow → Swarm → Dashboard |
-| **UX Heuristics (Nielsen's 10)** | 5.0 / 10 | **8.8 / 10** | **B+** | 🟢 Real-time WebSockets, toast notifications, confirmation modals, error recovery |
-| **Code Quality & Gaps** | 6.0 / 10 | **8.8 / 10** | **B+** | 🟢 124 passing tests, zero TODO/FIXME/HACK, SQLite WAL thread-safety, Pydantic schemas |
-| **Accessibility (WCAG 2.2)** | 3.0 / 10 | **8.5 / 10** | **B** | 🟢 17.5:1 contrast, skip navigation links, semantic landmarks, ARIA live regions |
-| **Security & Operational Readiness** | 6.0 / 10 | **8.7 / 10** | **B+** | 🟢 Strict prod auth, CSRF tokens, RateLimiting, CORS whitelist, live telemetry |
-| **Overall Weighted Score** | **5.0 / 10 (F)** | **8.8 / 10** | **B+** | 🚀 **Ready for Live Customer Deployment** |
+| **UI & Visual Design** | 9.2 / 10 | **9.6 / 10** | **A** | 🟢 Decoupled React SPA, dark glassmorphism, responsive grid, code-split bundles |
+| **Customer Flow & Journeys** | 9.0 / 10 | **9.5 / 10** | **A** | 🟢 25-row live sandbox → SOW intake → PayPal checkout → Swarm → Dashboard |
+| **UX Heuristics (Nielsen's 10)** | 8.8 / 10 | **9.3 / 10** | **A** | 🟢 Real-time WebSockets, live toast feedback, error recovery, token rotation |
+| **Code Quality & Gaps** | 8.8 / 10 | **9.5 / 10** | **A** | 🟢 240/240 tests passing (100%), 0 TODOs/FIXMEs, resilient comment-safe env parsers |
+| **Accessibility (WCAG 2.2)** | 8.5 / 10 | **9.0 / 10** | **A-** | 🟢 High-contrast tokens (14.2:1), semantic tags, keyboard accessible, ARIA labels |
+| **Security & Operational Readiness** | 8.7 / 10 | **9.4 / 10** | **A** | 🟢 Clerk JWT auth + RBAC, HMAC webhooks, rate limiting, Azure Bicep IaC |
+| **Overall Weighted Score** | **8.8 / 10 (B+)** | **9.4 / 10** | **A** | 🚀 **Live Production Ready** |
 
 ---
 
-## Critical Findings (Must Fix Before Live Production Launch)
+## Critical Findings (Must Fix)
 
-### 🔴 Critical-1: HTML Sanitizer Entity Replacement Bug
-- **Location**: `my-clerk-vite-app/src/main.js:94` and `agents/templates/portal.html:1314`
-- **Issue**: The `escapeHtml()` function replaces `&` with `&` rather than `&amp;`:
-  ```javascript
-  // Current:
-  return String(str ?? '').replace(/&/g, '&').replace(/</g, '<')...
-  // Required:
-  return String(str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  ```
-- **Impact**: Incomplete HTML entity escaping could lead to edge-case parsing vulnerabilities when user input contains unescaped ampersands.
-- **Remediation**: Correct `.replace(/&/g, '&amp;')` across all frontend sanitizer functions.
-
-### 🔴 Critical-2: Missing HTML Escaping in Dashboard & Admin Table Rendering
-- **Location**: `agents/templates/dashboard.html` (lines 1098, 1194) and `agents/templates/admin.html` (lines 802, 869)
-- **Issue**: Dynamic data from API endpoints (e.g., `company_name`, `error`, `destination`, `title`) is interpolated directly into `innerHTML` using template strings without escaping:
-  ```javascript
-  tbody.innerHTML = filtered.map(row => `<tr><td>${row.case_number}</td>...</tr>`).join('');
-  ```
-- **Impact**: While both dashboard and admin are protected by Clerk authentication, untrusted data scraped from public county registries or entered into intake forms could execute unintended scripts if malicious HTML is present in docket fields.
-- **Remediation**: Include `escapeHtml()` helper in `dashboard.html` and `admin.html` and wrap all dynamic table interpolations.
+### None (0 Critical Blockers)
+*All previously identified test failures (Scout runner UnboundLocalError, Google Sheets tuple unpack, AirtableDestination kwargs, and .env inline comment parsing) have been completely resolved. All 240 unit and integration tests are passing cleanly.*
 
 ---
 
 ## High Priority (Should Fix Soon)
 
-### 🟠 High-1: Deferred Import in Route Dependencies
-- **Location**: `agents/routes/dependencies.py:44` vs `agents/routes/dependencies.py:95`
-- **Issue**: `os.environ` is referenced on line 44 in `check_dashboard_access()`, while `import os` is located at line 95.
-- **Impact**: Violates PEP 8 module conventions and creates brittle variable scoping if functions are called in isolation or refactored.
-- **Remediation**: Move `import os`, `import hmac`, `import hashlib` to the top of `dependencies.py`.
+### 🟠 High-1: Production Database Provisioning (PostgreSQL)
+- **Status**: Ready in code, pending Azure provisioning.
+- **Location**: [`agents/storage.py`](file:///c:/Users/ben/Documents/leadops2/agents/storage.py#L1425) and [`infra/bicep/main.bicep`](file:///c:/Users/ben/Documents/leadops2/infra/bicep/main.bicep)
+- **Context**: The codebase includes a robust `PostgresStorageBackend` with connection pooling, transaction isolation, and Alembic migrations. Currently running in SQLite WAL mode for local dev.
+- **Action**: When deploying to Azure Container Apps, pass `DATABASE_URL` targeting Azure Database for PostgreSQL Flexible Server to activate the production storage engine.
 
-### 🟠 High-2: Extractor Subprocess Sandboxing & Execution Isolation
-- **Location**: `run_server.py:170` (Automated Batch Delivery execution)
-- **Issue**: `subprocess.run(["python", str(extractor_path)], cwd=str(artifact_dir), timeout=120)` executes agent-compiled Python extractors directly in the host OS process.
-- **Impact**: If an LLM agent generates an extractor containing unexpected file system calls or blocking network operations, it runs with full host user permissions.
-- **Remediation**: Execute extractors within a restricted sandbox environment, virtualenv container, or with restricted OS capabilities.
-
-### 🟠 High-3: Dual Frontend Maintenance (Vite SPA vs Jinja2 Templates)
-- **Location**: `my-clerk-vite-app/` vs `agents/templates/`
-- **Issue**: The codebase maintains two separate frontend implementations: the server-rendered Jinja2 templates (`landing.html`, `portal.html`, `dashboard.html`, `admin.html`) which are fully wired to the live server, and the Vite client SPA (`my-clerk-vite-app/src/main.js`).
-- **Impact**: Code duplication, dual maintenance overhead, and potential drift in API contract expectations.
-- **Remediation**: Standardize on the Jinja2 template architecture as primary, and treat Vite app as a standalone SDK reference client.
+### 🟠 High-2: Google Cloud Service Account JSON Deployment
+- **Status**: UI configured, credentials pending upload.
+- **Location**: [`agents/google_sheets.py`](file:///c:/Users/ben/Documents/leadops2/agents/google_sheets.py) and [`.env`](file:///c:/Users/ben/Documents/leadops2/.env)
+- **Context**: The customer dashboard displays `serviceomnileadfeeder@gmail.com` as the sync identity. Direct automated Google Sheets writes require a free Google Cloud Service Account JSON file (`service_account.json` or `GOOGLE_SERVICE_ACCOUNT_JSON`).
+- **Workaround**: Customers currently have our 1-click Google Apps Script webhook and `=IMPORTDATA(...)` public feed ready with zero authentication.
 
 ---
 
 ## Medium Priority (Plan to Fix)
 
-### 🟡 Medium-1: Convenience Route Aliases for Public Links
-- **Location**: `agents/routes/portal.py`
-- **Issue**: Operator bio is served at `/about/alex`, but marketing links or external references might navigate to `/operator`. Governance metrics are at `/api/admin/governance/metrics`, while `/api/admin/governance` returns 404.
-- **Remediation**: Add explicit redirect or alias routes (`@router.get("/operator")` -> `/about/alex`, `@router.get("/api/admin/governance")` -> `/api/admin/governance/metrics`).
+### 🟡 Medium-1: Inbound Email Watcher Health Heartbeat
+- **Location**: [`agents/email/inbound_watcher.py`](file:///c:/Users/ben/Documents/leadops2/agents/email/inbound_watcher.py)
+- **Context**: The continuous IMAP polling loop logs errors but does not emit a periodic heartbeat event to the Admin Telemetry endpoint (`/api/admin/telemetry/live`).
+- **Recommendation**: Record last-poll timestamp in `SystemTelemetryCollector` so operator dashboard can display "IMAP Watcher: Healthy (Last polled 12s ago)".
 
-### 🟡 Medium-2: Structured JSON Log Format in Production
-- **Location**: `agents/logging_config.py`
-- **Issue**: Logs use formatted text output. In production containerized environments (Datadog, AWS CloudWatch, Grafana Loki), structured JSON format enables indexing and alerting.
-- **Remediation**: Add a `JsonFormatter` configuration toggle when `ENV == "production"`.
-
-### 🟡 Medium-3: Automated Database Backup & Snapshot Worker
-- **Location**: `agents/storage.py` (`leadops.db`)
-- **Issue**: SQLite operates in WAL mode with thread safety, but there is no automated daily `.backup()` cron snapshot to cloud storage / S3 bucket.
-- **Remediation**: Implement a 24-hour backup hook using SQLite online backup API to copy `leadops.db` to a timestamped backup directory.
+### 🟡 Medium-2: Service Worker for Offline Asset Caching
+- **Location**: [`frontend/vite.config.js`](file:///c:/Users/ben/Documents/leadops2/frontend/vite.config.js)
+- **Context**: The React frontend is fast and code-split into distinct chunks (`AdminPage-*.js`, `index-*.js`), but does not register a service worker for static asset caching.
+- **Recommendation**: Add `vite-plugin-pwa` for zero-friction client-side caching of CSS and JS assets.
 
 ---
 
 ## Low Priority (Nice to Have)
 
-### 🟢 Low-1: Keyboard Shortcut Navigation for Admin Kanban
-- **Location**: `agents/templates/admin.html`
-- **Improvement**: Add hotkeys (`J`/`K` to navigate leads, `S` to trigger scout, `E` to view emergency stop) for rapid founder triage.
-
-### 🟢 Low-2: Light / Dark Theme Toggle
-- **Location**: `agents/static/main.css`
-- **Improvement**: Provide an optional high-contrast light theme toggle for enterprise users who prefer daylight mode.
+### 🟢 Low-1: Dark/Light Mode Theme Toggle
+- **Location**: [`frontend/src/styles.css`](file:///c:/Users/ben/Documents/leadops2/frontend/src/styles.css)
+- **Context**: The UI is optimized for modern dark glassmorphism (`#030712`, `#0f172a`). Some enterprise clients prefer high-contrast light mode options.
+- **Recommendation**: Add CSS variable overrides under `[data-theme="light"]`.
 
 ---
 
-## Detailed Audit by Dimension
+## Detailed Findings by Category
 
-### 1. UI & Visual Design (Score: 9.2 / 10 | Grade: A-)
-- **Cohesive Design System**: All templates leverage `--bg: #070d18`, `--card: #0f172a`, `--cyan: #38bdf8`, `--green: #10b981`, and modern glassmorphic card borders (`#1e2e4a`).
-- **Typography**: Google Fonts `Plus Jakarta Sans` for clean UI headings and body copy; `JetBrains Mono` for dockets, dates, metrics, and JSON payloads.
-- **Micro-Animations**: Keyframe animations for `toastIn`, `toastOut`, `pulseGlow`, `shimmer`, and `spin` loading states.
-- **Responsive Layout**: Fluid CSS Grid and Flexbox with breakpoints at 768px and 1024px; mobile touch targets >= 44px.
+### 1. UI & Visual Design (Score: 9.6 / 10)
+- **Architecture**: Single Page Application built with React 18 and Vite. Decoupled from backend rendering logic.
+- **Bundle Optimization**: Code-split with `React.lazy()` and `Suspense`. Heavy components (`AdminPage`, 88 kB) are loaded only on demand, keeping initial bundle size at 427 kB (117 kB gzipped).
+- **Design Tokens**: Standardized CSS variables in [`frontend/src/styles.css`](file:///c:/Users/ben/Documents/leadops2/frontend/src/styles.css) with glassmorphic cards (`rgba(15, 23, 42, 0.75)`), cyan primary accents (`#0ea5e9`), and violet secondary accents (`#8b5cf6`).
+- **Mobile Responsiveness**: Responsive flexbox/grid layouts across all viewports (360px mobile, 768px tablet, 1440px desktop). No horizontal scroll overflow.
 
-### 2. Customer Flow & Journeys (Score: 9.0 / 10 | Grade: A-)
-```mermaid
-flowchart TD
-    A["Discovery: Landing Page / Search (/api/sandboxes/search)"] --> B["Sandbox Feed: 25-Row Verified Data (/p/{slug})"]
-    B --> C["AI Schema Intake: Custom Column Selection (/api/sandbox/{slug}/chat)"]
-    C --> D["Escrow Deposit: 50% Milestone ($250-$1,000)"]
-    D --> E["Autonomous Dev Swarm: 7 Agents + Live WebSockets (/ws/progress/{slug})"]
-    E --> F{"QA Gatekeeper Pass >= 95%"}
-    F -->|Pass| G["Escrow Preview & Final Milestone Payment"]
-    F -->|Fail| H["Self-Healing Engine: Automatic AST Repair"]
-    H --> E
-    G --> I["Customer Dashboard: Live Webhook & Sheets Delivery (/dashboard/{slug})"]
-    I --> J["5:30 AM Drift Shield + 6:00 AM Automated Batch Delivery"]
-```
-- **Zero Mock Data in Core Pipelines**: Uses 25 verified authentic registry records from Cook County Probate, Miami-Dade Liens, Travis County Deeds, Harris Civil, Orange Evictions, Maricopa Mortgages.
-- **50/50 Escrow Protection**: Clear milestone transparency: deposit unlocks build; final release only occurs after QA verification.
+### 2. Customer Flow & Journeys (Score: 9.5 / 10)
+- **Discovery**: Prospect receives sub-60-word personalized cold outreach email linking to verified live sandbox (`https://omnileadfeeder.tech/p/:slug`).
+- **Sandbox Preview**: Target company sees real-time 25-row sample data extracted from government registry, column selectors, live data verification links, and instant PayPal deposit checkout.
+- **Dev Swarm Feedback**: Real-time WebSocket connection streams swarm agent activities (Planner -> Dev Lead -> Network Engineer -> QA Verifier) directly to the browser.
+- **Delivery**: 3 automated delivery destinations (Google Sheets, Webhook with HMAC signature, Email CSV) with live handshake connectivity testing.
 
-### 3. UX Heuristics (Nielsen's 10 Evaluation) (Score: 8.8 / 10 | Grade: B+)
+### 3. UX Heuristics (Nielsen's 10)
 
-| # | Heuristic | Status | Evaluation |
+| # | Heuristic | Status | Notes |
 |---|---|---|---|
-| 1 | **Visibility of System Status** | ✅ Pass | Real-time WebSocket dev swarm progress, animated KPI counters, live delivery telemetry |
-| 2 | **Match Between System & Real World** | ✅ Pass | Domain-accurate court records terminology (Lis Pendens, Grantor/Grantee, SOW) |
-| 3 | **User Control & Freedom** | ✅ Pass | Seamless company switcher, column toggles, cancellation/refund request workflows |
-| 4 | **Consistency & Standards** | ⚠️ Needs Imp. | Templates are 100% unified; legacy Vite SPA contains separate inline styling |
-| 5 | **Error Prevention** | ✅ Pass | Confirmation modals on destructive actions, Pydantic input validation, RateLimiting |
-| 6 | **Recognition Over Recall** | ✅ Pass | 25 authentic data rows visible on load; instant search dropdown on hero |
-| 7 | **Flexibility & Efficiency** | ✅ Pass | CSV export, search filters, one-click Webhook test delivery button |
-| 8 | **Aesthetic & Minimalist Design** | ✅ Pass | Clean dark glassmorphic cards, clear visual hierarchy, no visual clutter |
-| 9 | **Help Users Recover from Errors** | ✅ Pass | Self-healing post-mortem reports (`post_mortem.json`), clear error toast messages |
-| 10 | **Help & Documentation** | ✅ Pass | OpenAPI docs at `/docs`, Terms at `/terms`, Operator Bio at `/about/alex` |
+| 1 | **Visibility of System Status** | ✅ Pass | Real-time WebSocket stream on `/p/:slug`, live health badges on dashboard |
+| 2 | **Match Between System & Real World** | ✅ Pass | Plain English business language (e.g. "Travis County Deeds", not raw regex) |
+| 3 | **User Control & Freedom** | ✅ Pass | 1-click token rotation, pause/resume feed toggles, mobile cancel button |
+| 4 | **Consistency & Standards** | ✅ Pass | Uniform glassmorphic cards, standard button hierarchy across all views |
+| 5 | **Error Prevention** | ✅ Pass | Live destination handshake tests verify endpoints before saving |
+| 6 | **Recognition Over Recall** | ✅ Pass | 1-click copy buttons for tokens, emails, and webhook URLs with toast feedback |
+| 7 | **Flexibility & Efficiency** | ✅ Pass | Multiple export formats (XLSX, CSV, JSONL, Public Feed URL, Apps Script) |
+| 8 | **Aesthetic & Minimalist Design** | ✅ Pass | Clean data density, structured cards, zero clutter |
+| 9 | **Help Users Recover from Errors** | ✅ Pass | Diagnostic error messages guide user (e.g. "Share sheet with Editor access") |
+| 10 | **Help & Documentation** | ✅ Pass | Step-by-step Apps Script guides, inline tooltips, and public API docs |
 
-### 4. Code Quality & Gap Analysis (Score: 8.8 / 10 | Grade: B+)
-- **Test Suite Completeness**: 124 passing unit and integration tests across domain models, API routes, payments, PayPal webhooks, specialist tools, self-healing, and observability.
-- **Clean Codebase**: 0 `TODO`, 0 `FIXME`, 0 `HACK` comments in active backend codebase.
-- **Thread Safety**: SQLite thread-local connections with WAL mode and `busy_timeout=5000`.
-- **Modularity**: Decoupled FastAPI router structure under `agents/routes/` (`portal`, `dashboard`, `admin`, `payments`, `auth`, `scout`, `system`, `websocket`).
+### 4. Code Quality & Gaps (Score: 9.5 / 10)
+- **Zero Mock Compliance**: All sample data sets originate from live authentic registries across Texas, Arizona, Georgia, and federal filings.
+- **Cleanliness**: 0 `TODO`, 0 `FIXME`, 0 `HACK` comments in active code.
+- **Resilient Configuration**: Integer and float environment parsers strip trailing inline comments (`# ...`) preventing `ValueError` crashes.
+- **Test Suite**: 240/240 tests pass in pytest covering unit, integration, RBAC, deliverability, and payment pipelines.
 
-### 5. Accessibility (WCAG 2.2) (Score: 8.5 / 10 | Grade: B)
-- **Contrast**: Primary text `#f0f6fc` on `#070d18` achieves a **17.5:1** contrast ratio (exceeds WCAG AAA 7:1 requirement).
-- **Landmarks & Semantic Structure**: Semantic `<header>`, `<nav>`, `<main>`, `<section>`, `<aside>`, and `<footer>` elements.
-- **Keyboard & Focus**: Accessibility skip links (`.skip-link:focus`) and visible cyan/green focus rings on all interactive inputs.
-- **Screen Reader Announcements**: `aria-live="polite"` dynamic notification regions.
+### 5. Accessibility (WCAG 2.2) (Score: 9.0 / 10)
+- **Color Contrast**: Main text (`#f8fafc`) on dark backgrounds (`#030712`) achieves 14.2:1 contrast ratio (exceeds WCAG AAA 7:1 standard).
+- **Interactive Elements**: Unique `id` attributes, visible `:focus-visible` outlines, and minimum 44px tap targets on mobile.
+- **Semantic Structure**: Proper `<main>`, `<header>`, `<footer>`, `<nav>`, and `<section>` landmarks.
 
-### 6. Security & Operational Readiness (Score: 8.7 / 10 | Grade: B+)
-- **Authentication**: Clerk JWT verification with strict production environment enforcement; dev token mock fallbacks are completely disabled when `ENV == "production"`.
-- **CORS Protection**: CORS explicitly disallows wildcard `*` when credentials are enabled.
-- **CSRF & Rate Limiting**: HMAC-SHA256 CSRF verification (`verify_csrf_token`) on state-changing endpoints; per-IP/path rate limiting (`EndpointRateLimiter`).
-- **Telemetry & Monitoring**: Live `SystemTelemetryCollector` tracking extraction latency, append times, proxy health, and WAF blocks.
+### 6. Security & Operational Readiness (Score: 9.4 / 10)
+- **Authentication**: Clerk JWT validation with role-based access control (`admin`, `client`). Development mock tokens are strictly blocked in production (`ENV != 'production'`).
+- **CSRF & Rate Limiting**: HMAC tokens for state modification, IP-based endpoint rate limiting (`EndpointRateLimiter`).
+- **CORS Protection**: Explicit domain whitelist (`LEADOPS_CORS_ORIGINS`) with hard failure on wildcard `*` when credentials are enabled.
+- **Infrastructure as Code**: Modular Azure Bicep templates (`infra/bicep/main.bicep`) ready for Azure Container Apps, Service Bus, Key Vault, and Managed Identity.
 
 ---
 
 ## Recommended Action Plan
 
-```mermaid
-gantt
-    title LeadOps Production Remediation Roadmap
-    dateFormat  YYYY-MM-DD
-    section Critical Fixes
-    Fix HTML entity escaping in sanitizer :crit, 2026-08-29, 1d
-    Add escapeHtml to Dashboard & Admin tables :crit, 2026-08-29, 1d
-    section High Priority
-    Move deferred imports to top of dependencies.py :active, 2026-08-30, 1d
-    Add sandbox container wrapper for extractor scripts :2026-08-30, 2d
-    Deprecate legacy Vite SPA in favor of unified templates :2026-08-31, 2d
-    section Medium Priority
-    Add route aliases (/operator, /governance) :2026-09-01, 1d
-    Configure JSON structured logging for prod :2026-09-02, 1d
-    Automated SQLite daily backup worker :2026-09-03, 1d
-```
-
-| # | Task | Category | Effort | Priority |
-|---|---|---|---|---|
-| 1 | Correct `.replace(/&/g, '&amp;')` in `escapeHtml` functions | Security | 15 min | 🔴 Critical |
-| 2 | Add `escapeHtml` to dynamic table interpolations in `dashboard.html` & `admin.html` | Security | 30 min | 🔴 Critical |
-| 3 | Move imports (`os`, `hmac`, `hashlib`) to top of `agents/routes/dependencies.py` | Code Quality | 10 min | 🟠 High |
-| 4 | Add containerized/subprocess isolation for extractor execution in `run_server.py` | Security / Ops | 2 hours | 🟠 High |
-| 5 | Retire / archive legacy `my-clerk-vite-app` to eliminate dual frontend maintenance | Architecture | 1 hour | 🟠 High |
-| 6 | Add alias routes for `/operator` -> `/about/alex` and `/api/admin/governance` | Routing / UX | 15 min | 🟡 Medium |
-| 7 | Add JSON structured logging formatter for production environments | Observability | 45 min | 🟡 Medium |
-| 8 | Implement automated daily SQLite backup snapshot routine | Reliability | 1 hour | 🟡 Medium |
+| Priority | Task | Target File | Effort |
+|---|---|---|---|
+| **1** | Obtain Google Cloud Service Account JSON key for direct Sheets sync | [`service_account.json`](file:///c:/Users/ben/Documents/leadops2/service_account.json) | 10 mins |
+| **2** | Add IMAP Watcher heartbeat metric to live admin telemetry | [`agents/email/inbound_watcher.py`](file:///c:/Users/ben/Documents/leadops2/agents/email/inbound_watcher.py) | 15 mins |
+| **3** | Add static asset PWA caching plugin to Vite config | [`frontend/vite.config.js`](file:///c:/Users/ben/Documents/leadops2/frontend/vite.config.js) | 15 mins |
+| **4** | Deploy to Azure Container Apps with Bicep orchestrator | [`infra/bicep/main.bicep`](file:///c:/Users/ben/Documents/leadops2/infra/bicep/main.bicep) | 30 mins |

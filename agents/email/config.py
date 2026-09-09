@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 logger = logging.getLogger("leadops.email.config")
 
@@ -256,20 +256,26 @@ class EmailSettings:
             else "rotate"
         )
 
+        def _clean_int(val: Any, default: int) -> int:
+            try:
+                return int(str(val).split("#")[0].strip().strip("\"'"))
+            except (ValueError, TypeError):
+                return default
+
         smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
-        smtp_port = int(os.environ.get("SMTP_PORT", "465"))
+        smtp_port = _clean_int(os.environ.get("SMTP_PORT", "465"), 465)
         smtp_use_ssl = smtp_port == 465 or os.environ.get("SMTP_USE_SSL", "true").lower() == "true"
         smtp_use_tls = smtp_port == 587 or os.environ.get("SMTP_USE_TLS", "false").lower() == "true"
 
         imap_host = os.environ.get("IMAP_HOST", "imap.gmail.com").strip()
-        imap_port = int(os.environ.get("IMAP_PORT", "993"))
+        imap_port = _clean_int(os.environ.get("IMAP_PORT", "993"), 993)
         imap_use_ssl = os.environ.get("IMAP_USE_SSL", "true").lower() == "true"
-        imap_poll_interval_seconds = int(os.environ.get("IMAP_POLL_INTERVAL_SECONDS", "60"))
+        imap_poll_interval_seconds = _clean_int(os.environ.get("IMAP_POLL_INTERVAL_SECONDS", "60"), 60)
 
-        warmup_week1_limit = int(os.environ.get("WARMUP_WEEK1_LIMIT", "25"))
-        warmup_week2_limit = int(os.environ.get("WARMUP_WEEK2_LIMIT", "50"))
-        warmup_week3_limit = int(os.environ.get("WARMUP_WEEK3_LIMIT", "75"))
-        warmup_week4_limit = int(os.environ.get("WARMUP_WEEK4_LIMIT", "100"))
+        warmup_week1_limit = _clean_int(os.environ.get("WARMUP_WEEK1_LIMIT", "25"), 25)
+        warmup_week2_limit = _clean_int(os.environ.get("WARMUP_WEEK2_LIMIT", "50"), 50)
+        warmup_week3_limit = _clean_int(os.environ.get("WARMUP_WEEK3_LIMIT", "75"), 75)
+        warmup_week4_limit = _clean_int(os.environ.get("WARMUP_WEEK4_LIMIT", "100"), 100)
         warmup_start_date = os.environ.get("WARMUP_START_DATE", "").strip()
 
         link_mode_raw = os.environ.get("COLD_EMAIL_LINK_MODE", "permission_first").strip().lower()
@@ -335,10 +341,10 @@ class EmailSettings:
             if z_email:
                 z_name = os.environ.get(f"ZOHO_INBOX_{idx}_FROM_NAME", from_name).strip()
                 z_host = os.environ.get(f"ZOHO_INBOX_{idx}_SMTP_HOST", "").strip()
-                z_port = int(os.environ.get(f"ZOHO_INBOX_{idx}_SMTP_PORT", "465"))
+                z_port = _clean_int(os.environ.get(f"ZOHO_INBOX_{idx}_SMTP_PORT", "465"), 465)
                 z_imap_host = os.environ.get(f"ZOHO_INBOX_{idx}_IMAP_HOST", "").strip()
-                z_imap_port = int(os.environ.get(f"ZOHO_INBOX_{idx}_IMAP_PORT", "993"))
-                z_limit = int(os.environ.get(f"ZOHO_INBOX_{idx}_DAILY_LIMIT", str(warmup_week1_limit)))
+                z_imap_port = _clean_int(os.environ.get(f"ZOHO_INBOX_{idx}_IMAP_PORT", "993"), 993)
+                z_limit = _clean_int(os.environ.get(f"ZOHO_INBOX_{idx}_DAILY_LIMIT", str(warmup_week1_limit)), warmup_week1_limit)
 
                 z_imap_enabled = os.environ.get(f"ZOHO_INBOX_{idx}_IMAP_ENABLED", "true").lower() in ("true", "1", "yes")
 

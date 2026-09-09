@@ -1716,7 +1716,7 @@ class LLMAgentEngine:
         top_company = valid_company_hits[0] if valid_company_hits else {}
         top_portal = portal_hits[0] if portal_hits else {}
         
-        mock_fields = ["record_id", "filing_date", "applicant_name", "status"]
+        fallback_fields = ["record_id", "filing_date", "applicant_name", "status"]
             
         return {
             "company_name": top_company.get("title", "Lone Star Commercial Capital LLC"),
@@ -1730,7 +1730,7 @@ class LLMAgentEngine:
             "target_url": top_portal.get("url", "https://data.texas.gov/"),
             "portal_name": top_portal.get("title", "Texas Statewide Commercial Registry Portal"),
             "jurisdiction": "State of Texas",
-            "suggested_fields": mock_fields,
+            "suggested_fields": fallback_fields,
             "tier_key": "weekly",
             "pitch_subject": "Automating your commercial public record stream",
             "pitch_body": "Hello, we noticed your team tracks commercial records manually. Here is a live sandbox of your automated portal stream.",

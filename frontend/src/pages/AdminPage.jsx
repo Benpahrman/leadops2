@@ -96,6 +96,54 @@ export default function AdminPage() {
   const [autoOutreachStatus, setAutoOutreachStatus] = useState(null);
   const [autoOutreachLoading, setAutoOutreachLoading] = useState(false);
   const [scoutingInProgress, setScoutingInProgress] = useState(false);
+  const [selectedScoutChannel, setSelectedScoutChannel] = useState('');
+
+  const renderDiscoveryBadge = (channel, filingCaseNumber) => {
+    if (!channel || channel === 'CATALOG_SEARCH') return null;
+    const config = {
+      COUNTY_FILING_PARTY: { label: '🏛️ County Filing Party', bg: 'rgba(234, 179, 8, 0.15)', color: '#facc15', border: 'rgba(234, 179, 8, 0.35)' },
+      STATE_BAR_DIRECTORY: { label: '⚖️ State Bar Directory', bg: 'rgba(168, 85, 247, 0.15)', color: '#c084fc', border: 'rgba(168, 85, 247, 0.35)' },
+      SOS_NEW_BUSINESS: { label: '🏢 SOS Registration', bg: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', border: 'rgba(56, 189, 248, 0.35)' },
+      GOOGLE_MAPS_LOCAL: { label: '📍 Local / Maps', bg: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', border: 'rgba(34, 197, 94, 0.35)' },
+      JOB_BOARD_INTENT: { label: '📋 Job Requisition', bg: 'rgba(244, 63, 94, 0.15)', color: '#fb7185', border: 'rgba(244, 63, 94, 0.35)' },
+    }[channel] || { label: `🔍 ${channel}`, bg: 'rgba(148, 163, 184, 0.15)', color: '#94a3b8', border: 'rgba(148, 163, 184, 0.3)' };
+
+    return (
+      <div style={{ marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+        <span
+          style={{
+            fontSize: '10px',
+            fontWeight: 700,
+            padding: '2px 7px',
+            borderRadius: '4px',
+            background: config.bg,
+            color: config.color,
+            border: `1px solid ${config.border}`,
+            letterSpacing: '0.02em',
+          }}
+          title={`Acquisition Engine: ${config.label}`}
+        >
+          {config.label}
+        </span>
+        {filingCaseNumber && (
+          <span
+            style={{
+              fontSize: '10px',
+              fontFamily: 'var(--mono)',
+              padding: '2px 5px',
+              borderRadius: '4px',
+              background: 'rgba(255, 255, 255, 0.05)',
+              color: 'var(--text-dim)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+            }}
+            title={`Public Record Filing: Case #${filingCaseNumber}`}
+          >
+            #{filingCaseNumber}
+          </span>
+        )}
+      </div>
+    );
+  };
 
   // Sync tab & filters to URL query string
   useEffect(() => {
@@ -465,16 +513,26 @@ export default function AdminPage() {
     }
   };
 
-  const handleTriggerWebScout = async () => {
+  const handleTriggerWebScout = async (overrideChannel = null) => {
     setScoutingInProgress(true);
-    showToast('🔎 Triggering autonomous B2B Scout discovery cycle...', 'info');
+    const targetChannel = overrideChannel !== null ? overrideChannel : selectedScoutChannel;
+    const channelLabel = targetChannel === 'county_filing_party'
+      ? 'County Filing Parties'
+      : targetChannel === 'state_bar'
+      ? 'State Bar Attorneys'
+      : targetChannel === 'sos_entity'
+      ? 'SOS Registrations'
+      : targetChannel === 'local_business'
+      ? 'Google Maps / Local'
+      : 'All Channels (Auto)';
+    showToast(`🔎 Triggering autonomous Scout via [${channelLabel}]...`, 'info');
     try {
       const token = await resolveToken();
-      const res = await triggerScoutDiscovery(null, token);
+      const res = await triggerScoutDiscovery(null, token, targetChannel || null);
       if (res.lead_id) {
         showToast(`Discovered qualified lead: ${res.company_name || res.lead_id}!`, 'success');
       } else {
-        showToast(res.message || 'Scout pass complete. Telemetry updated.', 'info');
+        showToast(res.message || res.reason || 'Scout pass complete. Telemetry updated.', 'info');
       }
       await loadAdminData();
     } catch (err) {
@@ -888,23 +946,47 @@ export default function AdminPage() {
             >
               <span>{autoOutreachStatus?.enabled ? '⏱️ Auto-Outreach: ON (3m Grace)' : '⏸️ Auto-Outreach: OFF'}</span>
             </button>
-            <button
-              className="btn btn-outline"
-              style={{
-                borderColor: 'rgba(56, 189, 248, 0.4)',
-                color: 'var(--cyan)',
-                fontSize: '11px',
-                padding: '6px 12px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '5px',
-              }}
-              onClick={handleTriggerWebScout}
-              disabled={scoutingInProgress}
-              title="Manually trigger autonomous scout to probe public registries and discover qualified B2B leads."
-            >
-              <span>{scoutingInProgress ? '⏳ Scouting...' : '🔎 Scout Now'}</span>
-            </button>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <select
+                value={selectedScoutChannel}
+                onChange={(e) => setSelectedScoutChannel(e.target.value)}
+                style={{
+                  background: 'rgba(15, 23, 42, 0.85)',
+                  border: '1px solid rgba(56, 189, 248, 0.35)',
+                  borderRadius: '6px',
+                  color: 'var(--cyan)',
+                  fontSize: '11px',
+                  padding: '5px 8px',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+                title="Select High-ROI Prospect Discovery Engine"
+              >
+                <option value="">🎯 All High-ROI Channels (Auto)</option>
+                <option value="county_filing_party">🏛️ County Filing Parties (Priority 1)</option>
+                <option value="state_bar">⚖️ State Bar Directories (Priority 2)</option>
+                <option value="sos_entity">🏢 SOS New Registrations (Priority 3)</option>
+                <option value="local_business">📍 Google Maps / Local (Priority 4)</option>
+              </select>
+              <button
+                className="btn btn-outline"
+                style={{
+                  borderColor: 'rgba(56, 189, 248, 0.4)',
+                  color: 'var(--cyan)',
+                  fontSize: '11px',
+                  padding: '6px 12px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                }}
+                onClick={() => handleTriggerWebScout()}
+                disabled={scoutingInProgress}
+                title="Manually trigger autonomous scout to probe public registries and discover qualified B2B leads."
+              >
+                <span>{scoutingInProgress ? '⏳ Scouting...' : '🔎 Scout Now'}</span>
+              </button>
+            </div>
 
             <button
               className="btn btn-outline"
@@ -1250,6 +1332,7 @@ export default function AdminPage() {
                                 ✉️ {lead.contact_email}
                               </div>
                             )}
+                            {renderDiscoveryBadge(lead.discovery_channel, lead.filing_case_number)}
                           </td>
                           <td>
                             <div style={{ fontSize: '13px', color: 'var(--text)' }}>
@@ -1695,6 +1778,7 @@ export default function AdminPage() {
                           <td>
                             <div style={{ fontWeight: 700, color: '#fff' }}>{lead.company_name || 'Feed Target'}</div>
                             <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontFamily: 'var(--mono)' }}>{lead.lead_id}</div>
+                            {renderDiscoveryBadge(lead.discovery_channel, lead.filing_case_number)}
                           </td>
                           <td>
                             <div>{lead.tier_name || lead.tier_key || 'Weekly'}</div>

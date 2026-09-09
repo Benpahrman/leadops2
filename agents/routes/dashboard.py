@@ -20,6 +20,9 @@ logger = logging.getLogger("api.dashboard")
 router = APIRouter()
 
 # Request Models
+class SaveSchemaRequest(BaseModel):
+    active_fields: list[str] = Field(default_factory=list)
+
 class FieldModificationRequest(BaseModel):
     add_fields: list[str] = Field(default_factory=list)
     remove_fields: list[str] = Field(default_factory=list)
@@ -42,6 +45,8 @@ class DestinationUpdateRequest(BaseModel):
 
 class TestDestinationRequest(BaseModel):
     destination_type: str = "google_sheets"  # "google_sheets", "webhook", "email_csv", "airtable", "notion"
+    type: str | None = None
+    email: str | None = None
     url: str | None = None
     google_sheet_url: str | None = None
     webhook_url: str | None = None
@@ -139,6 +144,38 @@ def request_field_changes(
         )
     except (KeyError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/api/dashboard/{lead_id}/schema", tags=["Dashboard API"])
+def save_schema_endpoint(
+    lead_id: str,
+    req: SaveSchemaRequest,
+    user: ClerkUser | None = Depends(get_current_user_optional),
+    storage_backend=Depends(get_storage),
+    dashboard_service=Depends(get_dashboard_service),
+):
+    check_dashboard_access(lead_id, user, storage_backend)
+    lead = storage_backend.get_lead(lead_id)
+    if not lead:
+        for sb in storage_backend.list_sandboxes():
+            if sb.slug == lead_id:
+                lead = sb.lead
+                lead_id = lead.lead_id
+                break
+    if not lead:
+        raise HTTPException(status_code=404, detail=f"Lead not found: {lead_id}")
+
+    max_allowed = lead.tier.max_fields if hasattr(lead, "tier") and hasattr(lead.tier, "max_fields") else 15
+    if len(req.active_fields) > max_allowed:
+        raise HTTPException(status_code=400, detail=f"Selected fields ({len(req.active_fields)}) exceed tier limit of {max_allowed}.")
+
+    lead.selected_fields = sorted(list(set(req.active_fields)))
+    storage_backend.save_lead(lead)
+    return {
+        "ok": True,
+        "lead_id": lead_id,
+        "active_fields": lead.selected_fields,
+        "message": "Schema fields updated successfully."
+    }
 
 @router.post("/api/dashboard/{lead_id}/destination", tags=["Dashboard API"])
 @router.post("/api/dashboard/{lead_id}/destinations", tags=["Dashboard API"])
@@ -525,12 +562,14 @@ def test_destination_endpoint(
 ):
     """Performs live connectivity probe on the customer's Google Sheets / Webhook / Airtable / Notion destination."""
     check_dashboard_access(lead_id, user, storage_backend)
-    dest_type = req.destination_type.lower().strip()
+    dest_type = (req.type or req.destination_type or "google_sheets").lower().strip()
 
     if dest_type == "google_sheets":
         from ..google_sheets import test_google_sheet_connection
         sheet_url = req.google_sheet_url or req.url or "https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
-        ok, msg = test_google_sheet_connection(sheet_url)
+        res = test_google_sheet_connection(sheet_url)
+        ok = bool(res.get("ok", False))
+        msg = res.get("message", "")
         return {
             "ok": ok,
             "destination_type": "google_sheets",
@@ -549,10 +588,14 @@ def test_destination_endpoint(
                 "status": "ERROR",
                 "message": "Missing Webhook target URL. Please enter a valid https:// URL.",
             }
-        ok, latency, code, msg = test_webhook_connection(
-            url=target_url,
-            secret=req.webhook_secret,
+        res = test_webhook_connection(
+            webhook_url=target_url,
+            secret_token=req.webhook_secret,
         )
+        ok = bool(res.get("ok", False))
+        latency = res.get("latency_ms", 0)
+        code = res.get("status_code", 200 if ok else 400)
+        msg = res.get("message", "")
         return {
             "ok": ok,
             "destination_type": "webhook",
@@ -593,7 +636,7 @@ def test_destination_endpoint(
         }
     elif dest_type == "email_csv":
         from ..email.client import EmailClient
-        recipient = req.email_recipient or (user.email if user and user.email else "client@example.com")
+        recipient = req.email_recipient or req.email or (user.email if user and user.email else "client@example.com")
         client = EmailClient()
         return {
             "ok": True,
@@ -603,7 +646,7 @@ def test_destination_endpoint(
         }
     else:
         from ..observability import telemetry_collector
-        return telemetry_collector.test_destination(req.destination_type, req.url)
+        return telemetry_collector.test_destination(dest_type, req.url)
 
 
 # -------------------------------------------------------------------------

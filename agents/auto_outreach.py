@@ -42,14 +42,23 @@ class AutoOutreachScheduler:
         min_jitter_seconds: int = 300,
         max_jitter_seconds: int = 1800,
     ) -> None:
-        self.grace_period_seconds = int(
-            os.environ.get("AUTO_OUTREACH_GRACE_PERIOD_SECONDS", grace_period_seconds)
+        def _clean_int(val: Any, default: int) -> int:
+            try:
+                return int(str(val).split("#")[0].strip().strip("\"'"))
+            except (ValueError, TypeError):
+                return default
+
+        self.grace_period_seconds = _clean_int(
+            os.environ.get("AUTO_OUTREACH_GRACE_PERIOD_SECONDS", grace_period_seconds),
+            grace_period_seconds,
         )
-        self.min_jitter_seconds = int(
-            os.environ.get("AUTO_OUTREACH_MIN_JITTER_SECONDS", min_jitter_seconds)
+        self.min_jitter_seconds = _clean_int(
+            os.environ.get("AUTO_OUTREACH_MIN_JITTER_SECONDS", min_jitter_seconds),
+            min_jitter_seconds,
         )
-        self.max_jitter_seconds = int(
-            os.environ.get("AUTO_OUTREACH_MAX_JITTER_SECONDS", max_jitter_seconds)
+        self.max_jitter_seconds = _clean_int(
+            os.environ.get("AUTO_OUTREACH_MAX_JITTER_SECONDS", max_jitter_seconds),
+            max_jitter_seconds,
         )
         self._lock = threading.Lock()
         self._scheduled: dict[str, dict[str, Any]] = {}

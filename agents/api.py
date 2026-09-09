@@ -102,10 +102,20 @@ def create_app(
     if not configured_token:
         raise ValueError("LEADOPS_API_TOKEN must be set — internal scout/webhook endpoints require authentication")
     llm_engine = LLMAgentEngine()
-    fixed_scout_interval = os.environ.get("SCOUT_INTERVAL_SECONDS")
-    default_min_rest = int(fixed_scout_interval) if fixed_scout_interval else int(os.environ.get("SCOUT_MIN_REST_SECONDS", "3600"))
-    default_max_rest = int(fixed_scout_interval) if fixed_scout_interval else int(os.environ.get("SCOUT_MAX_REST_SECONDS", "7200"))
-    target_per_cycle = int(os.environ.get("SCOUT_TARGET_PER_CYCLE", "1"))
+    def _clean_env_int(key: str, default: int) -> int:
+        raw = os.environ.get(key)
+        if raw is None:
+            return default
+        cleaned = str(raw).split("#")[0].strip().strip("\"'")
+        try:
+            return int(cleaned)
+        except (ValueError, TypeError):
+            return default
+
+    fixed_scout_interval = _clean_env_int("SCOUT_INTERVAL_SECONDS", 0) if os.environ.get("SCOUT_INTERVAL_SECONDS") else None
+    default_min_rest = fixed_scout_interval if fixed_scout_interval else _clean_env_int("SCOUT_MIN_REST_SECONDS", 3600)
+    default_max_rest = fixed_scout_interval if fixed_scout_interval else _clean_env_int("SCOUT_MAX_REST_SECONDS", 7200)
+    target_per_cycle = _clean_env_int("SCOUT_TARGET_PER_CYCLE", 1)
 
     scout_supervisor = ScoutAutomationSupervisor(
         storage=storage_backend,

@@ -288,6 +288,16 @@ def terms_page():
     return render_terms_html()
 
 
+@router.get("/get-started", response_class=HTMLResponse, tags=["Portal UI"])
+@router.get("/build", response_class=HTMLResponse, tags=["Portal UI"])
+@router.get("/pipeline/new", response_class=HTMLResponse, tags=["Portal UI"])
+@router.get("/checkout/success", response_class=HTMLResponse, tags=["Portal UI"])
+@router.get("/checkout/cancel", response_class=HTMLResponse, tags=["Portal UI"])
+def frontend_flow_pages():
+    """Serves the React Single Page App for intake and checkout lifecycle flows."""
+    return render_landing_html()
+
+
 def build_sandbox_payload(slug: str, portal_service, storage_backend) -> dict[str, Any]:
     """Assemble sandbox payload dictionary from domain model and storage."""
     sandbox = ensure_demo_sandbox(slug, portal_service, storage_backend)
