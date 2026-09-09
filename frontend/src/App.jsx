@@ -18,6 +18,20 @@ const CheckoutSuccessPage = lazy(() => import('./pages/CheckoutSuccessPage'));
 const CheckoutCancelPage = lazy(() => import('./pages/CheckoutCancelPage'));
 
 export default function App() {
+  React.useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.search.includes('__clerk_')) {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('__clerk_status');
+        url.searchParams.delete('__clerk_created_session');
+        url.searchParams.delete('__clerk_handshake');
+        window.history.replaceState(null, '', url.toString());
+      } catch (e) {
+        // silent
+      }
+    }
+  }, []);
+
   return (
     <ToastProvider>
       <BrowserRouter>
