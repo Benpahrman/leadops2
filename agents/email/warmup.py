@@ -25,6 +25,8 @@ class WarmupManager:
 
     # Shared class-level tracking across instances during process lifecycle
     _shared_inbox_next_available: dict[str, float] = {}
+    _shared_in_memory_daily_counts: dict[str, int] = {}
+    _shared_rate_limited_inboxes: dict[str, float] = {}
 
     def __init__(
         self,
@@ -33,9 +35,10 @@ class WarmupManager:
     ):
         self.settings = settings or EmailSettings.from_environment()
         self.storage = storage_backend
-        self._in_memory_daily_counts: dict[str, int] = {}
-        self._rate_limited_inboxes: dict[str, float] = {}
+        self._in_memory_daily_counts = self._shared_in_memory_daily_counts
+        self._rate_limited_inboxes = self._shared_rate_limited_inboxes
         self._inbox_next_available_time = self._shared_inbox_next_available
+        self._rr_index = 0
 
     def record_inbox_jitter(self, inbox_id: str, jitter_seconds: float) -> None:
         """Mark a specific inbox on anti-spam jitter cooldown after sending."""
@@ -231,7 +234,7 @@ class WarmupManager:
                     eligible_candidates.append((sent, acc.id))
 
         if eligible_candidates:
-            # Sort by least sent today
+            # Sort by least sent today (stable sort preserves configured priority among tie counts)
             eligible_candidates.sort(key=lambda x: x[0])
             return eligible_candidates[0][1]
 

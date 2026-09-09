@@ -59,6 +59,11 @@ class EmailClient:
         actual_name = f"{to_name} ({to_email})" if (override_email and override_email.lower() != to_email.lower()) else to_name
         email_subject = f"[{to_name}] {subject}" if (override_email and override_email.lower() != to_email.lower()) else subject
 
+        if override_email:
+            logger.info(f"⚠️ [DEV OVERRIDE ACTIVE] Routing email for '{to_email}' to override address '{override_email}'.")
+        else:
+            logger.info(f"📧 [REAL RECIPIENT DISPATCH] Sending directly to verified recipient '{to_email}' ({to_name}).")
+
         if inbox is not None:
             inbox_id = inbox.id
             sender_email = inbox.email_address
