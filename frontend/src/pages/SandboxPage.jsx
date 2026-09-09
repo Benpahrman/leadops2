@@ -54,8 +54,10 @@ export default function SandboxPage() {
 
   const companyName = sandboxData?.lead?.company_name || slug?.replace('lead-', '').replace(/-/g, ' ').toUpperCase() || 'YOUR COMPANY';
   const jurisdiction = sandboxData?.lead?.jurisdiction || 'Public Records Registry';
-  const sourceUrl = sandboxData?.source_url || 'https://data.cityofchicago.org';
-  const rows = sandboxData?.rows || [];
+  const sourceUrl = sandboxData?.source_url || 'https://data.gov';
+  // Support both "sample" (current API) and "rows" (legacy key)
+  const rows = sandboxData?.sample || sandboxData?.rows || [];
+  const rowCount = sandboxData?.row_count || rows.length || 0;
 
   const handleToggleField = (field) => {
     setActiveFields((prev) =>
@@ -174,12 +176,13 @@ export default function SandboxPage() {
 
         {/* 4-Metric Precision KPI Strip */}
         <div className="sandbox-kpi-grid">
+            {/* Verified Record Count KPI */}
           <div className="sandbox-kpi-card">
             <div className="sandbox-kpi-header">
               <span className="sandbox-kpi-title">Verified Dockets</span>
               <span className="badge-tag badge-green">LIVE</span>
             </div>
-            <div className="sandbox-kpi-value">{rows.length > 0 ? `${rows.length} Records` : '25 Records'}</div>
+            <div className="sandbox-kpi-value">{rowCount > 0 ? `${rowCount} Records` : '25 Records'}</div>
             <div className="sandbox-kpi-subtext">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12" />
@@ -271,6 +274,50 @@ export default function SandboxPage() {
                 $151 net balance due only upon &gt;=95% verification pass
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* FREE 25 RECORDS INCENTIVE BANNER */}
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(16,185,129,0.10) 0%, rgba(56,189,248,0.08) 100%)',
+          border: '1px solid rgba(16,185,129,0.35)',
+          borderRadius: '12px',
+          padding: '20px 24px',
+          marginBottom: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '16px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{
+              width: '44px', height: '44px', borderRadius: '10px',
+              background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '22px', flexShrink: 0,
+            }}>🎁</div>
+            <div>
+              <div style={{ fontSize: '15px', fontWeight: 800, color: '#fff', marginBottom: '3px' }}>
+                Your Free Sample: {rowCount > 0 ? rowCount : 25} Verified {jurisdiction} Records
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                Pulled live from{' '}
+                <a
+                  href={sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: 'var(--cyan)', textDecoration: 'none', fontWeight: 600 }}
+                >
+                  {(() => { try { return new URL(sourceUrl).hostname; } catch { return sourceUrl; } })()}
+                </a>
+                {' '}— click any row to verify the record on the official government portal.
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+            <div style={{ fontSize: '12px', color: 'var(--green)', fontWeight: 700 }}>✓ 500+ records/day in production</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>Delivered 6:00 AM daily · Google Sheets &amp; Webhook</div>
           </div>
         </div>
 

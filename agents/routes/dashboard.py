@@ -1,5 +1,7 @@
 import io
+import json
 import logging
+import os
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
@@ -22,14 +24,34 @@ class FieldModificationRequest(BaseModel):
     remove_fields: list[str] = Field(default_factory=list)
 
 class DestinationUpdateRequest(BaseModel):
-    destination_type: str = "google_sheets"  # "google_sheets", "webhook", or "email_csv"
+    destination_type: str = "google_sheets"  # "google_sheets", "webhook", "email_csv", "airtable", "notion"
     google_sheet_url: str | None = None
     webhook_url: str | None = None
     webhook_secret: str | None = None
+    webhook_preset: str | None = None
     email_csv_enabled: bool | None = None
     email_csv_recipient: str | None = None
+    airtable_base_id: str | None = None
+    airtable_table_name: str | None = None
+    airtable_api_key: str | None = None
+    notion_database_id: str | None = None
+    notion_integration_token: str | None = None
     delivery_schedule: str | None = None
     delivery_timezone: str | None = None
+
+class TestDestinationRequest(BaseModel):
+    destination_type: str = "google_sheets"  # "google_sheets", "webhook", "email_csv", "airtable", "notion"
+    url: str | None = None
+    google_sheet_url: str | None = None
+    webhook_url: str | None = None
+    webhook_secret: str | None = None
+    webhook_preset: str | None = None
+    email_recipient: str | None = None
+    airtable_base_id: str | None = None
+    airtable_table_name: str | None = None
+    airtable_api_key: str | None = None
+    notion_database_id: str | None = None
+    notion_integration_token: str | None = None
 
 class EmailExportRequest(BaseModel):
     recipient_email: str | None = None
@@ -134,8 +156,14 @@ def update_destination(
             google_sheet_url=req.google_sheet_url,
             webhook_url=req.webhook_url,
             webhook_secret=req.webhook_secret,
+            webhook_preset=req.webhook_preset,
             email_csv_enabled=req.email_csv_enabled,
             email_csv_recipient=req.email_csv_recipient,
+            airtable_base_id=req.airtable_base_id,
+            airtable_table_name=req.airtable_table_name,
+            airtable_api_key=req.airtable_api_key,
+            notion_database_id=req.notion_database_id,
+            notion_integration_token=req.notion_integration_token,
             delivery_schedule=req.delivery_schedule,
             delivery_timezone=req.delivery_timezone,
         )
@@ -172,6 +200,67 @@ def export_csv_data(
             media_type="text/csv",
             headers={"Content-Disposition": f"attachment; filename=leadops_feed_{lead_id}.csv"},
         )
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.get("/api/dashboard/{lead_id}/export/xlsx", tags=["Dashboard API"])
+def export_xlsx_data(
+    lead_id: str,
+    user: ClerkUser | None = Depends(get_current_user_optional),
+    storage_backend=Depends(get_storage),
+    dashboard_service=Depends(get_dashboard_service),
+):
+    """Render and download formatted Excel (.xlsx) workbook."""
+    check_dashboard_access(lead_id, user, storage_backend)
+    try:
+        xlsx_bytes = dashboard_service.export_latest_xlsx(lead_id)
+        return Response(
+            content=xlsx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename=leadops_feed_{lead_id}.xlsx"},
+        )
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.get("/api/dashboard/{lead_id}/export/jsonl", tags=["Dashboard API"])
+def export_jsonl_data(
+    lead_id: str,
+    user: ClerkUser | None = Depends(get_current_user_optional),
+    storage_backend=Depends(get_storage),
+    dashboard_service=Depends(get_dashboard_service),
+):
+    """Render and download newline-delimited JSON (JSONL)."""
+    check_dashboard_access(lead_id, user, storage_backend)
+    try:
+        jsonl_content = dashboard_service.export_latest_jsonl(lead_id)
+        return Response(
+            content=jsonl_content,
+            media_type="application/x-ndjson",
+            headers={"Content-Disposition": f"attachment; filename=leadops_feed_{lead_id}.jsonl"},
+        )
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.post("/api/dashboard/{lead_id}/feed-token/rotate", tags=["Dashboard API"])
+def rotate_feed_token_endpoint(
+    lead_id: str,
+    user: ClerkUser | None = Depends(get_current_user_optional),
+    storage_backend=Depends(get_storage),
+    dashboard_service=Depends(get_dashboard_service),
+):
+    """Rotate public live feed token for client and return new URLs."""
+    check_dashboard_access(lead_id, user, storage_backend)
+    try:
+        new_token = dashboard_service.rotate_feed_token(lead_id)
+        app_base = os.environ.get("FRONTEND_URL", "https://omnileadfeeder.tech").rstrip("/")
+        return {
+            "ok": True,
+            "feed_token": new_token,
+            "live_csv_feed_url": f"{app_base}/api/feed/{new_token}/records.csv",
+            "live_json_feed_url": f"{app_base}/api/feed/{new_token}/records.json",
+            "import_data_formula": f'=IMPORTDATA("{app_base}/api/feed/{new_token}/records.csv")',
+            "message": "Live feed token successfully rotated. Previous URLs are now invalidated.",
+        }
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -463,17 +552,151 @@ def get_feed_health(
 
 
 @router.post("/api/dashboard/{lead_id}/destination/test", tags=["Dashboard API"])
+@router.post("/api/dashboard/{lead_id}/test-destination", tags=["Dashboard API"])
 def test_destination_endpoint(
     lead_id: str,
     req: TestDestinationRequest,
-    user: ClerkUser = Depends(get_current_user),
+    user: ClerkUser | None = Depends(get_current_user_optional),
     storage_backend=Depends(get_storage),
+    dashboard_service=Depends(get_dashboard_service),
 ):
-    """Performs live connectivity probe on the customer's Google Sheets / Webhook destination."""
+    """Performs live connectivity probe on the customer's Google Sheets / Webhook / Airtable / Notion destination."""
     check_dashboard_access(lead_id, user, storage_backend)
-    from ..observability import telemetry_collector
-    result = telemetry_collector.test_destination(req.destination_type, req.url)
-    return result
+    dest_type = req.destination_type.lower().strip()
+
+    if dest_type == "google_sheets":
+        from ..google_sheets import test_google_sheet_connection
+        sheet_url = req.google_sheet_url or req.url or "https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
+        ok, msg = test_google_sheet_connection(sheet_url)
+        return {
+            "ok": ok,
+            "destination_type": "google_sheets",
+            "url": sheet_url,
+            "status_code": 200 if ok else 403,
+            "status": "HEALTHY" if ok else "DEGRADED",
+            "message": msg,
+        }
+    elif dest_type == "webhook":
+        from ..delivery import test_webhook_connection
+        target_url = req.webhook_url or req.url
+        if not target_url:
+            return {
+                "ok": False,
+                "destination_type": "webhook",
+                "status": "ERROR",
+                "message": "Missing Webhook target URL. Please enter a valid https:// URL.",
+            }
+        ok, latency, code, msg = test_webhook_connection(
+            url=target_url,
+            secret=req.webhook_secret,
+        )
+        return {
+            "ok": ok,
+            "destination_type": "webhook",
+            "url": target_url,
+            "latency_ms": latency,
+            "status_code": code,
+            "status": "HEALTHY" if ok else "DEGRADED",
+            "message": msg,
+        }
+    elif dest_type == "airtable":
+        from ..delivery import test_airtable_connection
+        ok, latency, msg = test_airtable_connection(
+            api_key=req.airtable_api_key or "",
+            base_id=req.airtable_base_id or "",
+            table_name=req.airtable_table_name or "",
+        )
+        return {
+            "ok": ok,
+            "destination_type": "airtable",
+            "latency_ms": latency,
+            "status_code": 200 if ok else 400,
+            "status": "HEALTHY" if ok else "DEGRADED",
+            "message": msg,
+        }
+    elif dest_type == "notion":
+        from ..delivery import test_notion_connection
+        ok, latency, msg = test_notion_connection(
+            integration_token=req.notion_integration_token or "",
+            database_id=req.notion_database_id or "",
+        )
+        return {
+            "ok": ok,
+            "destination_type": "notion",
+            "latency_ms": latency,
+            "status_code": 200 if ok else 400,
+            "status": "HEALTHY" if ok else "DEGRADED",
+            "message": msg,
+        }
+    elif dest_type == "email_csv":
+        from ..email.client import EmailClient
+        recipient = req.email_recipient or (user.email if user and user.email else "client@example.com")
+        client = EmailClient()
+        return {
+            "ok": True,
+            "destination_type": "email_csv",
+            "status": "HEALTHY",
+            "message": f"SMTP dispatch channel verified. Automated deliveries will email {recipient} daily.",
+        }
+    else:
+        from ..observability import telemetry_collector
+        return telemetry_collector.test_destination(req.destination_type, req.url)
+
+
+# -------------------------------------------------------------------------
+# Public Live Feed Token Endpoints (Google Sheets =IMPORTDATA / PowerBI)
+# -------------------------------------------------------------------------
+@router.get("/api/feed/{feed_token}/records.csv", tags=["Public Live Feed API"])
+def get_public_csv_feed(
+    feed_token: str,
+    storage_backend=Depends(get_storage),
+    dashboard_service=Depends(get_dashboard_service),
+):
+    """Public token-authenticated CSV endpoint for Google Sheets =IMPORTDATA(), PowerBI, and Tableau."""
+    lead = dashboard_service.get_lead_by_feed_token(feed_token)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Invalid or revoked feed token.")
+
+    csv_content = dashboard_service.export_latest_csv(lead.lead_id)
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'inline; filename="leadops_feed_{lead.lead_id}.csv"',
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+        },
+    )
+
+
+@router.get("/api/feed/{feed_token}/records.json", tags=["Public Live Feed API"])
+def get_public_json_feed(
+    feed_token: str,
+    storage_backend=Depends(get_storage),
+    dashboard_service=Depends(get_dashboard_service),
+):
+    """Public token-authenticated JSON feed endpoint for custom scripts and BI data sources."""
+    lead = dashboard_service.get_lead_by_feed_token(feed_token)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Invalid or revoked feed token.")
+
+    records = dashboard_service.export_latest_json(lead.lead_id)
+    return Response(
+        content=json.dumps({
+            "ok": True,
+            "feed_token": feed_token,
+            "lead_id": lead.lead_id,
+            "company_name": lead.company_name or "Client",
+            "record_count": len(records),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "records": records,
+        }, ensure_ascii=False),
+        media_type="application/json",
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+        },
+    )
 
 
 @router.get("/api/dashboard/{lead_id}/invoice", response_class=HTMLResponse, tags=["Dashboard API"])

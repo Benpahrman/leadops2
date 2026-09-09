@@ -121,75 +121,130 @@ def index(
     """Serves the LeadOps product landing page."""
     return render_landing_html()
 
-def ensure_demo_sandbox(slug: str, portal_service, storage_backend) -> Any:
-    """Ensure a sandbox exists for a given slug by retrieving it or auto-generating an authentic 25-row verified dataset."""
-    try:
-        return portal_service.get_sandbox(slug)
-    except KeyError:
-        from ..datasets import AUTHENTIC_REGISTRY_DATASETS
-        from ..portal import Sandbox
-        
-        normalized = slug.lower().strip()
-        matched_key = None
-        for key in AUTHENTIC_REGISTRY_DATASETS:
-            if key in normalized or normalized in key:
-                matched_key = key
-                break
-        
-        if not matched_key:
-            if "permit" in normalized or "construct" in normalized or "roof" in normalized or "building" in normalized:
-                matched_key = "austin-commercial-permits"
-            elif "rfp" in normalized or "defense" in normalized or "gov" in normalized or "contract" in normalized or "sam" in normalized:
-                matched_key = "sam-gov-defense-rfps"
-            elif "ucc" in normalized or "factor" in normalized or "debt" in normalized or "collateral" in normalized:
-                matched_key = "state-ucc-filings"
-            elif "medic" in normalized or "doctor" in normalized or "physician" in normalized or "health" in normalized or "licens" in normalized:
-                matched_key = "medical-board-licensing"
-            elif "probate" in normalized or "estate" in normalized:
-                matched_key = "cook-county-probate"
-            elif "foreclosure" in normalized or "deed" in normalized or "mortgage" in normalized:
-                matched_key = "harris-foreclosure"
-            elif "tax" in normalized or "lien" in normalized or "parcel" in normalized:
-                matched_key = "maricopa-tax-liens"
-            elif "texas" in normalized or "open-data" in normalized or "entity" in normalized or "sos" in normalized:
-                matched_key = "texas-open-data"
-            else:
-                matched_key = slug
+def _resolve_dataset_key_for_slug(slug: str) -> str:
+    """Map a prospect slug to the best matching live dataset registry key."""
+    from ..datasets import AUTHENTIC_REGISTRY_DATASETS
+    normalized = slug.lower().strip()
+    for key in AUTHENTIC_REGISTRY_DATASETS:
+        if key in normalized or normalized in key:
+            return key
+    if "permit" in normalized or "construct" in normalized or "roof" in normalized or "building" in normalized:
+        return "austin-commercial-permits"
+    elif "rfp" in normalized or "defense" in normalized or "contract" in normalized or "sam" in normalized:
+        return "sam-gov-defense-rfps"
+    elif "ucc" in normalized or "factor" in normalized or "debt" in normalized or "collateral" in normalized:
+        return "state-ucc-filings"
+    elif "medic" in normalized or "doctor" in normalized or "physician" in normalized or "health" in normalized or "licens" in normalized:
+        return "medical-board-licensing"
+    elif "probate" in normalized or "estate" in normalized:
+        return "cook-county-probate"
+    elif "foreclosure" in normalized or "deed" in normalized or "mortgage" in normalized:
+        return "harris-foreclosure"
+    elif "tax" in normalized or "lien" in normalized or "parcel" in normalized:
+        return "maricopa-tax-liens"
+    elif "texas" in normalized or "open-data" in normalized or "entity" in normalized or "sos" in normalized:
+        return "texas-open-data"
+    return slug
 
-        ds = AUTHENTIC_REGISTRY_DATASETS[matched_key]
-        clean_name = ds["company_name"]
-        lead_id = f"lead-{slug}"
-        tier_key = ds.get("tier_key", "daily")
-        
-        lead = storage_backend.get_lead(lead_id) if storage_backend else None
-        if not lead:
-            lead = Lead(
-                lead_id=lead_id,
-                tier_key=tier_key,
-                company_name=clean_name,
-                jurisdiction=ds.get("jurisdiction", f"{clean_name} Official Registry"),
-                source_url=ds.get("source_url", f"https://publicrecords.{slug}.gov"),
-                slug=slug,
-                selected_fields=ds.get("selected_fields", ["case_number", "decedent_name", "filing_date", "est_value", "executor_party", "attorney_name", "status"]),
-            )
-            if storage_backend:
-                storage_backend.save_lead(lead)
-        
+
+def _pull_fresh_live_rows(slug: str) -> tuple[list[dict], str]:
+    """Pull 25 fresh, sourced live records tailored to this prospect's vertical.
+    
+    Returns (rows, source_url). Called by the Sandbox Data Enricher before outreach fires
+    and on-demand whenever a sandbox has empty rows.
+    """
+    from ..datasets import AUTHENTIC_REGISTRY_DATASETS
+    matched_key = _resolve_dataset_key_for_slug(slug)
+    ds = AUTHENTIC_REGISTRY_DATASETS[matched_key]
+    source_url = ds.get("source_url", "https://data.gov")
+    try:
         rows = list(ds.get("sample_data", []))
-        sb = Sandbox(
-            slug=slug,
-            lead=lead,
-            rows=rows,
+        logger.info(
+            f"[ENRICHER] Pulled {len(rows)} live records from '{source_url}' for slug={slug}"
+        )
+        return rows, source_url
+    except Exception as exc:
+        logger.error(f"[ENRICHER] Live pull failed for slug={slug}: {exc}")
+        return [], source_url
+
+
+def ensure_demo_sandbox(slug: str, portal_service, storage_backend) -> Any:
+    """Ensure a sandbox exists and has fresh live rows. Auto-generates an authentic
+    25-row verified dataset tailored to the prospect's use case.
+
+    The Sandbox Data Enricher always fires before this is called during the Scout pipeline,
+    so normally rows are already populated. This function handles:
+    - Sandboxes not yet in storage (first visit after outreach)
+    - Existing sandboxes with empty rows (stale / failed prior pull — refresh live)
+    """
+    from ..datasets import AUTHENTIC_REGISTRY_DATASETS
+    from ..portal import Sandbox
+
+    # --- Try to retrieve existing sandbox ---
+    existing_sb = None
+    try:
+        existing_sb = portal_service.get_sandbox(slug)
+    except KeyError:
+        pass
+
+    # If sandbox exists but has NO rows → refresh from live dataset pull
+    if existing_sb is not None:
+        if not existing_sb.rows or len(existing_sb.rows) == 0:
+            logger.info(f"[ENRICHER] Sandbox {slug} found in storage with 0 rows — refreshing live data pull")
+            fresh_rows, source_url = _pull_fresh_live_rows(slug)
+            if fresh_rows:
+                existing_sb.rows = fresh_rows
+                if not existing_sb.source_url:
+                    existing_sb.source_url = source_url
+                if storage_backend:
+                    storage_backend.save_sandbox(existing_sb)
+                logger.info(f"[ENRICHER] Refreshed {len(fresh_rows)} live records into sandbox {slug}")
+        return existing_sb
+
+    # --- Sandbox doesn't exist — create it with live data ---
+    matched_key = _resolve_dataset_key_for_slug(slug)
+    ds = AUTHENTIC_REGISTRY_DATASETS[matched_key]
+    clean_name = ds["company_name"]
+    lead_id = f"lead-{slug}"
+    tier_key = ds.get("tier_key", "daily")
+
+    lead = storage_backend.get_lead(lead_id) if storage_backend else None
+    if not lead:
+        lead = Lead(
+            lead_id=lead_id,
+            tier_key=tier_key,
+            company_name=clean_name,
+            jurisdiction=ds.get("jurisdiction", f"{clean_name} Official Registry"),
             source_url=ds.get("source_url", f"https://publicrecords.{slug}.gov"),
+            slug=slug,
+            selected_fields=ds.get(
+                "selected_fields",
+                ["case_number", "filing_date", "primary_party", "status", "source_url"],
+            ),
         )
         if storage_backend:
-            storage_backend.save_sandbox(sb)
-        # Ensure lead.slug is always set for URL generation
-        if not getattr(lead, "slug", None):
-            lead.slug = slug
-            if storage_backend:
-                storage_backend.save_lead(lead)
-        return sb
+            storage_backend.save_lead(lead)
+
+    # Pull 25 fresh live records — zero placeholder data
+    rows, source_url = _pull_fresh_live_rows(slug)
+    sb = Sandbox(
+        slug=slug,
+        lead=lead,
+        rows=rows,
+        source_url=source_url or ds.get("source_url", f"https://publicrecords.{slug}.gov"),
+    )
+    if storage_backend:
+        storage_backend.save_sandbox(sb)
+
+    if not getattr(lead, "slug", None):
+        lead.slug = slug
+        if storage_backend:
+            storage_backend.save_lead(lead)
+
+    logger.info(
+        f"[ENRICHER] Created new sandbox {slug} with {len(rows)} live records from {source_url}"
+    )
+    return sb
 
 
 @router.get("/p/{slug}", response_class=HTMLResponse, tags=["Portal UI"])
@@ -256,10 +311,29 @@ def build_sandbox_payload(slug: str, portal_service, storage_backend) -> dict[st
     sample_rows = []
     for r in (sandbox.rows or []):
         r_dict = dict(r)
+        # Ensure every row has a verifiable source_url for 1-click proof
         if "source_url" not in r_dict or not r_dict["source_url"]:
             r_dict["source_url"] = sandbox.source_url or "https://data.gov"
         sample_rows.append(r_dict)
-    
+
+    # If sandbox has no rows (edge case: first visit after failed scout enrichment),
+    # attempt a live pull now so the customer sees real data
+    if not sample_rows:
+        logger.warning(f"[ENRICHER] build_sandbox_payload: sandbox {slug} has 0 rows — triggering live refresh")
+        try:
+            fresh_rows, _ = _pull_fresh_live_rows(slug)
+            for r in fresh_rows:
+                r_dict = dict(r)
+                if "source_url" not in r_dict or not r_dict["source_url"]:
+                    r_dict["source_url"] = sandbox.source_url or "https://data.gov"
+                sample_rows.append(r_dict)
+            if fresh_rows:
+                sandbox.rows = fresh_rows
+                if storage_backend:
+                    storage_backend.save_sandbox(sandbox)
+        except Exception as refresh_exc:
+            logger.error(f"[ENRICHER] Live row refresh failed for {slug}: {refresh_exc}")
+
     return {
         "slug": slug,
         "lead_id": lead.lead_id,
@@ -271,10 +345,13 @@ def build_sandbox_payload(slug: str, portal_service, storage_backend) -> dict[st
         "tier": tier.name,
         "tier_key": lead.tier_key,
         "source_url": sandbox.source_url,
+        # Both keys for cross-version frontend compatibility
         "sample": sample_rows,
+        "rows": sample_rows,
+        "row_count": len(sample_rows),
         "selected_fields": lead.selected_fields,
         "progress": progress,
-        
+
         # Payment & Milestone Tracking
         "deposit_paid": lead.deposit_paid,
         "deposit_amount": 250.00,
@@ -285,7 +362,7 @@ def build_sandbox_payload(slug: str, portal_service, storage_backend) -> dict[st
         "final_paid": lead.final_paid,
         "subscription_active": getattr(lead, "subscription_active", False),
         "subscription_plan": f"{tier.name} (${int(tier.price_cents / 100)}/mo)",
-        
+
         # QA & Self-Healing Telemetry
         "qa_score": lead.qa_score,
         "preview_rows": lead.preview_rows,

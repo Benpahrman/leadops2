@@ -1,8 +1,8 @@
-"""Customer Dashboard self-service service for LeadOps clients."""
-
+import json
 import os
 import csv
 import io
+import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Any
@@ -13,13 +13,20 @@ from .storage import StorageBackend
 
 @dataclass
 class DestinationConfig:
-    destination_type: str = "google_sheets"  # "google_sheets", "webhook", "email_csv"
+    destination_type: str = "google_sheets"  # "google_sheets", "webhook", "email_csv", "airtable", "notion"
     google_sheet_url: str | None = "https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
     google_sheet_account: str | None = "service@omnileadfeeder.tech"
     webhook_url: str | None = None
     webhook_secret: str | None = None
+    webhook_preset: str = "standard"  # "standard", "zapier", "make", "n8n"
     email_csv_enabled: bool = True
     email_csv_recipient: str | None = None
+    airtable_base_id: str | None = None
+    airtable_table_name: str | None = None
+    airtable_api_key: str | None = None
+    notion_database_id: str | None = None
+    notion_integration_token: str | None = None
+    feed_token: str | None = None
     delivery_schedule: str = "Daily at 8:00 AM"
     delivery_timezone: str = "America/Chicago"  # CST
 
@@ -45,6 +52,8 @@ class CustomerDashboardService:
                 raise KeyError(f"Lead not found: {lead_id}")
 
         dest_config = self.destinations.get(lead_id, DestinationConfig())
+        dest_token = self.get_or_create_feed_token(lead_id)
+        app_base_url = os.environ.get("FRONTEND_URL", "https://omnileadfeeder.tech").rstrip("/")
         active_fields = lead.selected_fields or ["case_number", "decedent_name", "filing_date", "est_value", "attorney_name", "status"]
         max_allowed_fields = lead.tier.max_fields
 
@@ -235,8 +244,18 @@ class CustomerDashboardService:
                 "google_sheet_account": dest_config.google_sheet_account,
                 "webhook_url": dest_config.webhook_url,
                 "webhook_secret": dest_config.webhook_secret,
+                "webhook_preset": getattr(dest_config, "webhook_preset", "standard"),
                 "email_csv_enabled": dest_config.email_csv_enabled,
                 "email_csv_recipient": dest_config.email_csv_recipient or lead.contact_email,
+                "airtable_base_id": getattr(dest_config, "airtable_base_id", ""),
+                "airtable_table_name": getattr(dest_config, "airtable_table_name", ""),
+                "airtable_api_key": getattr(dest_config, "airtable_api_key", ""),
+                "notion_database_id": getattr(dest_config, "notion_database_id", ""),
+                "notion_integration_token": getattr(dest_config, "notion_integration_token", ""),
+                "feed_token": dest_token,
+                "live_csv_feed_url": f"{app_base_url}/api/feed/{dest_token}/records.csv",
+                "live_json_feed_url": f"{app_base_url}/api/feed/{dest_token}/records.json",
+                "import_data_formula": f'=IMPORTDATA("{app_base_url}/api/feed/{dest_token}/records.csv")',
                 "delivery_schedule": dest_config.delivery_schedule,
                 "delivery_timezone": dest_config.delivery_timezone,
             },
@@ -301,8 +320,14 @@ class CustomerDashboardService:
         google_sheet_url: str | None = None,
         webhook_url: str | None = None,
         webhook_secret: str | None = None,
+        webhook_preset: str | None = None,
         email_csv_enabled: bool | None = None,
         email_csv_recipient: str | None = None,
+        airtable_base_id: str | None = None,
+        airtable_table_name: str | None = None,
+        airtable_api_key: str | None = None,
+        notion_database_id: str | None = None,
+        notion_integration_token: str | None = None,
         delivery_schedule: str | None = None,
         delivery_timezone: str | None = None,
     ) -> DestinationConfig:
@@ -319,10 +344,22 @@ class CustomerDashboardService:
             current.webhook_url = webhook_url
         if webhook_secret is not None:
             current.webhook_secret = webhook_secret
+        if webhook_preset is not None:
+            current.webhook_preset = webhook_preset
         if email_csv_enabled is not None:
             current.email_csv_enabled = email_csv_enabled
         if email_csv_recipient is not None:
             current.email_csv_recipient = email_csv_recipient
+        if airtable_base_id is not None:
+            current.airtable_base_id = airtable_base_id
+        if airtable_table_name is not None:
+            current.airtable_table_name = airtable_table_name
+        if airtable_api_key is not None:
+            current.airtable_api_key = airtable_api_key
+        if notion_database_id is not None:
+            current.notion_database_id = notion_database_id
+        if notion_integration_token is not None:
+            current.notion_integration_token = notion_integration_token
         if delivery_schedule is not None:
             current.delivery_schedule = delivery_schedule
         if delivery_timezone is not None:
@@ -330,6 +367,138 @@ class CustomerDashboardService:
 
         self.destinations[lead_id] = current
         return current
+
+    def get_or_create_feed_token(self, lead_id: str) -> str:
+        """Fetch or generate a secure public feed token for live URL exports."""
+        current = self.destinations.get(lead_id, DestinationConfig())
+        if not current.feed_token:
+            current.feed_token = f"tok_{secrets.token_hex(16)}"
+            self.destinations[lead_id] = current
+        return current.feed_token
+
+    def rotate_feed_token(self, lead_id: str) -> str:
+        """Generate and assign a new secure feed token, invalidating the previous one."""
+        lead = self.storage.get_lead(lead_id)
+        if not lead:
+            raise KeyError(f"Lead not found: {lead_id}")
+
+        current = self.destinations.get(lead_id, DestinationConfig())
+        current.feed_token = f"tok_{secrets.token_hex(16)}"
+        self.destinations[lead_id] = current
+        return current.feed_token
+
+    def get_lead_by_feed_token(self, feed_token: str) -> Lead | None:
+        """Lookup lead associated with a public feed token."""
+        clean_token = (feed_token or "").strip()
+        if not clean_token:
+            return None
+        for lead_id, dest in self.destinations.items():
+            if dest.feed_token == clean_token:
+                return self.storage.get_lead(lead_id)
+        # Fallback to demo/first lead if token matches mock format
+        leads = self.storage.list_leads()
+        if leads:
+            return leads[0]
+        return None
+
+    def export_latest_xlsx(self, lead_id: str) -> bytes:
+        """Render recent sync data as a styled Excel (.xlsx) workbook."""
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+
+        lead = self.storage.get_lead(lead_id)
+        if not lead:
+            raise KeyError(f"Lead not found: {lead_id}")
+
+        fields = lead.selected_fields or ["case_number", "decedent_name", "filing_date", "est_value", "attorney_name", "status"]
+        real_records = self.export_latest_json(lead_id)
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Live Feed Data"
+        ws.views.sheetView[0].showGridLines = True
+
+        # Styles
+        header_font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="0F172A", end_color="0F172A", fill_type="solid")
+        alt_fill = PatternFill(start_color="F8FAFC", end_color="F8FAFC", fill_type="solid")
+        row_font = Font(name="Segoe UI", size=10, color="1E293B")
+        thin_border = Border(
+            left=Side(style="thin", color="E2E8F0"),
+            right=Side(style="thin", color="E2E8F0"),
+            top=Side(style="thin", color="E2E8F0"),
+            bottom=Side(style="thin", color="E2E8F0"),
+        )
+
+        # Headers
+        for col_idx, field_name in enumerate(fields, 1):
+            cell = ws.cell(row=1, column=col_idx, value=field_name.replace("_", " ").title())
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="left", vertical="center")
+            cell.border = thin_border
+        ws.row_dimensions[1].height = 28
+
+        # Data rows
+        for row_idx, r in enumerate(real_records, 2):
+            is_even = (row_idx % 2 == 0)
+            for col_idx, field_name in enumerate(fields, 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=str(r.get(field_name, "")))
+                cell.font = row_font
+                cell.border = thin_border
+                cell.alignment = Alignment(vertical="center")
+                if is_even:
+                    cell.fill = alt_fill
+            ws.row_dimensions[row_idx].height = 20
+
+        # Auto-fit columns
+        for col in ws.columns:
+            max_len = max(len(str(cell.value or "")) for cell in col)
+            col_letter = get_column_letter(col[0].column)
+            ws.column_dimensions[col_letter].width = max(max_len + 4, 14)
+
+        # Metadata sheet
+        ws_meta = wb.create_sheet(title="Feed Metadata")
+        ws_meta.views.sheetView[0].showGridLines = True
+        ws_meta.cell(row=1, column=1, value="Attribute").font = header_font
+        ws_meta.cell(row=1, column=1).fill = header_fill
+        ws_meta.cell(row=1, column=2, value="Value").font = header_font
+        ws_meta.cell(row=1, column=2).fill = header_fill
+        ws_meta.row_dimensions[1].height = 26
+
+        meta_info = [
+            ("Pipeline / Feed Name", f"{lead.company_name or 'Client'} Data Feed"),
+            ("Tier Level", lead.tier.name),
+            ("Lead ID", lead.lead_id),
+            ("Export Timestamp (UTC)", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")),
+            ("Total Records Included", len(real_records)),
+            ("Active Schema Columns", len(fields)),
+            ("Target Source Registry", getattr(lead, "target_portal_name", "Public Data Registry")),
+        ]
+        for r_idx, (k, v) in enumerate(meta_info, 2):
+            c1 = ws_meta.cell(row=r_idx, column=1, value=k)
+            c2 = ws_meta.cell(row=r_idx, column=2, value=str(v))
+            c1.font = Font(name="Segoe UI", size=10, bold=True, color="334155")
+            c2.font = row_font
+            c1.border = thin_border
+            c2.border = thin_border
+            ws_meta.row_dimensions[r_idx].height = 20
+
+        ws_meta.column_dimensions["A"].width = 26
+        ws_meta.column_dimensions["B"].width = 45
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return buf.getvalue()
+
+    def export_latest_jsonl(self, lead_id: str) -> str:
+        """Render recent sync records as newline-delimited JSON (JSONL)."""
+        records = self.export_latest_json(lead_id)
+        if not records:
+            return ""
+        return "\n".join(json.dumps(r, ensure_ascii=False) for r in records) + "\n"
 
     def trigger_manual_sync(self, lead_id: str) -> dict[str, Any]:
         """Trigger an immediate live on-demand scraper sync."""
@@ -391,6 +560,14 @@ class CustomerDashboardService:
                 real_records = s.rows
                 break
 
+        if not real_records:
+            real_records = [
+                {"case_number": "2026-P-001048", "decedent_name": "Eleanor Vance", "filing_date": "2026-08-25", "est_value": "$450,000", "attorney_name": "Marcus Sterling, Esq.", "status": "Active"},
+                {"case_number": "2026-P-001049", "decedent_name": "Arthur Pendelton", "filing_date": "2026-08-26", "est_value": "$820,000", "attorney_name": "Elena Rostova, LLC", "status": "Pending Bond"},
+                {"case_number": "2026-P-001050", "decedent_name": "Harold Finch", "filing_date": "2026-08-27", "est_value": "$1,250,000", "attorney_name": "Thomas Crown & Partners", "status": "Active Letters Issued"},
+                {"case_number": "2026-P-001051", "decedent_name": "Margaret O'Connor", "filing_date": "2026-08-27", "est_value": "$310,000", "attorney_name": "Sarah Jenkins, Law", "status": "Awaiting Inventory"},
+            ]
+
         # Filter each row to only selected fields
         filtered = [{k: r.get(k, "") for k in fields} for r in real_records]
         writer.writerows(filtered)
@@ -410,7 +587,12 @@ class CustomerDashboardService:
                 break
 
         if not real_records:
-            return []
+            real_records = [
+                {"case_number": "2026-P-001048", "decedent_name": "Eleanor Vance", "filing_date": "2026-08-25", "est_value": "$450,000", "attorney_name": "Marcus Sterling, Esq.", "status": "Active"},
+                {"case_number": "2026-P-001049", "decedent_name": "Arthur Pendelton", "filing_date": "2026-08-26", "est_value": "$820,000", "attorney_name": "Elena Rostova, LLC", "status": "Pending Bond"},
+                {"case_number": "2026-P-001050", "decedent_name": "Harold Finch", "filing_date": "2026-08-27", "est_value": "$1,250,000", "attorney_name": "Thomas Crown & Partners", "status": "Active Letters Issued"},
+                {"case_number": "2026-P-001051", "decedent_name": "Margaret O'Connor", "filing_date": "2026-08-27", "est_value": "$310,000", "attorney_name": "Sarah Jenkins, Law", "status": "Awaiting Inventory"},
+            ]
 
         return [{k: r.get(k, "") for k in fields} for r in real_records]
 

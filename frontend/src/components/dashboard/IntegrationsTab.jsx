@@ -5,6 +5,7 @@ import {
   fetchGoogleSheetsInfo,
   sendEmailExport,
   exportJsonData,
+  rotateFeedToken,
 } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 
@@ -12,21 +13,35 @@ export default function IntegrationsTab({ leadId, dashState, onRefresh, token = 
   const { showToast } = useToast();
 
   const [activeTab, setActiveTab] = useState(
-    dashState?.destination?.webhook_url
+    dashState?.destination?.airtable_base_id
+      ? 'airtable'
+      : dashState?.destination?.notion_database_id
+      ? 'notion'
+      : dashState?.destination?.webhook_url
       ? 'webhook'
       : dashState?.destination?.type === 'email_csv'
       ? 'email_csv'
-      : 'google_sheets'
+      : 'live_feed'
   );
 
-  // Form State
+  // Destination Form State
   const [sheetUrl, setSheetUrl] = useState(dashState?.destination?.google_sheet_url || '');
   const [webhookUrl, setWebhookUrl] = useState(dashState?.destination?.webhook_url || '');
   const [webhookSecret, setWebhookSecret] = useState(dashState?.destination?.webhook_secret || '');
+  const [webhookPreset, setWebhookPreset] = useState(dashState?.destination?.webhook_preset || 'standard');
   const [emailRecipient, setEmailRecipient] = useState(
     dashState?.destination?.email_csv_recipient || dashState?.contact_email || ''
   );
   const [emailEnabled, setEmailEnabled] = useState(dashState?.destination?.email_csv_enabled ?? true);
+  const [airtableBaseId, setAirtableBaseId] = useState(dashState?.destination?.airtable_base_id || '');
+  const [airtableTableName, setAirtableTableName] = useState(dashState?.destination?.airtable_table_name || '');
+  const [airtableApiKey, setAirtableApiKey] = useState(dashState?.destination?.airtable_api_key || '');
+  const [notionDbId, setNotionDbId] = useState(dashState?.destination?.notion_database_id || '');
+  const [notionToken, setNotionToken] = useState(dashState?.destination?.notion_integration_token || '');
+
+  // Feed Token State
+  const [feedToken, setFeedToken] = useState(dashState?.destination?.feed_token || '');
+  const [isRotatingToken, setIsRotatingToken] = useState(false);
 
   // UI / Testing State
   const [isSaving, setIsSaving] = useState(false);
@@ -54,18 +69,41 @@ export default function IntegrationsTab({ leadId, dashState, onRefresh, token = 
     }
   };
 
+  const handleRotateFeedToken = async () => {
+    if (!window.confirm('Are you sure you want to rotate your Live Feed Token? Any previous Google Sheets formulas or PowerBI queries using the old token will stop updating until replaced.')) {
+      return;
+    }
+    setIsRotatingToken(true);
+    try {
+      const res = await rotateFeedToken(leadId, token);
+      setFeedToken(res.feed_token);
+      showToast('Live Feed Token rotated successfully!', 'success');
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      showToast(`Failed rotating feed token: ${err.message}`, 'error');
+    } finally {
+      setIsRotatingToken(false);
+    }
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     try {
       await saveDestinations(
         leadId,
         {
-          destination_type: activeTab === 'direct_download' ? 'google_sheets' : activeTab,
+          destination_type: activeTab === 'direct_download' || activeTab === 'live_feed' ? 'google_sheets' : activeTab,
           google_sheet_url: sheetUrl,
           webhook_url: webhookUrl,
           webhook_secret: webhookSecret,
+          webhook_preset: webhookPreset,
           email_csv_enabled: emailEnabled,
           email_csv_recipient: emailRecipient,
+          airtable_base_id: airtableBaseId,
+          airtable_table_name: airtableTableName,
+          airtable_api_key: airtableApiKey,
+          notion_database_id: notionDbId,
+          notion_integration_token: notionToken,
         },
         token
       );
@@ -86,7 +124,7 @@ export default function IntegrationsTab({ leadId, dashState, onRefresh, token = 
     setIsTesting(true);
     setTestResult(null);
     try {
-      const res = await testDestinationPing(leadId, 'google_sheets', { url: sheetUrl }, token);
+      const res = await testDestinationPing(leadId, 'google_sheets', { google_sheet_url: sheetUrl }, token);
       setTestResult({
         type: 'google_sheets',
         ok: res.ok,
@@ -121,7 +159,7 @@ export default function IntegrationsTab({ leadId, dashState, onRefresh, token = 
       const res = await testDestinationPing(
         leadId,
         'webhook',
-        { url: webhookUrl, secret: webhookSecret },
+        { webhook_url: webhookUrl, webhook_secret: webhookSecret, webhook_preset: webhookPreset },
         token
       );
       setTestResult({
@@ -138,6 +176,80 @@ export default function IntegrationsTab({ leadId, dashState, onRefresh, token = 
     } catch (err) {
       setTestResult({
         type: 'webhook',
+        ok: false,
+        message: err.message,
+      });
+      showToast(`Test failed: ${err.message}`, 'error');
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const handleTestAirtable = async () => {
+    if (!airtableApiKey || !airtableBaseId || !airtableTableName) {
+      showToast('Please enter Airtable Token, Base ID, and Table Name', 'warning');
+      return;
+    }
+    setIsTesting(true);
+    setTestResult(null);
+    try {
+      const res = await testDestinationPing(
+        leadId,
+        'airtable',
+        { airtable_api_key: airtableApiKey, airtable_base_id: airtableBaseId, airtable_table_name: airtableTableName },
+        token
+      );
+      setTestResult({
+        type: 'airtable',
+        ok: res.ok,
+        message: res.message,
+        details: res,
+      });
+      if (res.ok) {
+        showToast('Airtable table verified and accessible!', 'success');
+      } else {
+        showToast(`Airtable issue: ${res.message}`, 'warning');
+      }
+    } catch (err) {
+      setTestResult({
+        type: 'airtable',
+        ok: false,
+        message: err.message,
+      });
+      showToast(`Test failed: ${err.message}`, 'error');
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const handleTestNotion = async () => {
+    if (!notionToken || !notionDbId) {
+      showToast('Please enter Notion Integration Secret and Database ID', 'warning');
+      return;
+    }
+    setIsTesting(true);
+    setTestResult(null);
+    try {
+      const res = await testDestinationPing(
+        leadId,
+        'notion',
+        { notion_integration_token: notionToken, notion_database_id: notionDbId },
+        token
+      );
+      setTestResult({
+        type: 'notion',
+        ok: res.ok,
+        message: res.message,
+        details: res,
+      });
+      if (res.ok) {
+        showToast('Notion database verified and connected!', 'success');
+      } else {
+        showToast(`Notion issue: ${res.message}`, 'warning');
+      }
+    } catch (err) {
+      setTestResult({
+        type: 'notion',
         ok: false,
         message: err.message,
       });
@@ -175,47 +287,11 @@ export default function IntegrationsTab({ leadId, dashState, onRefresh, token = 
     }
   };
 
-  const handleDirectDownloadCsv = () => {
-    const records = dashState?.sample_records || dashState?.records || [];
-    if (records.length === 0) {
-      showToast('No records available to download yet.', 'info');
-      return;
-    }
-    const headers = Object.keys(records[0]);
-    const csvLines = [headers.join(',')];
-    records.forEach((row) => {
-      const line = headers.map((h) => `"${String(row[h] ?? '').replace(/"/g, '""')}"`);
-      csvLines.push(line.join(','));
-    });
-    const blob = new Blob([csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `leadops_${leadId}_data_export.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    showToast('CSV downloaded successfully!', 'success');
-  };
-
-  const handleDirectDownloadJson = async () => {
-    try {
-      const data = await exportJsonData(leadId, token);
-      const records = data.records || dashState?.sample_records || [];
-      const jsonStr = JSON.stringify(records, null, 2);
-      const blob = new Blob([jsonStr], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `leadops_${leadId}_data_export.json`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      showToast('JSON export downloaded successfully!', 'success');
-    } catch (err) {
-      showToast(`Download failed: ${err.message}`, 'error');
-    }
-  };
+  const appBaseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://omnileadfeeder.tech';
+  const currentFeedToken = feedToken || dashState?.destination?.feed_token || 'tok_live_feed';
+  const liveCsvFeedUrl = `${appBaseUrl}/api/feed/${currentFeedToken}/records.csv`;
+  const liveJsonFeedUrl = `${appBaseUrl}/api/feed/${currentFeedToken}/records.json`;
+  const importDataFormula = `=IMPORTDATA("${liveCsvFeedUrl}")`;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -236,36 +312,160 @@ export default function IntegrationsTab({ leadId, dashState, onRefresh, token = 
         </div>
 
         {/* Multi-Channel Navigation Tabs */}
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '24px', borderBottom: '1px solid var(--border-light)', paddingBottom: '16px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '24px', borderBottom: '1px solid var(--border-light)', paddingBottom: '16px' }}>
+          <button
+            className={`btn ${activeTab === 'live_feed' ? 'btn-primary' : 'btn-outline'}`}
+            onClick={() => { setActiveTab('live_feed'); setTestResult(null); }}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}
+          >
+            🌐 Live Feed URL
+          </button>
           <button
             className={`btn ${activeTab === 'google_sheets' ? 'btn-primary' : 'btn-outline'}`}
             onClick={() => { setActiveTab('google_sheets'); setTestResult(null); }}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}
           >
             📊 Google Sheets
           </button>
           <button
             className={`btn ${activeTab === 'webhook' ? 'btn-primary' : 'btn-outline'}`}
             onClick={() => { setActiveTab('webhook'); setTestResult(null); }}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}
           >
-            ⚡ Webhook (HTTP POST)
+            ⚡ Webhooks &amp; Zapier
+          </button>
+          <button
+            className={`btn ${activeTab === 'airtable' ? 'btn-primary' : 'btn-outline'}`}
+            onClick={() => { setActiveTab('airtable'); setTestResult(null); }}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}
+          >
+            📑 Airtable
+          </button>
+          <button
+            className={`btn ${activeTab === 'notion' ? 'btn-primary' : 'btn-outline'}`}
+            onClick={() => { setActiveTab('notion'); setTestResult(null); }}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}
+          >
+            📓 Notion
           </button>
           <button
             className={`btn ${activeTab === 'email_csv' ? 'btn-primary' : 'btn-outline'}`}
             onClick={() => { setActiveTab('email_csv'); setTestResult(null); }}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}
           >
-            📧 Email CSV Delivery
+            📧 Email CSV
           </button>
           <button
             className={`btn ${activeTab === 'direct_download' ? 'btn-primary' : 'btn-outline'}`}
             onClick={() => { setActiveTab('direct_download'); setTestResult(null); }}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}
           >
-            💾 Instant File Download
+            💾 File Downloads
           </button>
         </div>
+
+        {/* TAB 0: LIVE FEED URL (=IMPORTDATA & BI) */}
+        {activeTab === 'live_feed' && (
+          <div>
+            <div style={{ background: 'rgba(56, 189, 248, 0.08)', border: '1px solid rgba(56, 189, 248, 0.25)', borderRadius: '10px', padding: '16px', marginBottom: '20px' }}>
+              <div style={{ fontSize: '14px', fontWeight: 700, color: '#38bdf8', marginBottom: '4px' }}>
+                🌐 Zero-Config Live Feed Ingestion (Google Sheets, PowerBI, Tableau, Retool)
+              </div>
+              <p style={{ fontSize: '13px', color: '#cbd5e1', margin: 0, lineHeight: 1.6 }}>
+                Paste the formula below into cell <b>A1</b> of any Google Sheet. It will automatically load and refresh your latest scraped records with <b>0 Google Cloud setup</b> required.
+              </p>
+            </div>
+
+            {/* Google Sheets Formula */}
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '8px', color: '#fff' }}>
+                1. Google Sheets =IMPORTDATA() Formula (Instant Auto-Sync)
+              </label>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <input
+                  type="text"
+                  readOnly
+                  className="form-input"
+                  value={importDataFormula}
+                  style={{ width: '100%', fontFamily: 'var(--mono)', fontSize: '12px', background: '#0b1329', color: 'var(--cyan)' }}
+                />
+                <button
+                  className="btn btn-primary"
+                  onClick={() => handleCopy(importDataFormula, 'Google Sheets Formula')}
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  📋 Copy Formula
+                </button>
+              </div>
+            </div>
+
+            {/* Live CSV URL */}
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '8px', color: '#fff' }}>
+                2. Live CSV Feed Endpoint (PowerBI Web Source, Tableau, Excel Web Query)
+              </label>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <input
+                  type="text"
+                  readOnly
+                  className="form-input"
+                  value={liveCsvFeedUrl}
+                  style={{ width: '100%', fontFamily: 'var(--mono)', fontSize: '12px', background: '#0b1329', color: '#94a3b8' }}
+                />
+                <button
+                  className="btn btn-outline"
+                  onClick={() => handleCopy(liveCsvFeedUrl, 'Live CSV URL')}
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  📋 Copy CSV URL
+                </button>
+              </div>
+            </div>
+
+            {/* Live JSON URL */}
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '8px', color: '#fff' }}>
+                3. Live REST JSON Feed Endpoint (Custom Apps, CRMs &amp; Scripts)
+              </label>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <input
+                  type="text"
+                  readOnly
+                  className="form-input"
+                  value={liveJsonFeedUrl}
+                  style={{ width: '100%', fontFamily: 'var(--mono)', fontSize: '12px', background: '#0b1329', color: '#94a3b8' }}
+                />
+                <button
+                  className="btn btn-outline"
+                  onClick={() => handleCopy(liveJsonFeedUrl, 'Live JSON URL')}
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  📋 Copy JSON URL
+                </button>
+              </div>
+            </div>
+
+            {/* Feed Token Security & Rotation */}
+            <div style={{ background: 'var(--card-alt)', border: '1px solid var(--border-light)', borderRadius: '10px', padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#fff' }}>
+                  🔒 Live Feed Token Security
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  Active Token: <code style={{ color: 'var(--cyan)' }}>{currentFeedToken}</code>
+                </div>
+              </div>
+              <button
+                className="btn btn-outline btn-sm"
+                onClick={handleRotateFeedToken}
+                disabled={isRotatingToken}
+                style={{ color: '#f59e0b', borderColor: '#f59e0b' }}
+              >
+                {isRotatingToken ? 'Rotating Token...' : '🔄 Rotate / Revoke Secret Token'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* TAB 1: GOOGLE SHEETS */}
         {activeTab === 'google_sheets' && (
@@ -348,7 +548,7 @@ export default function IntegrationsTab({ leadId, dashState, onRefresh, token = 
                   <li>Replace all contents with the code below and click <b>Save</b>.</li>
                   <li>Click <b>Deploy → New deployment</b> → Select type: <b>Web app</b>.</li>
                   <li>Set <i>'Execute as: Me'</i> and <i>'Who has access: Anyone'</i>, then click <b>Deploy</b>.</li>
-                  <li>Copy your Web App URL and paste it in the <b>Webhook (HTTP POST)</b> tab!</li>
+                  <li>Copy your Web App URL and paste it in the <b>Webhook</b> tab!</li>
                 </ol>
                 <pre style={{ background: '#0b1329', padding: '12px', borderRadius: '6px', fontSize: '11px', color: 'var(--cyan)', overflowX: 'auto', maxHeight: '200px' }}>
                   {sheetsInfo.apps_script_template}
@@ -358,7 +558,7 @@ export default function IntegrationsTab({ leadId, dashState, onRefresh, token = 
           </div>
         )}
 
-        {/* TAB 2: WEBHOOK */}
+        {/* TAB 2: WEBHOOK & AUTOMATION PRESETS */}
         {activeTab === 'webhook' && (
           <div>
             <div style={{ marginBottom: '18px' }}>
@@ -368,30 +568,46 @@ export default function IntegrationsTab({ leadId, dashState, onRefresh, token = 
               <input
                 type="url"
                 className="form-input"
-                placeholder="https://api.yourdomain.com/v1/leadops/webhook or https://script.google.com/macros/s/.../exec"
+                placeholder="https://hooks.zapier.com/hooks/catch/... or https://hook.us1.make.com/..."
                 value={webhookUrl}
                 onChange={(e) => setWebhookUrl(e.target.value)}
                 style={{ width: '100%', fontSize: '13px' }}
               />
               <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '6px' }}>
-                We'll transmit batched JSON payloads containing record objects immediately after each extraction run.
+                We'll transmit JSON payloads containing new records immediately after each morning scrape.
               </div>
             </div>
 
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '8px', color: '#fff' }}>
-                HMAC-SHA256 Secret Key (Optional Security Signature)
-              </label>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="e.g. whsec_9a87bf91c2..."
-                value={webhookSecret}
-                onChange={(e) => setWebhookSecret(e.target.value)}
-                style={{ width: '100%', fontSize: '13px', fontFamily: 'var(--mono)' }}
-              />
-              <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '6px' }}>
-                If specified, every POST request includes <code>X-LeadOps-Signature</code> and <code>X-LeadOps-Timestamp</code> headers for payload verification.
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '8px', color: '#fff' }}>
+                  Payload Formatting Preset
+                </label>
+                <select
+                  className="form-input"
+                  value={webhookPreset}
+                  onChange={(e) => setWebhookPreset(e.target.value)}
+                  style={{ width: '100%', fontSize: '13px', background: '#0f172a' }}
+                >
+                  <option value="standard">Standard LeadOps Schema (Full Metadata)</option>
+                  <option value="zapier">Zapier Webhook Catch (Flattened Records)</option>
+                  <option value="make">Make.com / Integromat Webhook</option>
+                  <option value="n8n">n8n Workflow Trigger</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '8px', color: '#fff' }}>
+                  HMAC-SHA256 Secret (Optional)
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. whsec_9a87bf91c2..."
+                  value={webhookSecret}
+                  onChange={(e) => setWebhookSecret(e.target.value)}
+                  style={{ width: '100%', fontSize: '13px', fontFamily: 'var(--mono)' }}
+                />
               </div>
             </div>
 
@@ -407,7 +623,124 @@ export default function IntegrationsTab({ leadId, dashState, onRefresh, token = 
           </div>
         )}
 
-        {/* TAB 3: EMAIL CSV DELIVERY */}
+        {/* TAB 3: AIRTABLE SYNC */}
+        {activeTab === 'airtable' && (
+          <div>
+            <div style={{ background: 'rgba(234, 88, 12, 0.08)', border: '1px solid rgba(234, 88, 12, 0.25)', borderRadius: '10px', padding: '16px', marginBottom: '20px' }}>
+              <div style={{ fontSize: '13px', color: '#e2e8f0', lineHeight: 1.6 }}>
+                📑 <b>Airtable Direct Sync</b> creates new records in your target Airtable Base table automatically. Generate a Personal Access Token at <a href="https://airtable.com/create/tokens" target="_blank" rel="noreferrer" style={{ color: 'var(--cyan)' }}>airtable.com/create/tokens</a> with scopes <code>data.records:write</code> and <code>schema.bases:read</code>.
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '18px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '8px', color: '#fff' }}>
+                  Airtable Base ID (starts with 'app')
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="appXXXXXXXXXXXXXX"
+                  value={airtableBaseId}
+                  onChange={(e) => setAirtableBaseId(e.target.value)}
+                  style={{ width: '100%', fontSize: '13px', fontFamily: 'var(--mono)' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '8px', color: '#fff' }}>
+                  Table Name or Table ID
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. LeadOps Feed or tblXXXXXXXXXXXXXX"
+                  value={airtableTableName}
+                  onChange={(e) => setAirtableTableName(e.target.value)}
+                  style={{ width: '100%', fontSize: '13px' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '8px', color: '#fff' }}>
+                Airtable Personal Access Token (PAT)
+              </label>
+              <input
+                type="password"
+                className="form-input"
+                placeholder="patXXXXXXXXXXXXXX.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+                value={airtableApiKey}
+                onChange={(e) => setAirtableApiKey(e.target.value)}
+                style={{ width: '100%', fontSize: '13px', fontFamily: 'var(--mono)' }}
+              />
+            </div>
+
+            {/* Airtable Actions */}
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              <button className="btn btn-primary" onClick={handleSave} disabled={isSaving}>
+                {isSaving ? 'Saving Settings...' : '💾 Save Airtable Destination'}
+              </button>
+              <button className="btn btn-cyan" onClick={handleTestAirtable} disabled={isTesting}>
+                {isTesting ? '⚡ Verifying Airtable...' : '⚡ Test Airtable Connection'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: NOTION DATABASE SYNC */}
+        {activeTab === 'notion' && (
+          <div>
+            <div style={{ background: 'rgba(168, 85, 247, 0.08)', border: '1px solid rgba(168, 85, 247, 0.25)', borderRadius: '10px', padding: '16px', marginBottom: '20px' }}>
+              <div style={{ fontSize: '13px', color: '#e2e8f0', lineHeight: 1.6 }}>
+                📓 <b>Notion Database Sync</b> appends daily records as page entries into your Notion Database. Create an internal integration at <a href="https://www.notion.so/my-integrations" target="_blank" rel="noreferrer" style={{ color: 'var(--cyan)' }}>notion.so/my-integrations</a>, then share your Database with that integration.
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '18px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '8px', color: '#fff' }}>
+                Notion Database ID (32-Character Hex)
+              </label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="e.g. 2b9e119d8544458597f7481b0a82410a"
+                value={notionDbId}
+                onChange={(e) => setNotionDbId(e.target.value)}
+                style={{ width: '100%', fontSize: '13px', fontFamily: 'var(--mono)' }}
+              />
+              <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '6px' }}>
+                Found in the share URL of your Notion database (between the workspace name and the <code>?v=</code> query).
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '8px', color: '#fff' }}>
+                Notion Integration Secret Token
+              </label>
+              <input
+                type="password"
+                className="form-input"
+                placeholder="secret_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+                value={notionToken}
+                onChange={(e) => setNotionToken(e.target.value)}
+                style={{ width: '100%', fontSize: '13px', fontFamily: 'var(--mono)' }}
+              />
+            </div>
+
+            {/* Notion Actions */}
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              <button className="btn btn-primary" onClick={handleSave} disabled={isSaving}>
+                {isSaving ? 'Saving Settings...' : '💾 Save Notion Destination'}
+              </button>
+              <button className="btn btn-cyan" onClick={handleTestNotion} disabled={isTesting}>
+                {isTesting ? '⚡ Verifying Notion...' : '⚡ Test Notion Connection'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 5: EMAIL CSV DELIVERY */}
         {activeTab === 'email_csv' && (
           <div>
             <div style={{ background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: '10px', padding: '16px', marginBottom: '20px' }}>
@@ -455,23 +788,49 @@ export default function IntegrationsTab({ leadId, dashState, onRefresh, token = 
           </div>
         )}
 
-        {/* TAB 4: DIRECT FILE DOWNLOAD */}
+        {/* TAB 6: DIRECT FILE DOWNLOAD */}
         {activeTab === 'direct_download' && (
           <div>
             <div style={{ background: 'var(--card-alt)', borderRadius: '10px', padding: '20px', border: '1px solid var(--border-light)', marginBottom: '20px' }}>
               <h4 style={{ fontSize: '15px', fontWeight: 700, color: '#fff', margin: '0 0 8px 0' }}>
-                📥 Instant One-Click Data Download
+                📥 Instant Multi-Format Data Downloads
               </h4>
               <p style={{ fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 16px 0' }}>
-                Download your full verified dataset directly to your device in your format of choice.
+                Export your full dataset directly in Excel (.xlsx), CSV, JSON, or streaming JSONL formats.
               </p>
-              <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
-                <button className="btn btn-primary" onClick={handleDirectDownloadCsv}>
-                  📊 Download CSV Spreadsheet
-                </button>
-                <button className="btn btn-outline" onClick={handleDirectDownloadJson}>
-                  📦 Download JSON Dataset
-                </button>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+                <a
+                  href={`/api/dashboard/${leadId}/export/xlsx`}
+                  download={`leadops_feed_${leadId}.xlsx`}
+                  className="btn btn-primary"
+                  style={{ textAlign: 'center', textDecoration: 'none', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}
+                >
+                  📗 Download Excel (.xlsx)
+                </a>
+                <a
+                  href={`/api/dashboard/${leadId}/export/csv`}
+                  download={`leadops_feed_${leadId}.csv`}
+                  className="btn btn-cyan"
+                  style={{ textAlign: 'center', textDecoration: 'none', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}
+                >
+                  📊 Download CSV (.csv)
+                </a>
+                <a
+                  href={`/api/dashboard/${leadId}/export/json`}
+                  download={`leadops_feed_${leadId}.json`}
+                  className="btn btn-outline"
+                  style={{ textAlign: 'center', textDecoration: 'none', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}
+                >
+                  📦 Download JSON (.json)
+                </a>
+                <a
+                  href={`/api/dashboard/${leadId}/export/jsonl`}
+                  download={`leadops_feed_${leadId}.jsonl`}
+                  className="btn btn-outline"
+                  style={{ textAlign: 'center', textDecoration: 'none', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px' }}
+                >
+                  📜 Download JSONL (.jsonl)
+                </a>
               </div>
             </div>
           </div>

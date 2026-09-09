@@ -7,10 +7,11 @@ cloud cost. A scheduler or Container Apps Job can call these interfaces later.
 import csv
 import io
 import json
+import time
 import urllib.request
 import urllib.error
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time as dt_time, timezone
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
@@ -27,8 +28,8 @@ class Source(Protocol):
 class DeliveryPlan:
     tier_key: str
     timezone_name: str = "UTC"
-    target_start: time = time(6, 0)
-    target_deadline: time = time(8, 0)
+    target_start: dt_time = dt_time(6, 0)
+    target_deadline: dt_time = dt_time(8, 0)
 
     @property
     def weekdays_only(self) -> bool:
@@ -295,6 +296,256 @@ class EmailCsvDestination:
                     row_count=len(rows),
                 )
         return len(rows)
+
+
+@dataclass
+class AirtableDestination:
+    """Delivers records directly into an Airtable Base & Table."""
+
+    base_id: str
+    table_name: str
+    api_key: str  # Airtable Personal Access Token (PAT)
+    http_requester: Any | None = None
+
+    def append(self, rows: list[dict[str, str]]) -> int:
+        if not rows:
+            return 0
+
+        clean_base = self.base_id.strip()
+        clean_table = urllib.parse.quote(self.table_name.strip(), safe="")
+        endpoint = f"https://api.airtable.com/v0/{clean_base}/{clean_table}"
+        headers = {
+            "Authorization": f"Bearer {self.api_key.strip()}",
+            "Content-Type": "application/json",
+            "User-Agent": "LeadOps-AirtableSync/1.0",
+        }
+
+        total_appended = 0
+        # Airtable accepts max 10 records per batch
+        batch_size = 10
+        for i in range(0, len(rows), batch_size):
+            batch = rows[i : i + batch_size]
+            payload = {
+                "records": [{"fields": dict(r)} for r in batch],
+                "typecast": True,
+            }
+            body_bytes = json.dumps(payload).encode("utf-8")
+
+            if self.http_requester is not None:
+                status, resp = self.http_requester("POST", endpoint, headers, body_bytes)
+                if status in (200, 201):
+                    total_appended += len(batch)
+                else:
+                    raise RuntimeError(f"Airtable API batch error: HTTP {status} - {resp}")
+            else:
+                req = urllib.request.Request(endpoint, data=body_bytes, headers=headers, method="POST")
+                with urllib.request.urlopen(req, timeout=15) as response:
+                    if response.status in (200, 201):
+                        total_appended += len(batch)
+                    else:
+                        raise RuntimeError(f"Airtable API error: HTTP {response.status}")
+
+        return total_appended
+
+
+def _extract_status_code(response: Any) -> int:
+    """Robustly extract HTTP status integer from real response or mock."""
+    if hasattr(response, "status") and isinstance(response.status, int):
+        return response.status
+    if hasattr(response, "code") and isinstance(response.code, int):
+        return response.code
+    if hasattr(response, "getcode") and callable(response.getcode):
+        try:
+            val = response.getcode()
+            if isinstance(val, int):
+                return val
+        except Exception:
+            pass
+    return 200
+
+
+def test_airtable_connection(
+    api_key: str,
+    base_id: str,
+    table_name: str,
+    http_requester: Any | None = None,
+) -> tuple[bool, int, str]:
+    """Test connectivity, permissions, and existence of an Airtable Base/Table.
+
+    Returns:
+        (ok: bool, latency_ms: int, message: str)
+    """
+    clean_key = (api_key or "").strip()
+    clean_base = (base_id or "").strip()
+    clean_table = (table_name or "").strip()
+
+    if not clean_key:
+        return False, 0, "Missing Airtable Personal Access Token (PAT)."
+    if not clean_base or not (clean_base.startswith("app") or len(clean_base) >= 10):
+        return False, 0, "Invalid Airtable Base ID. Base IDs typically start with 'app' (e.g. appXXXXXXXXXXXXXX)."
+    if not clean_table:
+        return False, 0, "Missing Airtable Table Name or Table ID."
+
+    encoded_table = urllib.parse.quote(clean_table, safe="")
+    endpoint = f"https://api.airtable.com/v0/{clean_base}/{encoded_table}?maxRecords=1"
+    headers = {
+        "Authorization": f"Bearer {clean_key}",
+        "User-Agent": "LeadOps-DiagnosticPing/1.0",
+    }
+
+    start_time = time.time()
+    try:
+        if http_requester is not None:
+            status, data = http_requester("GET", endpoint, headers, None)
+            latency_ms = int((time.time() - start_time) * 1000)
+            if status in (200, 201):
+                return True, latency_ms, f"Airtable connection verified (HTTP {status}, {latency_ms}ms). Table '{clean_table}' is accessible with write scope."
+            return False, latency_ms, f"Airtable responded with HTTP {status}: {data.get('error', {}).get('message', str(data))}"
+
+        req = urllib.request.Request(endpoint, headers=headers, method="GET")
+        with urllib.request.urlopen(req, timeout=10) as response:
+            latency_ms = int((time.time() - start_time) * 1000)
+            res_code = _extract_status_code(response)
+            if res_code in (200, 201):
+                return True, latency_ms, f"Airtable connected successfully ({res_code} OK, {latency_ms}ms). Table '{clean_table}' ready for live data sync."
+            return False, latency_ms, f"Airtable returned HTTP {res_code}."
+    except urllib.error.HTTPError as he:
+        latency_ms = int((time.time() - start_time) * 1000)
+        try:
+            err_json = json.loads(he.read().decode("utf-8"))
+            err_msg = err_json.get("error", {}).get("message", he.reason)
+        except Exception:
+            err_msg = he.reason
+        if he.code == 401:
+            return False, latency_ms, f"Airtable Authentication Error (HTTP 401): Personal Access Token is invalid or expired. Check token at airtable.com/create/tokens."
+        elif he.code == 403:
+            return False, latency_ms, f"Airtable Permission Error (HTTP 403): Token lacks 'data.records:write' or 'schema.bases:read' scopes for Base {clean_base}."
+        elif he.code == 404:
+            return False, latency_ms, f"Airtable Not Found (HTTP 404): Table '{clean_table}' or Base '{clean_base}' could not be found."
+        return False, latency_ms, f"Airtable API Error (HTTP {he.code}): {err_msg}"
+    except Exception as exc:
+        latency_ms = int((time.time() - start_time) * 1000)
+        return False, latency_ms, f"Airtable connection failed ({type(exc).__name__}): {str(exc)}"
+
+
+@dataclass
+class NotionDestination:
+    """Delivers records directly as pages into a Notion Database."""
+
+    database_id: str
+    integration_token: str  # Notion Internal Integration Secret
+    http_requester: Any | None = None
+
+    def append(self, rows: list[dict[str, str]]) -> int:
+        if not rows:
+            return 0
+
+        clean_db = self.database_id.strip().replace("-", "")
+        endpoint = "https://api.notion.com/v1/pages"
+        headers = {
+            "Authorization": f"Bearer {self.integration_token.strip()}",
+            "Content-Type": "application/json",
+            "Notion-Version": "2022-06-28",
+            "User-Agent": "LeadOps-NotionSync/1.0",
+        }
+
+        total_appended = 0
+        for row in rows:
+            properties: dict[str, Any] = {}
+            for k, v in row.items():
+                clean_k = str(k).strip()
+                clean_v = str(v).strip()
+                # Notion property formatting: title for first property or rich_text
+                if not properties:
+                    properties[clean_k] = {"title": [{"text": {"content": clean_v[:2000]}}]}
+                else:
+                    properties[clean_k] = {"rich_text": [{"text": {"content": clean_v[:2000]}}]}
+
+            payload = {
+                "parent": {"database_id": clean_db},
+                "properties": properties,
+            }
+            body_bytes = json.dumps(payload).encode("utf-8")
+
+            if self.http_requester is not None:
+                status, resp = self.http_requester("POST", endpoint, headers, body_bytes)
+                if status in (200, 201):
+                    total_appended += 1
+                else:
+                    raise RuntimeError(f"Notion API page create error: HTTP {status} - {resp}")
+            else:
+                req = urllib.request.Request(endpoint, data=body_bytes, headers=headers, method="POST")
+                with urllib.request.urlopen(req, timeout=15) as response:
+                    if response.status in (200, 201):
+                        total_appended += 1
+                    else:
+                        raise RuntimeError(f"Notion API error: HTTP {response.status}")
+
+        return total_appended
+
+
+def test_notion_connection(
+    integration_token: str,
+    database_id: str,
+    http_requester: Any | None = None,
+) -> tuple[bool, int, str]:
+    """Test connectivity, permissions, and existence of a Notion Database.
+
+    Returns:
+        (ok: bool, latency_ms: int, message: str)
+    """
+    clean_token = (integration_token or "").strip()
+    clean_db = (database_id or "").strip().replace("-", "")
+
+    if not clean_token:
+        return False, 0, "Missing Notion Integration Secret Token (starts with secret_ or ntn_)."
+    if not clean_db or len(clean_db) < 32:
+        return False, 0, "Invalid Notion Database ID. Must be a 32-character hex ID (from the database share URL)."
+
+    endpoint = f"https://api.notion.com/v1/databases/{clean_db}"
+    headers = {
+        "Authorization": f"Bearer {clean_token}",
+        "Notion-Version": "2022-06-28",
+        "User-Agent": "LeadOps-DiagnosticPing/1.0",
+    }
+
+    start_time = time.time()
+    try:
+        if http_requester is not None:
+            status, data = http_requester("GET", endpoint, headers, None)
+            latency_ms = int((time.time() - start_time) * 1000)
+            if status == 200:
+                title = data.get("title", [{}])[0].get("plain_text", "Notion Database") if data.get("title") else "Database"
+                return True, latency_ms, f"Notion database connected (HTTP 200, {latency_ms}ms). Database '{title}' is shared with integration."
+            return False, latency_ms, f"Notion responded with HTTP {status}: {data.get('message', str(data))}"
+
+        req = urllib.request.Request(endpoint, headers=headers, method="GET")
+        with urllib.request.urlopen(req, timeout=10) as response:
+            latency_ms = int((time.time() - start_time) * 1000)
+            res_code = _extract_status_code(response)
+            if res_code == 200:
+                try:
+                    data = json.loads(response.read().decode("utf-8"))
+                    title = data.get("title", [{}])[0].get("plain_text", "Notion Database") if data.get("title") else "Database"
+                except Exception:
+                    title = "Database"
+                return True, latency_ms, f"Notion database connected successfully ({res_code} OK, {latency_ms}ms). Database '{title}' ready for sync."
+            return False, latency_ms, f"Notion returned HTTP {res_code}."
+    except urllib.error.HTTPError as he:
+        latency_ms = int((time.time() - start_time) * 1000)
+        try:
+            err_json = json.loads(he.read().decode("utf-8"))
+            err_msg = err_json.get("message", he.reason)
+        except Exception:
+            err_msg = he.reason
+        if he.code == 401:
+            return False, latency_ms, f"Notion Authentication Error (HTTP 401): Integration Secret is invalid. Check at notion.so/my-integrations."
+        elif he.code == 404:
+            return False, latency_ms, f"Notion Not Found (HTTP 404): Database {clean_db} not found or NOT shared with your integration. In Notion, open database -> click '...' -> 'Add connections' -> select your integration."
+        return False, latency_ms, f"Notion API Error (HTTP {he.code}): {err_msg}"
+    except Exception as exc:
+        latency_ms = int((time.time() - start_time) * 1000)
+        return False, latency_ms, f"Notion connection failed ({type(exc).__name__}): {str(exc)}"
 
 
 @dataclass

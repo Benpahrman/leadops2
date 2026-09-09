@@ -6,6 +6,8 @@ import {
   requestCancellation,
   sendEmailExport,
   exportJsonData,
+  downloadXlsxData,
+  downloadJsonlData,
 } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 
@@ -13,6 +15,8 @@ export default function FeedDeliveriesTab({ leadId, dashState, onRefresh, token 
   const { showToast } = useToast();
   const [isSyncing, setIsSyncing] = useState(false);
   const [isEmailing, setIsEmailing] = useState(false);
+  const [isDownloadingXlsx, setIsDownloadingXlsx] = useState(false);
+  const [isDownloadingJsonl, setIsDownloadingJsonl] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
@@ -120,6 +124,30 @@ export default function FeedDeliveriesTab({ leadId, dashState, onRefresh, token 
     }
   };
 
+  const handleDownloadXlsx = async () => {
+    setIsDownloadingXlsx(true);
+    try {
+      await downloadXlsxData(leadId, token);
+      showToast('Excel workbook (.xlsx) downloaded successfully with formatted sheets!', 'success');
+    } catch (err) {
+      showToast(`Excel export failed: ${err.message}`, 'error');
+    } finally {
+      setIsDownloadingXlsx(false);
+    }
+  };
+
+  const handleDownloadJsonl = async () => {
+    setIsDownloadingJsonl(true);
+    try {
+      await downloadJsonlData(leadId, token);
+      showToast('JSONL dataset downloaded successfully!', 'success');
+    } catch (err) {
+      showToast(`JSONL export failed: ${err.message}`, 'error');
+    } finally {
+      setIsDownloadingJsonl(false);
+    }
+  };
+
   const handleEmailCsvExport = async () => {
     const targetEmail = dashState?.destination?.email_csv_recipient || dashState?.contact_email;
     const recipient = window.prompt('Enter destination email address to receive CSV export:', targetEmail || '');
@@ -197,29 +225,49 @@ export default function FeedDeliveriesTab({ leadId, dashState, onRefresh, token 
           </span>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button
             className="btn btn-cyan"
             onClick={handleManualSync}
             disabled={isSyncing}
           >
-            {isSyncing ? '🔄 Syncing...' : '⚡ Trigger Manual Sync Now'}
+            {isSyncing ? '🔄 Syncing...' : '⚡ Trigger Manual Sync'}
           </button>
 
-          <button className="btn btn-outline" onClick={handleDownloadCsv}>
-            📊 Download CSV
+          <button
+            className="btn btn-outline"
+            style={{ borderColor: 'var(--green)', color: 'var(--green)' }}
+            onClick={handleDownloadXlsx}
+            disabled={isDownloadingXlsx}
+            title="Download formatted Excel workbook (.xlsx) with auto-fit widths and metadata"
+          >
+            {isDownloadingXlsx ? '📗 Downloading...' : '📗 Excel (.xlsx)'}
           </button>
 
-          <button className="btn btn-outline" onClick={handleDownloadJson}>
-            📦 Export JSON
+          <button className="btn btn-outline" onClick={handleDownloadCsv} title="Download standard comma-separated values">
+            📊 CSV
+          </button>
+
+          <button className="btn btn-outline" onClick={handleDownloadJson} title="Download formatted JSON array">
+            📦 JSON
+          </button>
+
+          <button
+            className="btn btn-outline"
+            onClick={handleDownloadJsonl}
+            disabled={isDownloadingJsonl}
+            title="Download newline-delimited JSON Lines stream"
+          >
+            {isDownloadingJsonl ? '📜 Downloading...' : '📜 JSONL'}
           </button>
 
           <button
             className="btn btn-outline"
             onClick={handleEmailCsvExport}
             disabled={isEmailing}
+            title="Email fresh CSV attachment to your inbox"
           >
-            {isEmailing ? '📧 Sending...' : '📧 Email CSV to Me'}
+            {isEmailing ? '📧 Sending...' : '📧 Email CSV'}
           </button>
 
           {!dashState?.is_paused && (
