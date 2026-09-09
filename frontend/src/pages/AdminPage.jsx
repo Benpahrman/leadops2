@@ -2299,8 +2299,8 @@ export default function AdminPage() {
 
                         {/* Protocol Chips */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '16px', fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--mono)', background: 'rgba(15, 23, 42, 0.5)', padding: '10px 12px', borderRadius: 'var(--radius-sm)' }}>
-                          <div>📤 SMTP: <span style={{ color: '#fff' }}>{inbox.smtp_host || 'smtppro.zoho.com'}:{inbox.smtp_port || 465}</span> ({inbox.smtp_use_ssl ? 'SSL' : 'TLS'})</div>
-                          <div>📥 IMAP: <span style={{ color: '#fff' }}>{inbox.imap_host || 'imappro.zoho.com'}:{inbox.imap_port || 993}</span> ({inbox.imap_use_ssl ? 'SSL' : 'TLS'})</div>
+                          <div>📤 SMTP: <span style={{ color: '#fff' }}>{inbox.smtp_host || 'smtp.zoho.com'}:{inbox.smtp_port || 465}</span> ({inbox.smtp_use_ssl ? 'SSL' : 'TLS'})</div>
+                          <div>📥 IMAP: <span style={{ color: '#fff' }}>{inbox.imap_host || 'imap.zoho.com'}:{inbox.imap_port || 993}</span> ({inbox.imap_use_ssl ? 'SSL' : 'TLS'})</div>
                         </div>
 
                         {/* Quota Progress */}

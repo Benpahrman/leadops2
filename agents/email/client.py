@@ -68,7 +68,7 @@ class EmailClient:
             inbox_id = inbox.id
             sender_email = inbox.email_address
             sender_name = inbox.from_name or self.settings.from_name
-            smtp_host = inbox.smtp_host or ("smtppro.zoho.com" if inbox.provider == "zoho" else self.settings.smtp_host)
+            smtp_host = inbox.smtp_host or ("smtp.zoho.com" if inbox.provider == "zoho" else self.settings.smtp_host)
             smtp_port = inbox.smtp_port or 465
             smtp_use_ssl = inbox.smtp_use_ssl
             smtp_use_tls = inbox.smtp_use_tls
@@ -278,11 +278,13 @@ class EmailClient:
         start_time = time.time()
 
         # 1. Test SMTP connection & auth
-        smtp_hosts_to_try = [inbox.smtp_host]
+        smtp_hosts_to_try = [inbox.smtp_host] if inbox.smtp_host else []
         if inbox.provider == "zoho":
-            alternate_host = "smtp.zoho.com" if inbox.smtp_host == "smtppro.zoho.com" else "smtppro.zoho.com"
-            if alternate_host not in smtp_hosts_to_try:
-                smtp_hosts_to_try.append(alternate_host)
+            for h in ["smtp.zoho.com", "smtppro.zoho.com"]:
+                if h not in smtp_hosts_to_try:
+                    smtp_hosts_to_try.append(h)
+        elif not smtp_hosts_to_try:
+            smtp_hosts_to_try = [self.settings.smtp_host]
 
         last_smtp_err = ""
         for host in smtp_hosts_to_try:
@@ -312,38 +314,44 @@ class EmailClient:
             results["smtp_message"] = f"SMTP auth failed: {last_smtp_err}"
 
         # 2. Test IMAP connection & auth
-        imap_hosts_to_try = [inbox.imap_host]
-        if inbox.provider == "zoho":
-            alternate_imap = "imap.zoho.com" if inbox.imap_host == "imappro.zoho.com" else "imappro.zoho.com"
-            if alternate_imap not in imap_hosts_to_try:
-                imap_hosts_to_try.append(alternate_imap)
+        if not getattr(inbox, "imap_enabled", True):
+            results["imap_ok"] = True
+            results["imap_message"] = "IMAP intentionally disabled in settings (Inbound handled via Cloudflare Email Routing to Gmail)"
+        else:
+            imap_hosts_to_try = [inbox.imap_host] if inbox.imap_host else []
+            if inbox.provider == "zoho":
+                for h in ["imap.zoho.com", "imappro.zoho.com"]:
+                    if h not in imap_hosts_to_try:
+                        imap_hosts_to_try.append(h)
+            elif not imap_hosts_to_try:
+                imap_hosts_to_try = [self.settings.imap_host]
 
-        last_imap_err = ""
-        for host in imap_hosts_to_try:
-            try:
-                if not host:
-                    continue
-                if inbox.imap_use_ssl:
-                    mail = imaplib.IMAP4_SSL(host, inbox.imap_port, timeout=10)
-                else:
-                    mail = imaplib.IMAP4(host, inbox.imap_port, timeout=10)
-                mail.login(inbox.email_address, inbox.password)
-                status, _ = mail.select("INBOX")
-                mail.logout()
-                results["imap_ok"] = (status == "OK")
-                results["imap_message"] = f"IMAP connected and authenticated successfully ({host}:{inbox.imap_port})"
-                inbox.imap_host = host
-                break
-            except Exception as e:
-                err_str = str(e)
-                if "enable IMAP" in err_str or "yet to enable IMAP" in err_str:
-                    last_imap_err = "IMAP is disabled for this account in Zoho. To enable: in Zoho Mail web, go to Settings -> Mail Accounts -> check 'IMAP Access' (or mailadmin.zoho.com -> Users -> Mail Settings -> Email Incoming/Outgoing Protocols -> Enable IMAP)."
+            last_imap_err = ""
+            for host in imap_hosts_to_try:
+                try:
+                    if not host:
+                        continue
+                    if inbox.imap_use_ssl:
+                        mail = imaplib.IMAP4_SSL(host, inbox.imap_port, timeout=10)
+                    else:
+                        mail = imaplib.IMAP4(host, inbox.imap_port, timeout=10)
+                    mail.login(inbox.email_address, inbox.password)
+                    status, _ = mail.select("INBOX")
+                    mail.logout()
+                    results["imap_ok"] = (status == "OK")
+                    results["imap_message"] = f"IMAP connected and authenticated successfully ({host}:{inbox.imap_port})"
                     inbox.imap_host = host
                     break
-                last_imap_err = err_str
+                except Exception as e:
+                    err_str = str(e)
+                    if "enable IMAP" in err_str or "yet to enable IMAP" in err_str:
+                        last_imap_err = "IMAP is disabled for this account in Zoho. To enable: in Zoho Mail web, go to Settings -> Mail Accounts -> check 'IMAP Access' (or mailadmin.zoho.com -> Users -> Mail Settings -> Email Incoming/Outgoing Protocols -> Enable IMAP)."
+                        inbox.imap_host = host
+                        break
+                    last_imap_err = err_str
 
-        if not results["imap_ok"]:
-            results["imap_message"] = f"IMAP auth failed: {last_imap_err}"
+            if not results["imap_ok"]:
+                results["imap_message"] = f"IMAP auth failed: {last_imap_err}"
 
         results["latency_ms"] = int((time.time() - start_time) * 1000)
         return results
