@@ -35,3 +35,6 @@ cryptography>=42.0.5
 
 # Observability
 prometheus-client>=0.20.0
+
+# Email Discovery & Verification
+dnspython>=2.6.1

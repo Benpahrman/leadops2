@@ -647,6 +647,39 @@ class ScoutBackgroundWorker:
             or (raw_web_emails[0] if raw_web_emails else None)
             or None
         )
+
+        # ── EMAIL FINDER RESCUE PIPELINE ──────────────────────────────────────
+        # If no email was found by the web scrape, actively discover one using
+        # multi-strategy sourcing: dork search → name pattern → SMTP verification.
+        # This prevents valid commercial prospects from being dropped solely because
+        # their homepage doesn't publish a mailto: link.
+        if not verified_email and not os.environ.get("PYTEST_CURRENT_TEST"):
+            try:
+                from .tools.email_finder import discover_verified_email
+                logger.info(
+                    f"📧 [EMAIL RESCUE] No email from web scrape for {discovered_name} — "
+                    f"activating Email Finder pipeline"
+                )
+                linkedin_name_hint = (linkedin_contact and linkedin_contact.get("name")) or ""
+                linkedin_role_hint = (linkedin_contact and linkedin_contact.get("role")) or ""
+                finder_result = discover_verified_email(
+                    company_name=discovered_name,
+                    website_url=company_website or "",
+                    contact_name=linkedin_name_hint,
+                    contact_role=linkedin_role_hint,
+                    max_smtp_probes=6,
+                )
+                if finder_result.get("ok") and finder_result.get("email"):
+                    verified_email = finder_result["email"]
+                    logger.info(
+                        f"✅ [EMAIL RESCUE] Found deliverable email: {verified_email} "
+                        f"(confidence: {finder_result.get('confidence', 0):.0%}, "
+                        f"source: {finder_result.get('source', 'unknown')})"
+                    )
+            except Exception as email_finder_err:
+                logger.warning(f"Email Finder rescue pipeline error for {discovered_name}: {email_finder_err}")
+        # ── END EMAIL FINDER RESCUE ───────────────────────────────────────────
+
         verified_phone = (
             contact_info.get("verified_phone")
             or (contact_info.get("phones")[0] if contact_info.get("phones") else None)
@@ -1336,6 +1369,20 @@ class ScoutAutomationSupervisor:
         "next_run_at": None,
     })
 
+    def __post_init__(self) -> None:
+        def _clean_int(val: Any, default: int) -> int:
+            try:
+                return int(str(val).split("#")[0].strip().strip("\"'"))
+            except (ValueError, TypeError):
+                return default
+
+        if "SCOUT_MIN_REST_SECONDS" in os.environ:
+            self.min_rest_seconds = _clean_int(os.environ["SCOUT_MIN_REST_SECONDS"], self.min_rest_seconds)
+        if "SCOUT_MAX_REST_SECONDS" in os.environ:
+            self.max_rest_seconds = _clean_int(os.environ["SCOUT_MAX_REST_SECONDS"], self.max_rest_seconds)
+        if "SCOUT_TARGET_PER_CYCLE" in os.environ:
+            self.target_per_cycle = _clean_int(os.environ["SCOUT_TARGET_PER_CYCLE"], self.target_per_cycle)
+
     def status(self) -> dict[str, Any]:
         stat = dict(self._status)
         is_open, wait_sec, status_msg = is_office_hours()
@@ -1403,9 +1450,9 @@ class ScoutAutomationSupervisor:
 
                 # Check pending review/dispatch queue backlog
                 try:
-                    max_pending = int(str(os.environ.get("SCOUT_MAX_PENDING_QUEUE", "5")).split("#")[0].strip().strip("\"'"))
+                    max_pending = int(str(os.environ.get("SCOUT_MAX_PENDING_QUEUE", "200")).split("#")[0].strip().strip("\"'"))
                 except (ValueError, TypeError):
-                    max_pending = 5
+                    max_pending = 200
                 if self.storage and hasattr(self.storage, "list_leads"):
                     leads = self.storage.list_leads()
                     pending_count = sum(1 for l in leads if l.state in (State.PITCH_PENDING_APPROVAL, State.REVIEW))
