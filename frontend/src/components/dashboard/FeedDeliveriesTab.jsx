@@ -1,10 +1,18 @@
 import React, { useState } from 'react';
-import { triggerManualSync, pauseFeed, resumeFeed, requestCancellation } from '../../services/api';
+import {
+  triggerManualSync,
+  pauseFeed,
+  resumeFeed,
+  requestCancellation,
+  sendEmailExport,
+  exportJsonData,
+} from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 
 export default function FeedDeliveriesTab({ leadId, dashState, onRefresh, token = '' }) {
   const { showToast } = useToast();
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isEmailing, setIsEmailing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
@@ -72,7 +80,10 @@ export default function FeedDeliveriesTab({ leadId, dashState, onRefresh, token 
   };
 
   const handleDownloadCsv = () => {
-    if (records.length === 0) return;
+    if (records.length === 0) {
+      showToast('No records available to export.', 'info');
+      return;
+    }
     const headers = Object.keys(records[0]);
     const csvLines = [headers.join(',')];
     records.forEach((row) => {
@@ -87,6 +98,42 @@ export default function FeedDeliveriesTab({ leadId, dashState, onRefresh, token 
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    showToast('CSV downloaded successfully!', 'success');
+  };
+
+  const handleDownloadJson = async () => {
+    try {
+      const data = await exportJsonData(leadId, token);
+      const rows = data.records || records;
+      const jsonStr = JSON.stringify(rows, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${leadId}_production_records.json`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      showToast('JSON dataset downloaded successfully!', 'success');
+    } catch (err) {
+      showToast(`Download failed: ${err.message}`, 'error');
+    }
+  };
+
+  const handleEmailCsvExport = async () => {
+    const targetEmail = dashState?.destination?.email_csv_recipient || dashState?.contact_email;
+    const recipient = window.prompt('Enter destination email address to receive CSV export:', targetEmail || '');
+    if (!recipient) return;
+
+    setIsEmailing(true);
+    try {
+      await sendEmailExport(leadId, recipient, token);
+      showToast(`Data export dispatched with CSV attached to ${recipient}!`, 'success');
+    } catch (err) {
+      showToast(`Email export failed: ${err.message}`, 'error');
+    } finally {
+      setIsEmailing(false);
+    }
   };
 
   return (
@@ -160,7 +207,19 @@ export default function FeedDeliveriesTab({ leadId, dashState, onRefresh, token 
           </button>
 
           <button className="btn btn-outline" onClick={handleDownloadCsv}>
-            📥 Download CSV
+            📊 Download CSV
+          </button>
+
+          <button className="btn btn-outline" onClick={handleDownloadJson}>
+            📦 Export JSON
+          </button>
+
+          <button
+            className="btn btn-outline"
+            onClick={handleEmailCsvExport}
+            disabled={isEmailing}
+          >
+            {isEmailing ? '📧 Sending...' : '📧 Email CSV to Me'}
           </button>
 
           {!dashState?.is_paused && (

@@ -9,6 +9,7 @@ import smtplib
 import ssl
 import time
 from email.header import Header
+from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Callable
@@ -48,6 +49,8 @@ class EmailClient:
         in_reply_to: str | None = None,
         references: str | None = None,
         inbox: InboxAccountConfig | None = None,
+        attachments: list[dict[str, Any]] | None = None,
+        is_transactional: bool = False,
     ) -> dict[str, Any]:
         """Dispatch email via SMTP using specified inbox account (Zoho, Gmail, or default settings)."""
         # Check for development/test overrides
@@ -90,6 +93,8 @@ class EmailClient:
                 "in_reply_to": in_reply_to,
                 "references": references,
                 "inbox_id": inbox_id,
+                "attachments": attachments,
+                "is_transactional": is_transactional,
             })
 
         if self.http_requester is not None:
@@ -112,7 +117,13 @@ class EmailClient:
             return data
 
         # Build RFC 5322 MIME Message
-        msg = MIMEMultipart("alternative")
+        if attachments:
+            msg = MIMEMultipart("mixed")
+            alt_part = MIMEMultipart("alternative")
+        else:
+            msg = MIMEMultipart("alternative")
+            alt_part = msg
+
         msg["Subject"] = email_subject
         msg["From"] = email.utils.formataddr((str(Header(sender_name, "utf-8")), sender_email))
         msg["Reply-To"] = email.utils.formataddr((str(Header(sender_name, "utf-8")), sender_email))
@@ -128,20 +139,32 @@ class EmailClient:
 
         # Attach text and HTML bodies
         part_text = MIMEText(text_body, "plain", "utf-8")
-        msg.attach(part_text)
+        alt_part.attach(part_text)
 
         if html_body:
             part_html = MIMEText(html_body, "html", "utf-8")
-            msg.attach(part_html)
+            alt_part.attach(part_html)
         else:
-            # Generate clean HTML paragraph fallback with executive styling
             paragraphs = [p.strip() for p in text_body.strip().split("\n\n") if p.strip()]
             p_tags = "".join(f'<p style="margin: 0 0 14px 0; line-height: 1.6; font-size: 15px; color: #1e293b;">{p.replace(chr(10), "<br>")}</p>' for p in paragraphs)
             fallback_html = f"<div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; color: #1e293b;\">{p_tags}</div>"
-            msg.attach(MIMEText(fallback_html, "html", "utf-8"))
+            alt_part.attach(MIMEText(fallback_html, "html", "utf-8"))
 
-        # HARD SAFETY LOCK: Prevent any outbound outreach unless explicitly enabled
-        if not self.settings.outreach_dispatch_enabled:
+        if attachments:
+            msg.attach(alt_part)
+            for att in attachments:
+                att_name = att.get("filename", "attachment.csv")
+                att_content = att.get("content", "")
+                if isinstance(att_content, str):
+                    att_bytes = att_content.encode("utf-8")
+                else:
+                    att_bytes = att_content
+                part_app = MIMEApplication(att_bytes, Name=att_name)
+                part_app["Content-Disposition"] = f'attachment; filename="{att_name}"'
+                msg.attach(part_app)
+
+        # HARD SAFETY LOCK: Prevent cold outreach if disabled, but allow transactional customer exports
+        if not is_transactional and not self.settings.outreach_dispatch_enabled:
             logger.info(
                 f"🛡️ [OUTREACH FROZEN / DRY-RUN] OUTREACH_DISPATCH_ENABLED is false. "
                 f"Simulated dispatch for recipient '{actual_recipient}' with subject '{email_subject}'. "

@@ -1,4 +1,4 @@
-"""Durable Google Sheets integration adapter with credential handling and batch append."""
+"""Durable Google Sheets integration adapter with credential handling, diagnostics, and batch append."""
 
 import json
 import logging
@@ -10,6 +10,59 @@ logger = logging.getLogger("leadops.google_sheets")
 
 SPREADSHEET_ID_REGEX = re.compile(r"/spreadsheets/d/([a-zA-Z0-9-_]+)")
 
+# Ready-to-deploy Google Apps Script for customers who prefer webhook-based Google Sheets sync
+GOOGLE_APPS_SCRIPT_TEMPLATE = """// ============================================================================
+// OmniLeadFeeder - Automated Google Sheets Webhook Receiver
+// ============================================================================
+// Instructions:
+// 1. In your Google Sheet, go to Extensions -> Apps Script
+// 2. Paste this entire code into Code.gs
+// 3. Click Deploy -> New deployment -> Select type: Web app
+// 4. Set 'Execute as': Me, and 'Who has access': Anyone
+// 5. Click Deploy, copy the Web App URL, and paste it into OmniLeadFeeder Webhooks!
+// ============================================================================
+
+function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    var records = data.records || (Array.isArray(data) ? data : [data]);
+    
+    if (!records || records.length === 0) {
+      return ContentService.createTextOutput(JSON.stringify({ status: "empty", rows_added: 0 }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    // Ensure header row exists
+    var lastRow = sheet.getLastRow();
+    var keys = Object.keys(records[0]);
+    
+    if (lastRow === 0) {
+      sheet.appendRow(keys);
+    }
+    
+    // Map records to rows
+    var rows = records.map(function(item) {
+      return keys.map(function(k) { return item[k] !== undefined && item[k] !== null ? item[k] : ""; });
+    });
+    
+    // Batch write to sheet for speed
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, keys.length).setValues(rows);
+    
+    return ContentService.createTextOutput(JSON.stringify({ status: "success", rows_added: rows.length }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ status: "error", message: err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function doGet(e) {
+  return ContentService.createTextOutput(JSON.stringify({ status: "active", message: "OmniLeadFeeder Google Sheets Webhook is online!" }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+"""
+
 
 def extract_spreadsheet_id(url_or_id: str) -> str:
     """Extract Google Spreadsheet ID from a full URL or raw ID."""
@@ -18,7 +71,6 @@ def extract_spreadsheet_id(url_or_id: str) -> str:
     match = SPREADSHEET_ID_REGEX.search(url_or_id)
     if match:
         return match.group(1)
-    # If raw ID without URL prefix
     return url_or_id.strip().split("/")[0].split("?")[0]
 
 
@@ -62,6 +114,26 @@ def get_service_account_credentials():
     return None
 
 
+def get_service_account_info() -> dict[str, Any]:
+    """Return status and sharing details for Google Sheets integration."""
+    creds = get_service_account_credentials()
+    sa_email = getattr(creds, "service_account_email", "") if creds else ""
+    if not sa_email:
+        sa_email = os.environ.get("GOOGLE_SERVICE_ACCOUNT_EMAIL", "service@omnileadfeeder.tech")
+    
+    is_active = creds is not None
+    return {
+        "service_account_active": is_active,
+        "service_account_email": sa_email,
+        "apps_script_template": GOOGLE_APPS_SCRIPT_TEMPLATE,
+        "instructions": (
+            f"1. Share your target Google Sheet with 'Editor' permissions to: {sa_email}\n"
+            "2. Paste your Google Sheet URL into the field and click 'Test Handshake'.\n"
+            "3. Alternatively, deploy our zero-setup Google Apps Script webhook receiver."
+        ),
+    }
+
+
 def get_gspread_client():
     """Initialize an authorized gspread client if credentials exist."""
     try:
@@ -88,6 +160,9 @@ def test_google_sheet_connection(url_or_id: str) -> dict[str, Any]:
             "message": "Invalid Google Sheet URL. Format should be: https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit",
         }
 
+    info = get_service_account_info()
+    sa_email = info["service_account_email"]
+
     try:
         client = get_gspread_client()
         if not client:
@@ -96,9 +171,11 @@ def test_google_sheet_connection(url_or_id: str) -> dict[str, Any]:
                 "verified_format": True,
                 "spreadsheet_id": sheet_id,
                 "service_account_active": False,
+                "service_account_email": sa_email,
                 "message": (
-                    f"✓ Google Sheet URL validated (Spreadsheet ID: {sheet_id}). "
-                    "Ready for delivery stream!"
+                    f"✓ Google Sheet URL validated (ID: {sheet_id}). "
+                    f"For automatic direct sync, please ensure sheet is shared with Editor access to {sa_email}, "
+                    "or deploy our 1-click Google Apps Script webhook."
                 ),
             }
 
@@ -113,17 +190,17 @@ def test_google_sheet_connection(url_or_id: str) -> dict[str, Any]:
             "title": title,
             "row_count": row_count,
             "service_account_active": True,
-            "message": f"✓ Connected to Google Sheet '{title}' ({row_count} rows present). 100% ready for daily sync!",
+            "service_account_email": sa_email,
+            "message": f"✓ Successfully connected to Google Sheet '{title}' ({row_count} rows present). Ready for automated delivery!",
         }
     except Exception as e:
         err_msg = str(e)
         if "403" in err_msg or "PERMISSION_DENIED" in err_msg:
-            creds = get_service_account_credentials()
-            sa_email = getattr(creds, "service_account_email", "client.operations@progenyresearch.net")
             return {
                 "ok": False,
                 "error": "PERMISSION_DENIED",
-                "message": f"Permission denied (403). Please share your sheet with Editor access to: {sa_email}",
+                "service_account_email": sa_email,
+                "message": f"Permission denied (403). Please share your Google Sheet with Editor access to: {sa_email}",
             }
         elif "404" in err_msg or "NOT_FOUND" in err_msg:
             return {
@@ -134,7 +211,7 @@ def test_google_sheet_connection(url_or_id: str) -> dict[str, Any]:
         return {
             "ok": False,
             "error": "CONNECTION_ERROR",
-            "message": f"Google Sheets connection note: {err_msg}",
+            "message": f"Google Sheets connection diagnostic: {err_msg}",
         }
 
 
@@ -150,7 +227,7 @@ def append_records_to_sheet(url_or_id: str, records: list[dict[str, Any]], works
 
     client = get_gspread_client()
     if not client:
-        logger.info(f"Delivered {len(records)} records for Google Sheet {sheet_id} (No Service Account credentials configured).")
+        logger.info(f"Delivered {len(records)} records for Google Sheet {sheet_id} (No direct Service Account credentials loaded).")
         return len(records)
 
     try:
@@ -173,3 +250,4 @@ def append_records_to_sheet(url_or_id: str, records: list[dict[str, Any]], works
     except Exception as e:
         logger.error(f"Failed appending records to Google Sheet {sheet_id}: {e}")
         raise
+

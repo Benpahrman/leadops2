@@ -15,9 +15,11 @@ from .storage import StorageBackend
 class DestinationConfig:
     destination_type: str = "google_sheets"  # "google_sheets", "webhook", "email_csv"
     google_sheet_url: str | None = "https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
-    google_sheet_account: str | None = "client.operations@progenyresearch.net"
+    google_sheet_account: str | None = "service@omnileadfeeder.tech"
     webhook_url: str | None = None
     webhook_secret: str | None = None
+    email_csv_enabled: bool = True
+    email_csv_recipient: str | None = None
     delivery_schedule: str = "Daily at 8:00 AM"
     delivery_timezone: str = "America/Chicago"  # CST
 
@@ -232,6 +234,9 @@ class CustomerDashboardService:
                 "google_sheet_url": dest_config.google_sheet_url,
                 "google_sheet_account": dest_config.google_sheet_account,
                 "webhook_url": dest_config.webhook_url,
+                "webhook_secret": dest_config.webhook_secret,
+                "email_csv_enabled": dest_config.email_csv_enabled,
+                "email_csv_recipient": dest_config.email_csv_recipient or lead.contact_email,
                 "delivery_schedule": dest_config.delivery_schedule,
                 "delivery_timezone": dest_config.delivery_timezone,
             },
@@ -258,22 +263,23 @@ class CustomerDashboardService:
     def request_field_modification(
         self,
         lead_id: str,
-        add_fields: list[str],
-        remove_fields: list[str],
+        add_fields: list[str] | None = None,
+        remove_fields: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Process field modifications enforcing tier limits."""
+        """Submit a schema expansion/reduction request."""
         lead = self.storage.get_lead(lead_id)
         if not lead:
             raise KeyError(f"Lead not found: {lead_id}")
 
-        current_fields = set(lead.selected_fields or ["case_number", "decedent_name", "filing_date"])
-        updated_fields = (current_fields - set(remove_fields)) | set(add_fields)
-        
-        if len(updated_fields) > lead.tier.max_fields:
-            raise ValueError(
-                f"Requested fields ({len(updated_fields)}) exceeds your plan limit of {lead.tier.max_fields}. "
-                f"Please upgrade to AI Tier (25 fields) or request an add-on quote."
-            )
+        add_fields = add_fields or []
+        remove_fields = remove_fields or []
+
+        current_fields = set(lead.selected_fields or [])
+        updated_fields = (current_fields | set(add_fields)) - set(remove_fields)
+
+        max_allowed = lead.tier.max_fields if hasattr(lead, "tier") and hasattr(lead.tier, "max_fields") else 15
+        if len(updated_fields) > max_allowed:
+            raise ValueError(f"Selected fields ({len(updated_fields)}) exceed limit of {max_allowed}. Please upgrade tier or remove fields.")
 
         lead.selected_fields = sorted(list(updated_fields))
         self.storage.save_lead(lead)
@@ -295,6 +301,8 @@ class CustomerDashboardService:
         google_sheet_url: str | None = None,
         webhook_url: str | None = None,
         webhook_secret: str | None = None,
+        email_csv_enabled: bool | None = None,
+        email_csv_recipient: str | None = None,
         delivery_schedule: str | None = None,
         delivery_timezone: str | None = None,
     ) -> DestinationConfig:
@@ -311,6 +319,10 @@ class CustomerDashboardService:
             current.webhook_url = webhook_url
         if webhook_secret is not None:
             current.webhook_secret = webhook_secret
+        if email_csv_enabled is not None:
+            current.email_csv_enabled = email_csv_enabled
+        if email_csv_recipient is not None:
+            current.email_csv_recipient = email_csv_recipient
         if delivery_schedule is not None:
             current.delivery_schedule = delivery_schedule
         if delivery_timezone is not None:
@@ -383,6 +395,24 @@ class CustomerDashboardService:
         filtered = [{k: r.get(k, "") for k in fields} for r in real_records]
         writer.writerows(filtered)
         return output.getvalue()
+
+    def export_latest_json(self, lead_id: str) -> list[dict[str, Any]]:
+        """Retrieve recent sync records filtered by selected fields."""
+        lead = self.storage.get_lead(lead_id)
+        if not lead:
+            raise KeyError(f"Lead not found: {lead_id}")
+
+        fields = lead.selected_fields or ["case_number", "decedent_name", "filing_date", "est_value", "attorney_name", "status"]
+        real_records = []
+        for s in self.storage.list_sandboxes():
+            if s.lead and s.lead.lead_id == lead_id and s.rows:
+                real_records = s.rows
+                break
+
+        if not real_records:
+            return []
+
+        return [{k: r.get(k, "") for k in fields} for r in real_records]
 
     def pause_subscription(self, lead_id: str, days: int = 30) -> dict[str, Any]:
         """Pause customer active daily extraction for 30 days while retaining custom selectors."""

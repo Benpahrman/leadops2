@@ -24,7 +24,7 @@ def is_office_hours(
         If is_open is False, wait_seconds is seconds until the next 8:00 AM opening window.
         If is_open is True, wait_seconds is seconds until 5:00 PM closing.
     """
-    if os.environ.get("SCOUT_FORCE_OFFICE_HOURS", "").lower() == "true":
+    if now is None and os.environ.get("SCOUT_FORCE_OFFICE_HOURS", "").lower() == "true":
         return True, 3600, "Office hours forced active by configuration"
 
     tz_str = tz_name or os.environ.get("SCOUT_TIMEZONE", "US/Central")
@@ -36,7 +36,6 @@ def is_office_hours(
             tz_str = "US/Central"
         except Exception:
             # Resilient fallback when tzdata is missing on slim Linux environments
-            from datetime import timezone, timedelta
             tz = timezone(timedelta(hours=-5), name="US/Central")
             tz_str = "US/Central"
 

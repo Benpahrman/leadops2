@@ -66,7 +66,10 @@ def test_pitcher_dispatch_lifecycle_and_mock_client():
         from_name="Alex | LeadOps",
     )
     client = SendPulseClient(settings=settings, http_requester=mock_requester)
-    pitcher = PitcherService(sendpulse_client=client)
+    from agents.email.verifier import DeliverabilityVerifier
+    verifier = DeliverabilityVerifier(probe_smtp=False)
+    verifier.resolve_mx_records = lambda d: ["mail.acme.com"]
+    pitcher = PitcherService(sendpulse_client=client, deliverability_verifier=verifier)
 
     lead = Lead("lead-outreach-1", "weekly")
     pitch = render_sub_60_word_pitch(

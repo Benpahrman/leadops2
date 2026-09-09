@@ -94,6 +94,12 @@ export async function saveSchema(leadId, activeFields, token = '') {
   return res.json();
 }
 
+export async function fetchGoogleSheetsInfo() {
+  const res = await fetch(`${API_BASE}/api/dashboard/integrations/google-sheets-info`);
+  if (!res.ok) return { service_account_active: false, service_account_email: 'service@omnileadfeeder.tech' };
+  return res.json();
+}
+
 export async function saveDestinations(leadId, destData, token = '') {
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -103,18 +109,56 @@ export async function saveDestinations(leadId, destData, token = '') {
     headers,
     body: JSON.stringify(destData),
   });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to save destinations (HTTP ${res.status})`);
+  }
   return res.json();
 }
 
-export async function testDestinationPing(leadId, type, token = '') {
+export async function testDestinationPing(leadId, type, params = {}, token = '') {
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const bodyData = typeof params === 'string' ? { type: params } : { type, destination_type: type, ...params };
 
   const res = await fetch(`${API_BASE}/api/dashboard/${leadId}/test-destination`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ type }),
+    body: JSON.stringify(bodyData),
   });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || err.message || `Test failed (HTTP ${res.status})`);
+  }
+  return res.json();
+}
+
+export async function sendEmailExport(leadId, recipientEmail = '', token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/api/dashboard/${leadId}/export/email`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ recipient_email: recipientEmail }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || err.message || `Email export failed (HTTP ${res.status})`);
+  }
+  return res.json();
+}
+
+export async function exportJsonData(leadId, token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/api/dashboard/${leadId}/export/json`, { headers });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `JSON export failed: HTTP ${res.status}`);
+  }
   return res.json();
 }
 

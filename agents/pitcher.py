@@ -327,6 +327,10 @@ class PitcherService:
                 raise ValueError("Human approval is required for outbound pitch dispatch")
 
         approver = human_approver.strip() if (human_approver and human_approver.strip()) else "Autonomous AI Engine"
+        if not getattr(lead, "contact_email", ""):
+            lead.contact_email = recipient_email
+        if not getattr(lead, "contact_name", ""):
+            lead.contact_name = recipient_name
 
         # 0. Office hours check for outbound cold outreach (8:00 AM - 5:00 PM CST Mon-Fri)
         should_enforce_hours = (

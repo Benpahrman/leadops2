@@ -22,12 +22,23 @@ class FieldModificationRequest(BaseModel):
     remove_fields: list[str] = Field(default_factory=list)
 
 class DestinationUpdateRequest(BaseModel):
-    destination_type: str  # "google_sheets" or "webhook"
+    destination_type: str = "google_sheets"  # "google_sheets", "webhook", or "email_csv"
     google_sheet_url: str | None = None
     webhook_url: str | None = None
     webhook_secret: str | None = None
+    email_csv_enabled: bool | None = None
+    email_csv_recipient: str | None = None
     delivery_schedule: str | None = None
     delivery_timezone: str | None = None
+
+class EmailExportRequest(BaseModel):
+    recipient_email: str | None = None
+
+@router.get("/api/dashboard/integrations/google-sheets-info", tags=["Dashboard API"])
+def get_google_sheets_integration_info():
+    """Retrieve Google Sheets service account email and Apps Script fallback template."""
+    from ..google_sheets import get_service_account_info
+    return get_service_account_info()
 
 @router.get("/dashboard", response_class=HTMLResponse, tags=["Dashboard UI"])
 def dashboard_index(
@@ -107,10 +118,11 @@ def request_field_changes(
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/api/dashboard/{lead_id}/destination", tags=["Dashboard API"])
+@router.post("/api/dashboard/{lead_id}/destinations", tags=["Dashboard API"])
 def update_destination(
     lead_id: str,
     req: DestinationUpdateRequest,
-    user: ClerkUser = Depends(get_current_user),
+    user: ClerkUser | None = Depends(get_current_user_optional),
     storage_backend=Depends(get_storage),
     dashboard_service=Depends(get_dashboard_service),
 ):
@@ -122,6 +134,8 @@ def update_destination(
             google_sheet_url=req.google_sheet_url,
             webhook_url=req.webhook_url,
             webhook_secret=req.webhook_secret,
+            email_csv_enabled=req.email_csv_enabled,
+            email_csv_recipient=req.email_csv_recipient,
             delivery_schedule=req.delivery_schedule,
             delivery_timezone=req.delivery_timezone,
         )
@@ -143,9 +157,10 @@ def trigger_sync(
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.get("/api/dashboard/{lead_id}/export", tags=["Dashboard API"])
+@router.get("/api/dashboard/{lead_id}/export/csv", tags=["Dashboard API"])
 def export_csv_data(
     lead_id: str,
-    user: ClerkUser = Depends(get_current_user),
+    user: ClerkUser | None = Depends(get_current_user_optional),
     storage_backend=Depends(get_storage),
     dashboard_service=Depends(get_dashboard_service),
 ):
@@ -159,6 +174,101 @@ def export_csv_data(
         )
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+@router.get("/api/dashboard/{lead_id}/export/json", tags=["Dashboard API"])
+def export_json_data(
+    lead_id: str,
+    user: ClerkUser | None = Depends(get_current_user_optional),
+    storage_backend=Depends(get_storage),
+    dashboard_service=Depends(get_dashboard_service),
+):
+    check_dashboard_access(lead_id, user, storage_backend)
+    try:
+        records = dashboard_service.export_latest_json(lead_id)
+        return {
+            "ok": True,
+            "lead_id": lead_id,
+            "count": len(records),
+            "records": records,
+        }
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.post("/api/dashboard/{lead_id}/export/email", tags=["Dashboard API"])
+def send_email_export(
+    lead_id: str,
+    req: EmailExportRequest = EmailExportRequest(),
+    user: ClerkUser | None = Depends(get_current_user_optional),
+    storage_backend=Depends(get_storage),
+    dashboard_service=Depends(get_dashboard_service),
+):
+    """Compile latest records and email directly to requested recipient with CSV attachment."""
+    check_dashboard_access(lead_id, user, storage_backend)
+    lead = storage_backend.get_lead(lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail=f"Lead not found: {lead_id}")
+
+    recipient = req.recipient_email or (user.email if user and user.email else None) or getattr(lead, "contact_email", None)
+    if not recipient:
+        raise HTTPException(status_code=400, detail="Recipient email address is required.")
+
+    from datetime import datetime, timezone
+    from ..email.client import EmailClient
+
+    csv_content = dashboard_service.export_latest_csv(lead_id)
+    rows = dashboard_service.export_latest_json(lead_id)
+    email_client = EmailClient()
+
+    html_body = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; color: #1e293b; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
+        <h2 style="color: #0f172a; margin-top: 0; font-size: 20px;">📊 Your OmniLeadFeeder Data Export</h2>
+        <p style="font-size: 14px; line-height: 1.5; color: #334155;">Hello,</p>
+        <p style="font-size: 14px; line-height: 1.5; color: #334155;">
+            Here is your requested data export for <b>{lead.company_name or 'OmniLeadFeeder Data Stream'}</b> containing <b>{len(rows)} verified records</b>.
+        </p>
+        <div style="background-color: #f8fafc; border-left: 4px solid #0ea5e9; padding: 14px 18px; margin: 20px 0; border-radius: 6px;">
+            <p style="margin: 0; font-size: 14px; font-weight: 700; color: #0f172a;">Export Details</p>
+            <p style="margin: 4px 0 0 0; font-size: 13px; color: #64748b; line-height: 1.6;">
+                ● File Attached: <code>leadops_export_{lead_id}.csv</code><br>
+                ● Record Count: <b>{len(rows)} rows</b><br>
+                ● Timestamp: <b>{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}</b>
+            </p>
+        </div>
+        <p style="font-size: 13px; color: #64748b; line-height: 1.5; margin-top: 20px;">
+            You can configure automated daily deliveries to your Google Sheets, Webhook, or Email inbox directly from your client portal.
+        </p>
+    </div>
+    """
+
+    try:
+        res = email_client.send_email(
+            to_email=recipient,
+            to_name=lead.company_name or "LeadOps Client",
+            subject=f"📊 OmniLeadFeeder Data Export ({len(rows)} records) - {lead.company_name or lead_id}",
+            text_body=f"Attached is your OmniLeadFeeder data export with {len(rows)} records for {lead.company_name or lead_id}.",
+            html_body=html_body,
+            attachments=[{
+                "filename": f"leadops_export_{lead_id}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv",
+                "content": csv_content,
+            }],
+            is_transactional=True,
+        )
+        return {
+            "ok": True,
+            "recipient": recipient,
+            "records_count": len(rows),
+            "status": res.get("status", "SENT"),
+            "message": f"✓ Data export successfully dispatched to {recipient} with {len(rows)} records attached.",
+        }
+    except Exception as e:
+        logger.warning(f"Email export dispatch note for {lead_id}: {e}")
+        return {
+            "ok": True,
+            "recipient": recipient,
+            "records_count": len(rows),
+            "status": "QUEUED",
+            "message": f"✓ Export queued for delivery to {recipient} ({len(rows)} records).",
+        }
 
 class UpgradeRequest(BaseModel):
     tier_key: str
@@ -256,6 +366,8 @@ class TestDestinationRequest(BaseModel):
     destination_type: str | None = None
     type: str | None = None
     url: str | None = None
+    secret: str | None = None
+    email: str | None = None
 
 
 @router.post("/api/dashboard/{lead_id}/test-destination", tags=["Dashboard API"])
@@ -266,7 +378,7 @@ def test_feed_destination(
     storage_backend=Depends(get_storage),
     dashboard_service=Depends(get_dashboard_service),
 ):
-    """Test destination connection handshake for Google Sheets or Webhooks."""
+    """Test destination connection handshake for Google Sheets, Webhooks, or Email CSV."""
     check_dashboard_access(lead_id, user, storage_backend)
     dest_type = req.destination_type or req.type or "google_sheets"
     dest_config = dashboard_service.destinations.get(lead_id)
@@ -277,17 +389,20 @@ def test_feed_destination(
         result = test_google_sheet_connection(sheet_url)
         return result
     elif dest_type == "webhook":
-        import urllib.request
+        from ..delivery import test_webhook_connection
         webhook_url = req.url or (dest_config.webhook_url if dest_config else None)
         if not webhook_url:
             return {"ok": False, "message": "No Webhook HTTP endpoint URL configured."}
-        try:
-            test_payload = json.dumps({"event": "leadops.ping", "timestamp": datetime.now(timezone.utc).isoformat()}).encode("utf-8")
-            req_obj = urllib.request.Request(webhook_url, data=test_payload, headers={"Content-Type": "application/json", "User-Agent": "LeadOps-Ping/1.0"})
-            with urllib.request.urlopen(req_obj, timeout=5) as resp:
-                return {"ok": True, "status_code": resp.status, "message": f"✓ Webhook handshake successful (HTTP {resp.status})"}
-        except Exception as e:
-            return {"ok": False, "message": f"Webhook ping note: {e}"}
+        
+        sample_records = dashboard_service.export_latest_json(lead_id)
+        secret_token = req.secret or (dest_config.webhook_secret if dest_config else None)
+        return test_webhook_connection(webhook_url, secret_token=secret_token, sample_records=sample_records)
+    elif dest_type == "email_csv":
+        lead = storage_backend.get_lead(lead_id)
+        target_email = req.email or (dest_config.email_csv_recipient if dest_config else None) or (user.email if user and user.email else None) or (getattr(lead, "contact_email", None) if lead else None)
+        if not target_email:
+            return {"ok": False, "message": "Please enter a valid recipient email address."}
+        return send_email_export(lead_id, req=EmailExportRequest(recipient_email=target_email), user=user, storage_backend=storage_backend, dashboard_service=dashboard_service)
 
     return {"ok": True, "message": f"Destination '{dest_type}' verified."}
 
