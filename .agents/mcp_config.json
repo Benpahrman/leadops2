@@ -27,6 +27,33 @@
         "server",
         "start"
       ]
+    },
+    "cloudflare": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@cloudflare/mcp-server-cloudflare"
+      ],
+      "env": {
+        "CLOUDFLARE_API_TOKEN": "${CLOUDFLARE_API_TOKEN:-}",
+        "CLOUDFLARE_ACCOUNT_ID": "${CLOUDFLARE_ACCOUNT_ID:-}"
+      }
+    },
+    "cloudflare-docs": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://docs.mcp.cloudflare.com/mcp"
+      ]
+    },
+    "cloudflare-code": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://mcp.cloudflare.com/mcp"
+      ]
     }
   }
 }
