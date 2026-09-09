@@ -2,6 +2,7 @@ import io
 import json
 import logging
 import os
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
@@ -451,49 +452,11 @@ def generate_buyout_bundle(
     )
 
 
-class TestDestinationRequest(BaseModel):
-    destination_type: str | None = None
-    type: str | None = None
-    url: str | None = None
-    secret: str | None = None
-    email: str | None = None
-
-
-@router.post("/api/dashboard/{lead_id}/test-destination", tags=["Dashboard API"])
-def test_feed_destination(
-    lead_id: str,
-    req: TestDestinationRequest,
-    user: ClerkUser | None = Depends(get_current_user_optional),
-    storage_backend=Depends(get_storage),
-    dashboard_service=Depends(get_dashboard_service),
-):
-    """Test destination connection handshake for Google Sheets, Webhooks, or Email CSV."""
-    check_dashboard_access(lead_id, user, storage_backend)
-    dest_type = req.destination_type or req.type or "google_sheets"
-    dest_config = dashboard_service.destinations.get(lead_id)
-
-    if dest_type == "google_sheets":
-        from ..google_sheets import test_google_sheet_connection
-        sheet_url = req.url or (dest_config.google_sheet_url if dest_config else None) or "https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
-        result = test_google_sheet_connection(sheet_url)
-        return result
-    elif dest_type == "webhook":
-        from ..delivery import test_webhook_connection
-        webhook_url = req.url or (dest_config.webhook_url if dest_config else None)
-        if not webhook_url:
-            return {"ok": False, "message": "No Webhook HTTP endpoint URL configured."}
-        
-        sample_records = dashboard_service.export_latest_json(lead_id)
-        secret_token = req.secret or (dest_config.webhook_secret if dest_config else None)
-        return test_webhook_connection(webhook_url, secret_token=secret_token, sample_records=sample_records)
-    elif dest_type == "email_csv":
-        lead = storage_backend.get_lead(lead_id)
-        target_email = req.email or (dest_config.email_csv_recipient if dest_config else None) or (user.email if user and user.email else None) or (getattr(lead, "contact_email", None) if lead else None)
-        if not target_email:
-            return {"ok": False, "message": "Please enter a valid recipient email address."}
-        return send_email_export(lead_id, req=EmailExportRequest(recipient_email=target_email), user=user, storage_backend=storage_backend, dashboard_service=dashboard_service)
-
-    return {"ok": True, "message": f"Destination '{dest_type}' verified."}
+# NOTE: The full TestDestinationRequest model with all fields (google_sheet_url,
+# webhook_url, webhook_secret, airtable_*, notion_*, etc.) is defined at the top
+# of this file. This route alias delegates to the full test_destination_endpoint
+# handler below which uses the complete model.
+# (A previous duplicate stripped-down class definition was removed to prevent shadowing.)
 
 
 @router.get("/api/dashboard/{lead_id}/health", tags=["Dashboard API"])
