@@ -1,6 +1,7 @@
 // Centralized API client for OmniLeadFeeder frontend
+// Uses same-origin relative URLs (/api/...) on custom domains (both www and apex) and local dev proxy
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || (typeof window !== 'undefined' && window.location.hostname.includes('azurestaticapps.net') ? 'https://omnileadfeeder.tech' : '');
+const API_BASE = (import.meta.env && import.meta.env.VITE_API_BASE_URL) || '';
 
 export async function fetchHealth() {
   const res = await fetch(`${API_BASE}/health`);
