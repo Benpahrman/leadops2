@@ -648,6 +648,15 @@ export async function deleteAdminInbox(inboxId, token = '') {
   return res.json();
 }
 
+export async function triggerOutreachFlush(token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
 
-
-
+  const res = await fetch(`${API_BASE}/api/admin/auto-outreach/flush`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}

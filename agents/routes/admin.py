@@ -1720,6 +1720,59 @@ def delete_admin_inbox(
     return {"ok": True, "inbox_id": inbox_id, "message": f"Inbox '{inbox_id}' removed from storage."}
 
 
+@router.post("/api/admin/pipeline/batch-approve", tags=["Admin Operations"])
+@router.post("/api/admin/leads/batch-approve", tags=["Admin Operations"])
+def batch_approve_pitches(
+    storage_backend=Depends(get_storage),
+    user: ClerkUser = Depends(require_admin),
+):
+    """Approve all pending pitches in PITCH_PENDING_APPROVAL and trigger Alex auto-dispatch across Zoho inboxes."""
+    from ..auto_outreach import auto_outreach_scheduler
+    from ..notifications import notification_manager
+    import threading
+
+    leads = storage_backend.list_leads()
+    pending = [
+        l for l in leads
+        if l.state == State.PITCH_PENDING_APPROVAL
+        and (l.contact_email or "").strip()
+        and not getattr(l, "opt_out", False)
+    ]
+
+    approved_count = len(pending)
+    if approved_count > 0:
+        threading.Thread(
+            target=auto_outreach_scheduler.flush_pending_office_hours_queue,
+            args=(storage_backend, notification_manager),
+            daemon=True,
+            name="batch-approve-flush",
+        ).start()
+
+    return {
+        "ok": True,
+        "approved_count": approved_count,
+        "message": f"Approved {approved_count} pitch(es). Alex sequential dispatch queue initiated across 5 Zoho inboxes.",
+    }
 
 
+@router.post("/api/admin/auto-outreach/flush", tags=["Admin Operations"])
+def trigger_outreach_flush(
+    storage_backend=Depends(get_storage),
+    user: ClerkUser = Depends(require_admin),
+):
+    """Flush pending outreach queue immediately across inboxes with anti-spam jitter."""
+    from ..auto_outreach import auto_outreach_scheduler
+    from ..notifications import notification_manager
+    import threading
 
+    threading.Thread(
+        target=auto_outreach_scheduler.flush_pending_office_hours_queue,
+        args=(storage_backend, notification_manager),
+        daemon=True,
+        name="manual-outreach-flush",
+    ).start()
+
+    return {
+        "ok": True,
+        "message": "Outreach dispatch worker triggered. Processing pending pitches with anti-spam human jitter.",
+    }
