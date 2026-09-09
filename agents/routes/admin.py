@@ -1557,5 +1557,167 @@ def handle_mobile_quick_action(
     return HTMLResponse(content=html)
 
 
+# -------------------------------------------------------------
+# Multi-Inbox (Zoho / Gmail) Management Endpoints
+# -------------------------------------------------------------
+
+class InboxUpsertRequest(BaseModel):
+    inbox_id: Optional[str] = None
+    email_address: str
+    password: Optional[str] = ""
+    provider: Optional[str] = "zoho"
+    from_name: Optional[str] = "Alex | OmniLeadFeeder"
+    smtp_host: Optional[str] = ""
+    smtp_port: Optional[int] = 465
+    smtp_use_ssl: Optional[bool] = True
+    smtp_use_tls: Optional[bool] = False
+    imap_host: Optional[str] = ""
+    imap_port: Optional[int] = 993
+    imap_use_ssl: Optional[bool] = True
+    daily_limit: Optional[int] = 25
+    warmup_start_date: Optional[str] = ""
+    is_active: Optional[bool] = True
+
+
+@router.get("/api/admin/inboxes", tags=["Admin Inboxes"])
+def list_admin_inboxes(
+    storage_backend=Depends(get_storage),
+    user: ClerkUser = Depends(require_admin),
+):
+    """List all configured inboxes (Zoho & Gmail) with real-time warmup and quota metrics."""
+    from ..email.config import EmailSettings
+    from ..email.warmup import WarmupManager
+
+    settings = EmailSettings.from_environment()
+    warmup = WarmupManager(settings=settings, storage_backend=storage_backend)
+    all_accounts = warmup.get_all_configured_accounts()
+
+    inbox_list = []
+    for acc in all_accounts:
+        sent_today = warmup.get_sent_count_today(acc.id)
+        can_send, _, quota = warmup.can_send_today(acc.id)
+        tier = warmup.get_warmup_tier()
+        inbox_list.append({
+            "inbox_id": acc.id,
+            "email_address": acc.email_address,
+            "provider": acc.provider,
+            "from_name": acc.from_name,
+            "smtp_host": acc.smtp_host,
+            "smtp_port": acc.smtp_port,
+            "smtp_use_ssl": acc.smtp_use_ssl,
+            "smtp_use_tls": acc.smtp_use_tls,
+            "imap_host": acc.imap_host,
+            "imap_port": acc.imap_port,
+            "imap_use_ssl": acc.imap_use_ssl,
+            "daily_limit": quota,
+            "sent_today": sent_today,
+            "can_send": can_send,
+            "warmup_week": tier.week_number,
+            "warmup_name": tier.name,
+            "warmup_start_date": acc.warmup_start_date,
+            "is_active": acc.is_active,
+            "password_configured": bool(acc.password),
+        })
+
+    return {"ok": True, "inboxes": inbox_list, "total": len(inbox_list)}
+
+
+@router.post("/api/admin/inboxes", tags=["Admin Inboxes"])
+def upsert_admin_inbox(
+    req: InboxUpsertRequest,
+    storage_backend=Depends(get_storage),
+    user: ClerkUser = Depends(require_admin),
+):
+    """Add or update an inbox account (e.g. Zoho Workplace / Zoho Mail) in persistent storage."""
+    from ..email.config import InboxAccountConfig
+
+    clean_email = req.email_address.strip().lower()
+    if not clean_email or "@" not in clean_email:
+        raise HTTPException(status_code=400, detail="Valid email address is required")
+
+    inbox_id = (req.inbox_id or "").strip()
+    if not inbox_id:
+        inbox_id = clean_email.replace("@", "_").replace(".", "_")
+
+    # If updating an existing account and password was left blank, preserve existing password
+    existing = storage_backend.get_inbox_account(inbox_id)
+    pwd = req.password.strip() if req.password else ""
+    if not pwd and existing:
+        pwd = existing.get("password", "")
+
+    cfg = InboxAccountConfig(
+        id=inbox_id,
+        email_address=clean_email,
+        password=pwd,
+        provider=req.provider or "zoho",
+        from_name=req.from_name or "Alex | OmniLeadFeeder",
+        smtp_host=req.smtp_host or "",
+        smtp_port=req.smtp_port or 465,
+        smtp_use_ssl=req.smtp_use_ssl if req.smtp_use_ssl is not None else True,
+        smtp_use_tls=bool(req.smtp_use_tls),
+        imap_host=req.imap_host or "",
+        imap_port=req.imap_port or 993,
+        imap_use_ssl=req.imap_use_ssl if req.imap_use_ssl is not None else True,
+        daily_limit=req.daily_limit or 25,
+        warmup_start_date=req.warmup_start_date or datetime.now(timezone.utc).isoformat(),
+        is_active=req.is_active if req.is_active is not None else True,
+    )
+
+    account_dict = {
+        "inbox_id": cfg.id,
+        "email_address": cfg.email_address,
+        "password": cfg.password,
+        "provider": cfg.provider,
+        "from_name": cfg.from_name,
+        "smtp_host": cfg.smtp_host,
+        "smtp_port": cfg.smtp_port,
+        "smtp_use_ssl": cfg.smtp_use_ssl,
+        "imap_host": cfg.imap_host,
+        "imap_port": cfg.imap_port,
+        "imap_use_ssl": cfg.imap_use_ssl,
+        "daily_limit": cfg.daily_limit,
+        "warmup_start_date": cfg.warmup_start_date,
+        "is_active": 1 if cfg.is_active else 0,
+        "created_at": existing.get("created_at") if existing else datetime.now(timezone.utc).isoformat(),
+    }
+    storage_backend.upsert_inbox_account(account_dict)
+    return {"ok": True, "inbox_id": cfg.id, "message": f"Inbox '{cfg.id}' ({cfg.email_address}) saved successfully."}
+
+
+@router.post("/api/admin/inboxes/{inbox_id}/test", tags=["Admin Inboxes"])
+def test_admin_inbox_connection(
+    inbox_id: str,
+    storage_backend=Depends(get_storage),
+    user: ClerkUser = Depends(require_admin),
+):
+    """Trigger live SMTP & IMAP handshake test for a configured inbox account."""
+    from ..email.config import EmailSettings
+    from ..email.client import EmailClient
+    from ..email.warmup import WarmupManager
+
+    settings = EmailSettings.from_environment()
+    warmup = WarmupManager(settings=settings, storage_backend=storage_backend)
+    target_inbox = warmup.get_inbox_by_id(inbox_id)
+
+    if not target_inbox:
+        raise HTTPException(status_code=404, detail=f"Inbox account '{inbox_id}' not found")
+
+    client = EmailClient(settings=settings)
+    test_result = client.test_inbox_connection(target_inbox)
+    return {"ok": True, "result": test_result}
+
+
+@router.delete("/api/admin/inboxes/{inbox_id}", tags=["Admin Inboxes"])
+def delete_admin_inbox(
+    inbox_id: str,
+    storage_backend=Depends(get_storage),
+    user: ClerkUser = Depends(require_admin),
+):
+    """Remove an inbox account from the active rotation pool."""
+    storage_backend.delete_inbox_account(inbox_id)
+    return {"ok": True, "inbox_id": inbox_id, "message": f"Inbox '{inbox_id}' removed from storage."}
+
+
+
 
 

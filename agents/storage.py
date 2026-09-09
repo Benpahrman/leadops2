@@ -54,7 +54,11 @@ class StorageBackend(Protocol):
     # Native email module operations
     def record_email_sent(self, inbox_id: str, recipient: str, lead_id: str, dispatched_at: str) -> None: ...
 
-    def get_email_sent_count_today(self, inbox_id: str) -> int: ...
+    def get_email_sent_count_today(self, inbox_id: str = "") -> int: ...
+
+    def is_recipient_or_domain_contacted(
+        self, email: str = "", domain: str = "", company_name: str = "", within_days: int = 45, exclude_lead_id: str = ""
+    ) -> bool: ...
 
     def record_inbound_email(
         self,
@@ -69,6 +73,15 @@ class StorageBackend(Protocol):
     ) -> None: ...
 
     def list_inbound_emails(self, lead_id: str | None = None) -> list[dict[str, Any]]: ...
+
+    # Multi-Inbox management operations
+    def list_inbox_accounts(self) -> list[dict[str, Any]]: ...
+
+    def get_inbox_account(self, inbox_id: str) -> dict[str, Any] | None: ...
+
+    def upsert_inbox_account(self, account: dict[str, Any]) -> None: ...
+
+    def delete_inbox_account(self, inbox_id: str) -> None: ...
 
     def record_chat_message(
         self,
@@ -172,11 +185,57 @@ class InMemoryStorageBackend:
             "sent_date": today_str,
         })
 
-    def get_email_sent_count_today(self, inbox_id: str) -> int:
+    def get_email_sent_count_today(self, inbox_id: str = "") -> int:
         today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if not hasattr(self, "_sent_email_logs"):
             return 0
-        return sum(1 for e in self._sent_email_logs if e["inbox_id"] == inbox_id and e["sent_date"] == today_str)
+        if inbox_id:
+            return sum(1 for e in self._sent_email_logs if e["inbox_id"] == inbox_id and e["sent_date"] == today_str)
+        return sum(1 for e in self._sent_email_logs if e["sent_date"] == today_str)
+
+    def is_recipient_or_domain_contacted(
+        self, email: str = "", domain: str = "", company_name: str = "", within_days: int = 45, exclude_lead_id: str = ""
+    ) -> bool:
+        import re
+        email_clean = (email or "").lower().strip()
+        domain_clean = (domain or (email_clean.split("@")[-1] if "@" in email_clean else "")).lower().strip()
+        comp_norm = re.sub(r"[^a-z0-9]", "", company_name.lower()) if company_name else ""
+
+        # 1. Check sent email logs
+        if hasattr(self, "_sent_email_logs"):
+            for log in self._sent_email_logs:
+                if exclude_lead_id and log.get("lead_id") == exclude_lead_id:
+                    continue
+                rec = (log.get("recipient") or "").lower().strip()
+                if email_clean and rec == email_clean:
+                    return True
+                if domain_clean and domain_clean not in ("gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com"):
+                    if rec.endswith(f"@{domain_clean}"):
+                        return True
+
+        # 2. Check active and historical leads
+        for lead in self.leads.values():
+            if exclude_lead_id and lead.lead_id == exclude_lead_id:
+                continue
+            l_email = (getattr(lead, "contact_email", "") or "").lower().strip()
+            l_comp = getattr(lead, "company_name", "") or ""
+            l_comp_norm = re.sub(r"[^a-z0-9]", "", l_comp.lower())
+            l_state = getattr(lead, "state", None)
+            l_state_val = l_state.value if hasattr(l_state, "value") else str(l_state)
+
+            if email_clean and l_email == email_clean:
+                if l_state_val in ("OUTREACH_SENT", "PITCH_PENDING_APPROVAL", "REVIEW", "REPLIED", "CUSTOMER", "CONVERSATIONAL_INTAKE"):
+                    return True
+
+            if domain_clean and domain_clean not in ("gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com"):
+                if l_email.endswith(f"@{domain_clean}") and l_state_val in ("OUTREACH_SENT", "PITCH_PENDING_APPROVAL", "REVIEW", "REPLIED", "CUSTOMER", "CONVERSATIONAL_INTAKE"):
+                    return True
+
+            if comp_norm and len(comp_norm) >= 4 and l_comp_norm:
+                if (comp_norm == l_comp_norm or comp_norm in l_comp_norm or l_comp_norm in comp_norm) and l_state_val in ("OUTREACH_SENT", "PITCH_PENDING_APPROVAL", "REVIEW", "REPLIED", "CUSTOMER", "CONVERSATIONAL_INTAKE"):
+                    return True
+
+        return False
 
     def record_inbound_email(
         self,
@@ -209,6 +268,28 @@ class InMemoryStorageBackend:
         if lead_id:
             return [e for e in self._inbound_emails if e["lead_id"] == lead_id]
         return list(self._inbound_emails)
+
+    def list_inbox_accounts(self) -> list[dict[str, Any]]:
+        if not hasattr(self, "_inbox_accounts"):
+            self._inbox_accounts = {}
+        return list(self._inbox_accounts.values())
+
+    def get_inbox_account(self, inbox_id: str) -> dict[str, Any] | None:
+        if not hasattr(self, "_inbox_accounts"):
+            self._inbox_accounts = {}
+        return self._inbox_accounts.get(inbox_id)
+
+    def upsert_inbox_account(self, account: dict[str, Any]) -> None:
+        if not hasattr(self, "_inbox_accounts"):
+            self._inbox_accounts = {}
+        inbox_id = account.get("inbox_id")
+        if inbox_id:
+            self._inbox_accounts[inbox_id] = dict(account)
+
+    def delete_inbox_account(self, inbox_id: str) -> None:
+        if not hasattr(self, "_inbox_accounts"):
+            self._inbox_accounts = {}
+        self._inbox_accounts.pop(inbox_id, None)
 
     def record_chat_message(
         self,
@@ -736,6 +817,22 @@ class SqliteStorageBackend:
                 )
                 """
             )
+            for col, col_def in [
+                ("provider", "TEXT DEFAULT 'zoho'"),
+                ("smtp_host", "TEXT DEFAULT ''"),
+                ("smtp_port", "INTEGER DEFAULT 465"),
+                ("smtp_use_ssl", "INTEGER DEFAULT 1"),
+                ("imap_host", "TEXT DEFAULT ''"),
+                ("imap_port", "INTEGER DEFAULT 993"),
+                ("imap_use_ssl", "INTEGER DEFAULT 1"),
+                ("password", "TEXT DEFAULT ''"),
+                ("from_name", "TEXT DEFAULT ''"),
+                ("daily_limit", "INTEGER DEFAULT 25"),
+            ]:
+                try:
+                    cursor.execute(f"ALTER TABLE inbox_accounts ADD COLUMN {col} {col_def}")
+                except Exception:
+                    pass
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS chat_messages (
@@ -935,19 +1032,80 @@ class SqliteStorageBackend:
             )
             conn.commit()
 
-    def get_email_sent_count_today(self, inbox_id: str) -> int:
+    def get_email_sent_count_today(self, inbox_id: str = "") -> int:
         today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT COUNT(*) FROM daily_email_quota_logs
-                WHERE inbox_id = ? AND sent_date = ?
-                """,
-                (inbox_id, today_str),
-            )
+            if inbox_id:
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) FROM daily_email_quota_logs
+                    WHERE inbox_id = ? AND sent_date = ?
+                    """,
+                    (inbox_id, today_str),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) FROM daily_email_quota_logs
+                    WHERE sent_date = ?
+                    """,
+                    (today_str,),
+                )
             row = cursor.fetchone()
             return row[0] if row else 0
+
+    def is_recipient_or_domain_contacted(
+        self, email: str = "", domain: str = "", company_name: str = "", within_days: int = 45, exclude_lead_id: str = ""
+    ) -> bool:
+        import re
+        email_clean = (email or "").lower().strip()
+        domain_clean = (domain or (email_clean.split("@")[-1] if "@" in email_clean else "")).lower().strip()
+        comp_norm = re.sub(r"[^a-z0-9]", "", company_name.lower()) if company_name else ""
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            # 1. Check daily_email_quota_logs
+            if email_clean:
+                if exclude_lead_id:
+                    cursor.execute(
+                        "SELECT inbox_id, dispatched_at FROM daily_email_quota_logs WHERE LOWER(recipient) = ? AND (lead_id IS NULL OR lead_id != ?) ORDER BY dispatched_at DESC LIMIT 1",
+                        (email_clean, exclude_lead_id),
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT inbox_id, dispatched_at FROM daily_email_quota_logs WHERE LOWER(recipient) = ? ORDER BY dispatched_at DESC LIMIT 1",
+                        (email_clean,),
+                    )
+                row = cursor.fetchone()
+                if row:
+                    return True
+
+            # 2. Check leads table
+            cursor.execute("SELECT lead_id, company_name, contact_email, state FROM leads")
+            rows = cursor.fetchall()
+            for r in rows:
+                if exclude_lead_id and r["lead_id"] == exclude_lead_id:
+                    continue
+                l_email = (r["contact_email"] or "").lower().strip()
+                l_comp = r["company_name"] or ""
+                l_comp_norm = re.sub(r"[^a-z0-9]", "", l_comp.lower())
+                l_state = r["state"] or ""
+
+                if email_clean and l_email == email_clean:
+                    if l_state in ("OUTREACH_SENT", "PITCH_PENDING_APPROVAL", "REVIEW", "REPLIED", "CUSTOMER", "CONVERSATIONAL_INTAKE"):
+                        return True
+
+                if domain_clean and domain_clean not in ("gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com"):
+                    if l_email.endswith(f"@{domain_clean}") and l_state in ("OUTREACH_SENT", "PITCH_PENDING_APPROVAL", "REVIEW", "REPLIED", "CUSTOMER", "CONVERSATIONAL_INTAKE"):
+                        return True
+
+                if comp_norm and len(comp_norm) >= 4 and l_comp_norm:
+                    if (comp_norm == l_comp_norm or comp_norm in l_comp_norm or l_comp_norm in comp_norm) and l_state in ("OUTREACH_SENT", "PITCH_PENDING_APPROVAL", "REVIEW", "REPLIED", "CUSTOMER", "CONVERSATIONAL_INTAKE"):
+                        return True
+
+        return False
 
     def record_inbound_email(
         self,
@@ -992,6 +1150,71 @@ class SqliteStorageBackend:
                 cursor.execute("SELECT * FROM inbound_emails ORDER BY received_at DESC")
             rows = cursor.fetchall()
             return [dict(r) for r in rows]
+
+    def list_inbox_accounts(self) -> list[dict[str, Any]]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM inbox_accounts ORDER BY created_at ASC")
+            rows = cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    def get_inbox_account(self, inbox_id: str) -> dict[str, Any] | None:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM inbox_accounts WHERE inbox_id = ?", (inbox_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def upsert_inbox_account(self, account: dict[str, Any]) -> None:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO inbox_accounts (
+                    inbox_id, email_address, provider, smtp_host, smtp_port,
+                    smtp_use_ssl, imap_host, imap_port, imap_use_ssl, password,
+                    from_name, daily_limit, warmup_start_date, is_active, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(inbox_id) DO UPDATE SET
+                    email_address = excluded.email_address,
+                    provider = excluded.provider,
+                    smtp_host = excluded.smtp_host,
+                    smtp_port = excluded.smtp_port,
+                    smtp_use_ssl = excluded.smtp_use_ssl,
+                    imap_host = excluded.imap_host,
+                    imap_port = excluded.imap_port,
+                    imap_use_ssl = excluded.imap_use_ssl,
+                    password = CASE WHEN excluded.password != '' THEN excluded.password ELSE inbox_accounts.password END,
+                    from_name = excluded.from_name,
+                    daily_limit = excluded.daily_limit,
+                    warmup_start_date = excluded.warmup_start_date,
+                    is_active = excluded.is_active
+                """,
+                (
+                    account.get("inbox_id", ""),
+                    account.get("email_address", ""),
+                    account.get("provider", "zoho"),
+                    account.get("smtp_host", ""),
+                    int(account.get("smtp_port", 465)),
+                    1 if account.get("smtp_use_ssl", True) else 0,
+                    account.get("imap_host", ""),
+                    int(account.get("imap_port", 993)),
+                    1 if account.get("imap_use_ssl", True) else 0,
+                    account.get("password", ""),
+                    account.get("from_name", ""),
+                    int(account.get("daily_limit", 25)),
+                    account.get("warmup_start_date", ""),
+                    1 if account.get("is_active", True) else 0,
+                    account.get("created_at", datetime.now(timezone.utc).isoformat()),
+                ),
+            )
+            conn.commit()
+
+    def delete_inbox_account(self, inbox_id: str) -> None:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM inbox_accounts WHERE inbox_id = ?", (inbox_id,))
+            conn.commit()
 
     def record_chat_message(
         self,
@@ -1390,6 +1613,22 @@ class PostgresStorageBackend:
                     created_at VARCHAR(64) NOT NULL
                 )
             """))
+            for col, col_def in [
+                ("provider", "VARCHAR(32) DEFAULT 'zoho'"),
+                ("smtp_host", "VARCHAR(255) DEFAULT ''"),
+                ("smtp_port", "INTEGER DEFAULT 465"),
+                ("smtp_use_ssl", "INTEGER DEFAULT 1"),
+                ("imap_host", "VARCHAR(255) DEFAULT ''"),
+                ("imap_port", "INTEGER DEFAULT 993"),
+                ("imap_use_ssl", "INTEGER DEFAULT 1"),
+                ("password", "VARCHAR(255) DEFAULT ''"),
+                ("from_name", "VARCHAR(255) DEFAULT ''"),
+                ("warmup_start_date", "VARCHAR(64) DEFAULT ''"),
+            ]:
+                try:
+                    conn.execute(text(f"ALTER TABLE inbox_accounts ADD COLUMN IF NOT EXISTS {col} {col_def}"))
+                except Exception:
+                    pass
 
     def save_lead(self, lead: Lead) -> None:
         from sqlalchemy import text
@@ -1819,15 +2058,72 @@ class PostgresStorageBackend:
                 "sent_date": today_str,
             })
 
-    def get_email_sent_count_today(self, inbox_id: str) -> int:
+    def get_email_sent_count_today(self, inbox_id: str = "") -> int:
         from sqlalchemy import text
         today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         with self.engine.connect() as conn:
-            result = conn.execute(
-                text("SELECT COUNT(*) FROM daily_email_quota_logs WHERE inbox_id = :inbox_id AND sent_date = :sent_date"),
-                {"inbox_id": inbox_id, "sent_date": today_str},
-            )
+            if inbox_id:
+                result = conn.execute(
+                    text("SELECT COUNT(*) FROM daily_email_quota_logs WHERE inbox_id = :inbox_id AND sent_date = :sent_date"),
+                    {"inbox_id": inbox_id, "sent_date": today_str},
+                )
+            else:
+                result = conn.execute(
+                    text("SELECT COUNT(*) FROM daily_email_quota_logs WHERE sent_date = :sent_date"),
+                    {"sent_date": today_str},
+                )
             return result.scalar() or 0
+
+    def is_recipient_or_domain_contacted(
+        self, email: str = "", domain: str = "", company_name: str = "", within_days: int = 45, exclude_lead_id: str = ""
+    ) -> bool:
+        import re
+        from sqlalchemy import text
+        email_clean = (email or "").lower().strip()
+        domain_clean = (domain or (email_clean.split("@")[-1] if "@" in email_clean else "")).lower().strip()
+        comp_norm = re.sub(r"[^a-z0-9]", "", company_name.lower()) if company_name else ""
+
+        with self.engine.connect() as conn:
+            # 1. Check daily_email_quota_logs
+            if email_clean:
+                if exclude_lead_id:
+                    res = conn.execute(
+                        text("SELECT inbox_id, dispatched_at FROM daily_email_quota_logs WHERE LOWER(recipient) = :recipient AND (lead_id IS NULL OR lead_id != :exclude_id) ORDER BY dispatched_at DESC LIMIT 1"),
+                        {"recipient": email_clean, "exclude_id": exclude_lead_id},
+                    )
+                else:
+                    res = conn.execute(
+                        text("SELECT inbox_id, dispatched_at FROM daily_email_quota_logs WHERE LOWER(recipient) = :recipient ORDER BY dispatched_at DESC LIMIT 1"),
+                        {"recipient": email_clean},
+                    )
+                row = res.mappings().fetchone()
+                if row:
+                    return True
+
+            # 2. Check leads table
+            res = conn.execute(text("SELECT lead_id, company_name, contact_email, state FROM leads"))
+            rows = res.mappings().fetchall()
+            for r in rows:
+                if exclude_lead_id and r["lead_id"] == exclude_lead_id:
+                    continue
+                l_email = (r["contact_email"] or "").lower().strip()
+                l_comp = r["company_name"] or ""
+                l_comp_norm = re.sub(r"[^a-z0-9]", "", l_comp.lower())
+                l_state = r["state"] or ""
+
+                if email_clean and l_email == email_clean:
+                    if l_state in ("OUTREACH_SENT", "PITCH_PENDING_APPROVAL", "REVIEW", "REPLIED", "CUSTOMER", "CONVERSATIONAL_INTAKE"):
+                        return True
+
+                if domain_clean and domain_clean not in ("gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com"):
+                    if l_email.endswith(f"@{domain_clean}") and l_state in ("OUTREACH_SENT", "PITCH_PENDING_APPROVAL", "REVIEW", "REPLIED", "CUSTOMER", "CONVERSATIONAL_INTAKE"):
+                        return True
+
+                if comp_norm and len(comp_norm) >= 4 and l_comp_norm:
+                    if (comp_norm == l_comp_norm or comp_norm in l_comp_norm or l_comp_norm in comp_norm) and l_state in ("OUTREACH_SENT", "PITCH_PENDING_APPROVAL", "REVIEW", "REPLIED", "CUSTOMER", "CONVERSATIONAL_INTAKE"):
+                        return True
+
+        return False
 
     def record_inbound_email(
         self,
@@ -1874,6 +2170,70 @@ class PostgresStorageBackend:
             else:
                 result = conn.execute(text("SELECT * FROM inbound_emails ORDER BY received_at DESC"))
             return [dict(r) for r in result.mappings().fetchall()]
+
+    def list_inbox_accounts(self) -> list[dict[str, Any]]:
+        from sqlalchemy import text
+        with self.engine.connect() as conn:
+            result = conn.execute(text("SELECT * FROM inbox_accounts ORDER BY created_at ASC"))
+            return [dict(r) for r in result.mappings().fetchall()]
+
+    def get_inbox_account(self, inbox_id: str) -> dict[str, Any] | None:
+        from sqlalchemy import text
+        with self.engine.connect() as conn:
+            result = conn.execute(text("SELECT * FROM inbox_accounts WHERE inbox_id = :inbox_id"), {"inbox_id": inbox_id})
+            row = result.mappings().fetchone()
+            return dict(row) if row else None
+
+    def upsert_inbox_account(self, account: dict[str, Any]) -> None:
+        from sqlalchemy import text
+        stmt = text("""
+            INSERT INTO inbox_accounts (
+                inbox_id, email_address, provider, smtp_host, smtp_port,
+                smtp_use_ssl, imap_host, imap_port, imap_use_ssl, password,
+                from_name, daily_limit, warmup_start_date, is_active, created_at
+            ) VALUES (
+                :inbox_id, :email_address, :provider, :smtp_host, :smtp_port,
+                :smtp_use_ssl, :imap_host, :imap_port, :imap_use_ssl, :password,
+                :from_name, :daily_limit, :warmup_start_date, :is_active, :created_at
+            )
+            ON CONFLICT (inbox_id) DO UPDATE SET
+                email_address = EXCLUDED.email_address,
+                provider = EXCLUDED.provider,
+                smtp_host = EXCLUDED.smtp_host,
+                smtp_port = EXCLUDED.smtp_port,
+                smtp_use_ssl = EXCLUDED.smtp_use_ssl,
+                imap_host = EXCLUDED.imap_host,
+                imap_port = EXCLUDED.imap_port,
+                imap_use_ssl = EXCLUDED.imap_use_ssl,
+                password = CASE WHEN EXCLUDED.password != '' THEN EXCLUDED.password ELSE inbox_accounts.password END,
+                from_name = EXCLUDED.from_name,
+                daily_limit = EXCLUDED.daily_limit,
+                warmup_start_date = EXCLUDED.warmup_start_date,
+                is_active = EXCLUDED.is_active
+        """)
+        with self.engine.begin() as conn:
+            conn.execute(stmt, {
+                "inbox_id": account.get("inbox_id", ""),
+                "email_address": account.get("email_address", ""),
+                "provider": account.get("provider", "zoho"),
+                "smtp_host": account.get("smtp_host", ""),
+                "smtp_port": int(account.get("smtp_port", 465)),
+                "smtp_use_ssl": 1 if account.get("smtp_use_ssl", True) else 0,
+                "imap_host": account.get("imap_host", ""),
+                "imap_port": int(account.get("imap_port", 993)),
+                "imap_use_ssl": 1 if account.get("imap_use_ssl", True) else 0,
+                "password": account.get("password", ""),
+                "from_name": account.get("from_name", ""),
+                "daily_limit": int(account.get("daily_limit", 25)),
+                "warmup_start_date": account.get("warmup_start_date", ""),
+                "is_active": 1 if account.get("is_active", True) else 0,
+                "created_at": account.get("created_at", datetime.now(timezone.utc).isoformat()),
+            })
+
+    def delete_inbox_account(self, inbox_id: str) -> None:
+        from sqlalchemy import text
+        with self.engine.begin() as conn:
+            conn.execute(text("DELETE FROM inbox_accounts WHERE inbox_id = :inbox_id"), {"inbox_id": inbox_id})
 
     def record_chat_message(
         self,

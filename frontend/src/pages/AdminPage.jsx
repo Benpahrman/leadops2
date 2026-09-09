@@ -25,6 +25,10 @@ import {
   toggleAutoOutreach,
   triggerScoutDiscovery,
   cancelAutoOutreach,
+  fetchAdminInboxes,
+  upsertAdminInbox,
+  testAdminInbox,
+  deleteAdminInbox,
 } from '../services/api';
 import { useToast } from '../context/ToastContext';
 import ConfirmModal from '../components/common/ConfirmModal';
@@ -168,6 +172,21 @@ export default function AdminPage() {
   const [overrideReason, setOverrideReason] = useState('Founder verified edge-case pass');
   const [swarmProgressModal, setSwarmProgressModal] = useState({ open: false, leadId: '', company: '', data: null });
 
+  // Inboxes & Email Infrastructure State
+  const [inboxes, setInboxes] = useState([]);
+  const [inboxesLoading, setInboxesLoading] = useState(false);
+  const [testingInboxId, setTestingInboxId] = useState(null);
+  const [testResults, setTestResults] = useState({});
+  const [showAddInboxModal, setShowAddInboxModal] = useState(false);
+  const [inboxFormData, setInboxFormData] = useState({
+    inbox_id: '',
+    email_address: '',
+    password: '',
+    from_name: 'Alex | OmniLeadFeeder',
+    provider: 'zoho',
+    daily_limit: 25,
+  });
+
   // Load Admin Data
   const loadAdminData = async () => {
     setLoading(true);
@@ -209,14 +228,115 @@ export default function AdminPage() {
     }
   };
 
-  // Load Scrapers when tab changes
+  // Load Scrapers / Inboxes when tab changes
   useEffect(() => {
     if (activeTab === 'scrapers' && scrapers.length === 0) {
       loadScrapers();
     } else if (activeTab === 'daily' && dailyGrid.length === 0) {
       loadDailyGrid();
+    } else if (activeTab === 'inboxes') {
+      loadInboxes();
     }
   }, [activeTab]);
+
+  const loadInboxes = async () => {
+    setInboxesLoading(true);
+    try {
+      const token = await resolveToken();
+      const res = await fetchAdminInboxes(token);
+      if (res && res.inboxes) {
+        setInboxes(res.inboxes);
+      }
+    } catch (err) {
+      console.warn('Could not load inboxes:', err);
+    } finally {
+      setInboxesLoading(false);
+    }
+  };
+
+  const handleTestInbox = async (inboxId) => {
+    try {
+      setTestingInboxId(inboxId);
+      const token = await resolveToken();
+      const res = await testAdminInbox(inboxId, token);
+      if (res && res.result) {
+        setTestResults((prev) => ({ ...prev, [inboxId]: res.result }));
+        if (res.result.smtp_ok && res.result.imap_ok) {
+          showToast(`✅ Inbox '${inboxId}' verified successfully (${res.result.latency_ms}ms)!`, 'success');
+        } else {
+          showToast(`⚠️ Verification notice for '${inboxId}': ${res.result.smtp_message || res.result.imap_message}`, 'warning');
+        }
+      }
+    } catch (err) {
+      showToast(`Test error: ${err.message}`, 'error');
+    } finally {
+      setTestingInboxId(null);
+    }
+  };
+
+  const handleSaveInbox = async () => {
+    if (!inboxFormData.email_address || !inboxFormData.email_address.includes('@')) {
+      showToast('Please provide a valid email address', 'warning');
+      return;
+    }
+    try {
+      const token = await resolveToken();
+      await upsertAdminInbox(inboxFormData, token);
+      showToast(`Inbox '${inboxFormData.email_address}' saved successfully!`, 'success');
+      const savedId = inboxFormData.inbox_id || inboxFormData.email_address.replace('@', '_').replace('.', '_');
+      setShowAddInboxModal(false);
+      setInboxFormData({
+        inbox_id: '',
+        email_address: '',
+        password: '',
+        from_name: 'Alex | OmniLeadFeeder',
+        provider: 'zoho',
+        daily_limit: 25,
+      });
+      await loadInboxes();
+      if (inboxFormData.password) {
+        handleTestInbox(savedId);
+      }
+    } catch (err) {
+      showToast(`Failed to save inbox: ${err.message}`, 'error');
+    }
+  };
+
+  const handleDeleteInbox = async (inboxId) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Remove Inbox Account',
+      message: `Are you sure you want to remove inbox '${inboxId}' from active rotation?`,
+      confirmText: 'Remove Inbox',
+      cancelText: 'Cancel',
+      isDestructive: true,
+      onConfirm: async () => {
+        try {
+          const token = await resolveToken();
+          await deleteAdminInbox(inboxId, token);
+          showToast(`Inbox '${inboxId}' removed.`, 'success');
+          await loadInboxes();
+        } catch (err) {
+          showToast(`Failed to delete inbox: ${err.message}`, 'error');
+        }
+      },
+    });
+  };
+
+  const handleToggleInboxActive = async (inbox) => {
+    try {
+      const token = await resolveToken();
+      await upsertAdminInbox({
+        inbox_id: inbox.inbox_id,
+        email_address: inbox.email_address,
+        is_active: !inbox.is_active,
+      }, token);
+      showToast(`Inbox '${inbox.inbox_id}' ${!inbox.is_active ? 'activated' : 'paused'}.`, 'success');
+      await loadInboxes();
+    } catch (err) {
+      showToast(`Could not toggle inbox state: ${err.message}`, 'error');
+    }
+  };
 
   const loadScrapers = async () => {
     setScrapersLoading(true);
@@ -237,13 +357,14 @@ export default function AdminPage() {
       const data = await fetchDailyGrid(token);
       setDailyGrid(data.grid || data || []);
     } catch (err) {
-      console.warn('Daily grid err:', err);
+      showToast(`Failed to load daily grid: ${err.message}`, 'error');
     }
   };
 
   useEffect(() => {
     if (isSignedIn || masterAuth) {
       loadAdminData();
+      loadInboxes();
       const interval = setInterval(loadAdminData, 20000);
       return () => clearInterval(interval);
     }
@@ -909,6 +1030,12 @@ export default function AdminPage() {
             onClick={() => setActiveTab('daily')}
           >
             📅 Automated Daily Feeds
+          </button>
+          <button
+            className={`admin-tab-btn ${activeTab === 'inboxes' ? 'active' : ''}`}
+            onClick={() => setActiveTab('inboxes')}
+          >
+            📬 Email Inboxes ({inboxes.length})
           </button>
         </div>
 
@@ -1923,7 +2050,435 @@ export default function AdminPage() {
             </div>
           </div>
         )}
+
+        {/* =========================================================
+            TAB 7: EMAIL INBOXES & WARMUP FLEET (ZOHO / GMAIL)
+           ========================================================= */}
+        {activeTab === 'inboxes' && (
+          <div>
+            {/* Header & Controls */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', marginBottom: '24px', background: 'var(--card)', padding: '20px 24px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <h2 style={{ fontSize: '20px', fontWeight: 800, color: '#fff', margin: 0 }}>
+                    📬 Multi-Inbox Fleet &amp; Warmup Engine
+                  </h2>
+                  <span className="badge-tag badge-cyan">{inboxes.length} Configured</span>
+                </div>
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '6px', marginBottom: 0 }}>
+                  Automated cold outreach load balancing &amp; bidirectional reply monitoring across Zoho Workplace and Gmail inboxes.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <button
+                  className="btn btn-outline"
+                  style={{ fontSize: '12px', padding: '8px 14px' }}
+                  onClick={loadInboxes}
+                  disabled={inboxesLoading}
+                >
+                  {inboxesLoading ? '🔄 Refreshing...' : '🔄 Refresh Fleet'}
+                </button>
+                <button
+                  className="btn btn-primary"
+                  style={{ fontSize: '12px', padding: '8px 16px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  onClick={() => setShowAddInboxModal(true)}
+                >
+                  <span>+</span> Add Zoho / Email Inbox
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Fleet Metrics */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+              <div className="stat-card">
+                <div className="stat-label">⚡ Active Inboxes</div>
+                <div className="stat-value" style={{ color: 'var(--green)' }}>
+                  {inboxes.filter((i) => i.is_active).length} / {inboxes.length}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
+                  Participating in rotation
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">🟣 Zoho Workplace Inboxes</div>
+                <div className="stat-value" style={{ color: '#c084fc' }}>
+                  {inboxes.filter((i) => i.provider === 'zoho').length}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
+                  smtppro.zoho.com (SSL 465)
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">📈 Total Fleet Daily Capacity</div>
+                <div className="stat-value" style={{ color: 'var(--cyan)' }}>
+                  {inboxes.filter((i) => i.is_active).reduce((sum, i) => sum + (i.daily_limit || 25), 0)} emails/day
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
+                  Enforcing warmup ramp-up
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">📨 Dispatched Today</div>
+                <div className="stat-value" style={{ color: '#fff' }}>
+                  {inboxes.reduce((sum, i) => sum + (i.sent_today || 0), 0)} sent
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
+                  Across all active inboxes
+                </div>
+              </div>
+            </div>
+
+            {/* Inboxes List Cards */}
+            {inboxes.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '60px 20px', background: 'var(--card)', borderRadius: 'var(--radius-md)', border: '1px dashed var(--border)' }}>
+                <div style={{ fontSize: '42px', marginBottom: '14px' }}>📬</div>
+                <h3 style={{ fontSize: '18px', fontWeight: 700, color: '#fff', marginBottom: '8px' }}>No Email Inboxes Configured Yet</h3>
+                <p style={{ fontSize: '14px', color: 'var(--text-muted)', maxWidth: '460px', margin: '0 auto 20px' }}>
+                  Connect your 4 new Zoho inboxes to start automated outreach load balancing and continuous IMAP prospect reply monitoring.
+                </p>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => setShowAddInboxModal(true)}
+                  style={{ fontSize: '13px', padding: '10px 20px' }}
+                >
+                  + Add Your First Zoho Inbox
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '18px' }}>
+                {inboxes.map((inbox) => {
+                  const testRes = testResults[inbox.inbox_id];
+                  const isTesting = testingInboxId === inbox.inbox_id;
+                  const pct = Math.min(100, Math.round(((inbox.sent_today || 0) / (inbox.daily_limit || 25)) * 100));
+
+                  return (
+                    <div
+                      key={inbox.inbox_id}
+                      style={{
+                        background: 'var(--card)',
+                        borderRadius: 'var(--radius-md)',
+                        border: inbox.is_active ? '1px solid var(--border)' : '1px solid rgba(148, 163, 184, 0.2)',
+                        padding: '20px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        opacity: inbox.is_active ? 1 : 0.65,
+                        transition: 'border-color 0.2s ease',
+                      }}
+                    >
+                      <div>
+                        {/* Header: Provider & Active Pill */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              padding: '4px 10px',
+                              borderRadius: '20px',
+                              background: inbox.provider === 'zoho' ? 'rgba(168, 85, 247, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+                              color: inbox.provider === 'zoho' ? '#c084fc' : '#60a5fa',
+                              border: `1px solid ${inbox.provider === 'zoho' ? 'rgba(168, 85, 247, 0.35)' : 'rgba(59, 130, 246, 0.35)'}`,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                            }}
+                          >
+                            <span>{inbox.provider === 'zoho' ? '🟣' : '🔵'}</span>
+                            {inbox.provider === 'zoho' ? 'Zoho Workplace' : inbox.provider === 'gmail' ? 'Google / Gmail' : 'Custom SMTP'}
+                          </span>
+
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              padding: '3px 8px',
+                              borderRadius: '6px',
+                              background: inbox.is_active ? 'rgba(16, 185, 129, 0.15)' : 'rgba(100, 116, 139, 0.2)',
+                              color: inbox.is_active ? 'var(--green)' : '#94a3b8',
+                              border: `1px solid ${inbox.is_active ? 'rgba(16, 185, 129, 0.3)' : 'rgba(100, 116, 139, 0.3)'}`,
+                            }}
+                          >
+                            {inbox.is_active ? '● Active' : '○ Paused'}
+                          </span>
+                        </div>
+
+                        {/* Email & From Name */}
+                        <div style={{ marginBottom: '16px' }}>
+                          <div style={{ fontSize: '16px', fontWeight: 700, color: '#fff', wordBreak: 'break-all' }}>
+                            {inbox.email_address}
+                          </div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px' }}>
+                            From: <span style={{ color: 'var(--text-dim)' }}>{inbox.from_name || 'Alex | OmniLeadFeeder'}</span>
+                          </div>
+                        </div>
+
+                        {/* Protocol Chips */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '16px', fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--mono)', background: 'rgba(15, 23, 42, 0.5)', padding: '10px 12px', borderRadius: 'var(--radius-sm)' }}>
+                          <div>📤 SMTP: <span style={{ color: '#fff' }}>{inbox.smtp_host || 'smtppro.zoho.com'}:{inbox.smtp_port || 465}</span> ({inbox.smtp_use_ssl ? 'SSL' : 'TLS'})</div>
+                          <div>📥 IMAP: <span style={{ color: '#fff' }}>{inbox.imap_host || 'imappro.zoho.com'}:{inbox.imap_port || 993}</span> ({inbox.imap_use_ssl ? 'SSL' : 'TLS'})</div>
+                        </div>
+
+                        {/* Quota Progress */}
+                        <div style={{ marginBottom: '16px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px' }}>
+                            <span style={{ color: 'var(--text-muted)' }}>Daily Warmup Quota:</span>
+                            <span style={{ color: '#fff', fontWeight: 600 }}>
+                              {inbox.sent_today || 0} / {inbox.daily_limit || 25} sent ({pct}%)
+                            </span>
+                          </div>
+                          <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
+                            <div
+                              style={{
+                                width: `${pct}%`,
+                                height: '100%',
+                                background: pct >= 100 ? 'var(--red)' : pct >= 75 ? '#f59e0b' : 'var(--green)',
+                                transition: 'width 0.3s ease',
+                              }}
+                            />
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-dim)', marginTop: '4px' }}>
+                            <span>{inbox.warmup_name || 'Week 1 (Warmup: 20-25/day)'}</span>
+                            <span>{inbox.can_send ? '✅ Quota Available' : '⚠️ Limit Reached Today'}</span>
+                          </div>
+                        </div>
+
+                        {/* Test Result Card */}
+                        {testRes && (
+                          <div
+                            style={{
+                              padding: '10px 12px',
+                              borderRadius: 'var(--radius-sm)',
+                              marginBottom: '16px',
+                              fontSize: '11px',
+                              background: testRes.smtp_ok && testRes.imap_ok ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                              border: `1px solid ${testRes.smtp_ok && testRes.imap_ok ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                              color: testRes.smtp_ok && testRes.imap_ok ? 'var(--green)' : '#fca5a5',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, marginBottom: '4px' }}>
+                              <span>{testRes.smtp_ok && testRes.imap_ok ? '✅ Verification Passed' : '⚠️ Verification Issue'}</span>
+                              <span>⚡ {testRes.latency_ms}ms</span>
+                            </div>
+                            <div>SMTP: {testRes.smtp_message}</div>
+                            <div>IMAP: {testRes.imap_message}</div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Footer Actions */}
+                      <div style={{ display: 'flex', gap: '8px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
+                        <button
+                          className="btn btn-outline"
+                          style={{ flex: 1, fontSize: '11px', padding: '6px 10px' }}
+                          onClick={() => handleTestInbox(inbox.inbox_id)}
+                          disabled={isTesting}
+                        >
+                          {isTesting ? '⚡ Testing...' : '⚡ Test Connection'}
+                        </button>
+                        <button
+                          className="btn btn-outline"
+                          style={{ fontSize: '11px', padding: '6px 10px' }}
+                          onClick={() => handleToggleInboxActive(inbox)}
+                          title={inbox.is_active ? 'Pause this inbox' : 'Activate this inbox'}
+                        >
+                          {inbox.is_active ? '⏸️ Pause' : '▶️ Activate'}
+                        </button>
+                        {inbox.inbox_id !== 'primary' && (
+                          <button
+                            className="btn btn-outline"
+                            style={{ fontSize: '11px', padding: '6px 10px', color: '#f87171' }}
+                            onClick={() => handleDeleteInbox(inbox.inbox_id)}
+                            title="Remove inbox from storage"
+                          >
+                            🗑️
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Add Inbox Modal */}
+      {showAddInboxModal && (
+        <div className="admin-modal-overlay" onClick={() => setShowAddInboxModal(false)}>
+          <div className="admin-modal-content" style={{ maxWidth: '520px' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#fff', margin: 0 }}>
+                📬 Connect New Email Inbox
+              </h3>
+              <button
+                className="btn btn-outline"
+                style={{ padding: '4px 10px', fontSize: '12px' }}
+                onClick={() => setShowAddInboxModal(false)}
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            {/* Zoho Guidance Callout */}
+            <div
+              style={{
+                background: 'rgba(168, 85, 247, 0.12)',
+                border: '1px solid rgba(168, 85, 247, 0.35)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '12px 14px',
+                fontSize: '12px',
+                color: '#e9d5ff',
+                lineHeight: 1.5,
+                marginBottom: '18px',
+              }}
+            >
+              <b>💡 Zoho Workplace &amp; Zoho Mail Setup</b>:
+              <br />
+              Zoho strictly requires an <b>App-Specific Password</b> for third-party SMTP &amp; IMAP. Generate one under:{' '}
+              <a
+                href="https://accounts.zoho.com"
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: 'var(--cyan)', textDecoration: 'underline' }}
+              >
+                Zoho Accounts ➔ Security ➔ App Passwords
+              </a>
+              . Standard account passwords will fail authentication.
+            </div>
+
+            {/* Form Fields */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                  Provider Preset:
+                </label>
+                <select
+                  value={inboxFormData.provider}
+                  onChange={(e) => setInboxFormData((p) => ({ ...p, provider: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    background: 'var(--bg)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '8px 10px',
+                    color: '#fff',
+                    fontSize: '13px',
+                  }}
+                >
+                  <option value="zoho">🟣 Zoho Workplace (smtppro.zoho.com:465 / imappro.zoho.com:993)</option>
+                  <option value="gmail">🔵 Google / Gmail (smtp.gmail.com:465 / imap.gmail.com:993)</option>
+                  <option value="smtp_generic">⚪ Generic Custom SMTP / IMAP</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                  Inbox Email Address *
+                </label>
+                <input
+                  type="email"
+                  placeholder="e.g. alex@yourdomain.com"
+                  value={inboxFormData.email_address}
+                  onChange={(e) => setInboxFormData((p) => ({ ...p, email_address: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    background: 'var(--bg)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '8px 10px',
+                    color: '#fff',
+                    fontSize: '13px',
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                  Zoho App-Specific Password *
+                </label>
+                <input
+                  type="password"
+                  placeholder="16-character generated app password"
+                  value={inboxFormData.password}
+                  onChange={(e) => setInboxFormData((p) => ({ ...p, password: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    background: 'var(--bg)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '8px 10px',
+                    color: '#fff',
+                    fontSize: '13px',
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                  Sender Display Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Alex | OmniLeadFeeder"
+                  value={inboxFormData.from_name}
+                  onChange={(e) => setInboxFormData((p) => ({ ...p, from_name: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    background: 'var(--bg)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '8px 10px',
+                    color: '#fff',
+                    fontSize: '13px',
+                  }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
+                  Daily Outreach Warmup Limit (emails/day)
+                </label>
+                <input
+                  type="number"
+                  min="5"
+                  max="100"
+                  value={inboxFormData.daily_limit}
+                  onChange={(e) => setInboxFormData((p) => ({ ...p, daily_limit: parseInt(e.target.value) || 25 }))}
+                  style={{
+                    width: '100%',
+                    background: 'var(--bg)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '8px 10px',
+                    color: '#fff',
+                    fontSize: '13px',
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '22px', paddingTop: '14px', borderTop: '1px solid var(--border)' }}>
+              <button
+                className="btn btn-outline"
+                style={{ fontSize: '12px', padding: '8px 16px' }}
+                onClick={() => setShowAddInboxModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                style={{ fontSize: '12px', padding: '8px 18px' }}
+                onClick={handleSaveInbox}
+              >
+                Save &amp; Verify Connection ➔
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* =========================================================
           MODALS

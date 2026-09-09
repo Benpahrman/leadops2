@@ -296,7 +296,8 @@ def test_pitcher_service_with_quality_gate_and_notifications():
 
     assert lead.state == State.OUTREACH_SENT
     assert len(dispatched) == 1
-    assert warmup.get_sent_count_today("primary") == 1
+    inbox_dispatched = dispatched[0].get("inbox_id", "primary")
+    assert warmup.get_sent_count_today(inbox_dispatched) == 1
     assert mock_notifier.notify_lead_qualified_and_dispatching.called
 
 

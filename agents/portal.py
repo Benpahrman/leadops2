@@ -377,5 +377,9 @@ class PortalService:
     @staticmethod
     def _slug(company_name: str, lead_id: str) -> str:
         clean_company = re.sub(r"[^a-z0-9]+", "-", company_name.lower()).strip("-")
+        clean_company = re.sub(r"-\d{4,}$", "", clean_company)
         clean_id = re.sub(r"[^a-z0-9]+", "-", lead_id.lower()).strip("-")
+        clean_id = re.sub(r"-\d{4,}$", "", clean_id)
+        if clean_company and clean_id.startswith(f"lead-{clean_company}"):
+            return clean_id
         return f"{clean_company or 'prospect'}-{clean_id}"

@@ -75,3 +75,4 @@ Delivery logic is implemented without cloud dependencies in [agents/delivery.py]
 Cloud placement is represented by [agents/provisioning.py](agents/provisioning.py): Azure is the default production provider for using your student credits, while DigitalOcean is staging-only until production controls are approved. Provisioning creates a plan but does not create cloud resources or expose secrets.
 
 Cloud Antigravity agents use `GEMINI_API_KEY` from the environment. Add the replacement key locally after creating one at [Google AI Studio](https://aistudio.google.com/app/api-keys); never paste it into source files or commit it.
+

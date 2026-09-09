@@ -8,7 +8,7 @@ from typing import Any
 
 from .ai_review import InboundReplyAgent
 from .client import EmailClient
-from .config import EmailSettings
+from .config import EmailSettings, InboxAccountConfig
 from agents.domain import State, Lead
 from agents.notifications import NotificationManager
 
@@ -128,16 +128,77 @@ class InboundEmailWatcher:
                     return extracted
         return None
 
+    def get_active_inboxes(self) -> list[InboxAccountConfig]:
+        """Return all active inboxes from settings and persistent storage."""
+        accounts = list(self.settings.get_all_inboxes()) if hasattr(self.settings, "get_all_inboxes") else []
+        existing_ids = {a.id for a in accounts}
+
+        if self.storage and hasattr(self.storage, "list_inbox_accounts"):
+            try:
+                db_inboxes = self.storage.list_inbox_accounts()
+                for d in db_inboxes:
+                    inbox_id = d.get("inbox_id")
+                    if inbox_id and inbox_id not in existing_ids:
+                        accounts.append(
+                            InboxAccountConfig(
+                                id=inbox_id,
+                                email_address=d.get("email_address", ""),
+                                password=d.get("password", ""),
+                                provider=d.get("provider", "zoho"),
+                                from_name=d.get("from_name", self.settings.from_name),
+                                smtp_host=d.get("smtp_host", ""),
+                                smtp_port=int(d.get("smtp_port", 465)),
+                                smtp_use_ssl=bool(d.get("smtp_use_ssl", True)),
+                                imap_host=d.get("imap_host", ""),
+                                imap_port=int(d.get("imap_port", 993)),
+                                imap_use_ssl=bool(d.get("imap_use_ssl", True)),
+                                warmup_start_date=d.get("warmup_start_date", ""),
+                                daily_limit=int(d.get("daily_limit", self.settings.warmup_week1_limit)),
+                                is_active=bool(d.get("is_active", 1)),
+                            )
+                        )
+                        existing_ids.add(inbox_id)
+            except Exception as e:
+                logger.warning(f"Could not load inboxes from database in watcher: {e}")
+
+        return [a for a in accounts if a.is_active]
+
     def poll_and_process_once(self) -> list[dict[str, Any]]:
-        """Poll Gmail IMAP once, process all unseen incoming replies, and return processed event logs."""
-        try:
-            unseen = self.client.fetch_unseen_emails(mark_as_read=True)
-        except Exception as exc:
-            logger.warning(f"Failed to fetch unseen emails: {exc}")
-            return []
+        """Poll IMAP across all configured inboxes, process all unseen incoming replies, and return processed event logs."""
+        unseen: list[dict[str, Any]] = []
+        all_inboxes = [i for i in self.get_active_inboxes() if getattr(i, "imap_enabled", True)]
+
+        if all_inboxes:
+            for inbox in all_inboxes:
+                try:
+                    try:
+                        msgs = self.client.fetch_unseen_emails(mark_as_read=True, inbox=inbox)
+                        unseen.extend(msgs)
+                    except TypeError:
+                        unseen = self.client.fetch_unseen_emails(mark_as_read=True)
+                        break
+                except Exception as exc:
+                    logger.warning(f"Failed to fetch unseen emails for inbox '{inbox.id}': {exc}")
+        else:
+            try:
+                unseen = self.client.fetch_unseen_emails(mark_as_read=True)
+            except Exception as exc:
+                logger.warning(f"Failed to fetch unseen emails: {exc}")
+                return []
+
+        # Deduplicate unseen messages if the same message was fetched across aliases
+        seen_message_ids: set[str] = set()
+        deduped_unseen: list[dict[str, Any]] = []
+        for msg in unseen:
+            mid = msg.get("message_id")
+            if mid:
+                if mid in seen_message_ids:
+                    continue
+                seen_message_ids.add(mid)
+            deduped_unseen.append(msg)
 
         results: list[dict[str, Any]] = []
-        for msg in unseen:
+        for msg in deduped_unseen:
             processed = self.process_single_inbound_email(msg)
             results.append(processed)
         return results
@@ -310,6 +371,24 @@ class InboundEmailWatcher:
         dispatched = False
         if ai_eval.get("should_auto_send", False) and draft_reply:
             try:
+                reply_inbox = None
+                inbox_id = msg.get("inbox_id")
+                recipient_email = (msg.get("recipient_email") or "").lower().strip()
+                if hasattr(self.settings, "get_all_inboxes"):
+                    all_inbs = self.settings.get_all_inboxes()
+                    # 1. Match by explicit recipient email (e.g. catch-all forwarded to Gmail)
+                    if recipient_email:
+                        for inb in all_inbs:
+                            if inb.email_address.lower().strip() == recipient_email:
+                                reply_inbox = inb
+                                break
+                    # 2. Fall back to matching by inbox_id
+                    if not reply_inbox and inbox_id:
+                        for inb in all_inbs:
+                            if inb.id == inbox_id:
+                                reply_inbox = inb
+                                break
+
                 self.client.send_email(
                     to_email=sender,
                     to_name=msg.get("sender_name") or "there",
@@ -317,9 +396,10 @@ class InboundEmailWatcher:
                     text_body=draft_reply,
                     in_reply_to=msg.get("message_id"),
                     references=msg.get("message_id"),
+                    inbox=reply_inbox,
                 )
                 dispatched = True
-                logger.info(f"🤖 [AI AUTO-REPLY SENT] Dispatched reply to {sender} for intent '{intent}'")
+                logger.info(f"🤖 [AI AUTO-REPLY SENT] Dispatched reply to {sender} for intent '{intent}' via inbox '{inbox_id or 'primary'}'")
             except Exception as send_err:
                 logger.error(f"Failed to auto-send reply to {sender}: {send_err}")
 

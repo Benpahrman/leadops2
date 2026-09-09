@@ -87,6 +87,30 @@ def generate_natural_subject(
     return random.choice(candidates)
 
 
+def render_executive_email_html(body_text: str, sandbox_url: str = "", include_button: bool = False) -> str:
+    """Format plaintext email into clean, executive-styled HTML with proper paragraph spacing and mobile typography."""
+    paragraphs = [p.strip() for p in body_text.strip().split("\n\n") if p.strip()]
+    rendered_paragraphs = []
+    for p in paragraphs:
+        p_html = p.replace("\n", "<br>")
+        rendered_paragraphs.append(f'<p style="margin: 0 0 14px 0; line-height: 1.6; font-size: 15px; color: #1e293b;">{p_html}</p>')
+    
+    body_content = "\n".join(rendered_paragraphs)
+    button_html = ""
+    if include_button and sandbox_url:
+        button_html = (
+            f'<p style="margin: 20px 0;">'
+            f'<a href="{sandbox_url}" style="background: #C26B34; color: #ffffff; padding: 11px 22px; text-decoration: none; font-weight: 600; border-radius: 6px; display: inline-block; font-size: 14px;">Review Live Data Sandbox &rarr;</a>'
+            f'</p>'
+        )
+    return (
+        f'<div style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; color: #1e293b;">'
+        f'{body_content}'
+        f'{button_html}'
+        f'</div>'
+    )
+
+
 def render_sub_60_word_pitch(
     company_name: str,
     niche: str,
@@ -156,19 +180,8 @@ def render_sub_60_word_pitch(
             ai_pitch = llm_engine.run_pitcher_agent(lead_info, sandbox_url)
             if ai_pitch and ai_pitch.get("body_text"):
                 words = len(ai_pitch["body_text"].split())
-                if active_link_mode == "permission_first":
-                    default_html = (
-                        f"<div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Inter', Segoe UI, sans-serif; color: #15251F; max-width: 580px; line-height: 1.55; font-size: 15px;\">"
-                        f"<p>{ai_pitch['body_text'].replace(chr(10), '<br>')}</p>"
-                        f"</div>"
-                    )
-                else:
-                    default_html = (
-                        f"<div style='font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; color: #1e293b; max-width: 580px; line-height: 1.55;'>"
-                        f"<p>{ai_pitch['body_text'].replace(chr(10), '<br>')}</p>"
-                        f"<p style='margin: 20px 0;'><a href='{sandbox_url}' style='background: #C26B34; color: #ffffff; padding: 11px 22px; text-decoration: none; font-weight: 600; border-radius: 6px; display: inline-block;'>Review Live Data Sandbox &rarr;</a></p>"
-                        f"<p style='margin-top: 18px; color: #64748b; font-size: 14px;'>Best,<br><strong style='color: #15251F;'>Alex</strong> &bull; LeadOps</p></div>"
-                    )
+                include_btn = active_link_mode != "permission_first"
+                default_html = render_executive_email_html(ai_pitch["body_text"], sandbox_url, include_button=include_btn)
                 chosen_subject = ai_pitch.get("subject", default_subject).strip()
                 if any(bad in chosen_subject.lower() for bad in ["quick", "sample", "data feed for", "automating", "streamlining", "unlocking", "elevating", "efficiency"]):
                     chosen_subject = default_subject
@@ -199,11 +212,7 @@ def render_sub_60_word_pitch(
             f"Would it be helpful to see the live feed sandbox, or are you all set in-house?\n\n"
             f"Best,\nAlex | LeadOps"
         )
-        body_html = (
-            f"<div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Inter', Segoe UI, sans-serif; color: #15251F; max-width: 580px; line-height: 1.55; font-size: 15px;\">"
-            f"<p>{body_text.replace(chr(10), '<br>')}</p>"
-            f"</div>"
-        )
+        body_html = render_executive_email_html(body_text, include_button=False)
     else:
         # Direct link included in initial outreach
         body_text = (
@@ -213,18 +222,7 @@ def render_sub_60_word_pitch(
             f"Would it be helpful to stream these daily, or are you all set in-house?\n\n"
             f"Best,\nAlex | LeadOps"
         )
-        body_html = (
-            f"<div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Inter', Segoe UI, sans-serif; color: #15251F; max-width: 580px; line-height: 1.55;\">"
-            f"<p style='margin-bottom: 12px;'>Hi {first_name},</p>"
-            f"<p style='margin-bottom: 14px;'>We put together a live feed tracking newly filed dockets on <em>{portal_name}</em> so your team doesn't have to check public records manually.</p>"
-            f"<p style='margin-bottom: 16px;'>We already indexed <strong>{sample_count} live records</strong> formatted for your workflow:</p>"
-            f"<p style='margin: 20px 0;'>"
-            f"<a href='{sandbox_url}' style='background: #C26B34; color: #ffffff; padding: 11px 22px; text-decoration: none; font-weight: 600; border-radius: 6px; display: inline-block;'>Review Live Data Sandbox &rarr;</a>"
-            f"</p>"
-            f"<p style='margin-bottom: 16px; color: #475569;'>Would it be helpful to stream these to your team daily, or are you all set in-house?</p>"
-            f"<p style='margin-top: 18px; color: #64748b; font-size: 14px;'>Best,<br><strong style='color: #15251F;'>Alex</strong> &bull; LeadOps</p>"
-            f"</div>"
-        )
+        body_html = render_executive_email_html(body_text, sandbox_url, include_button=True)
 
     words = body_text.split()
     if len(words) >= 60:
@@ -275,6 +273,8 @@ class PitcherService:
     ) -> None:
         self.client = email_client or sendpulse_client or EmailClient()
         self.opt_outs = opt_out_emails or set()
+        self.storage = storage_backend
+        self.storage_backend = storage_backend
         self.warmup_manager = warmup_manager or WarmupManager(storage_backend=storage_backend)
         self.verifier = deliverability_verifier or DeliverabilityVerifier(probe_smtp=not bool(os.environ.get("PYTEST_CURRENT_TEST")))
         self.sent_log: list[dict[str, Any]] = []
@@ -346,6 +346,18 @@ class PitcherService:
             lead.transition(State.ARCHIVED, "Prospect opted out of communications")
             raise ValueError(f"Recipient {recipient_email} is on the opt-out suppression list")
 
+        # 1b. Anti-duplicate suppression check (45-day cooldown per domain/company/recipient)
+        if self.storage_backend and hasattr(self.storage_backend, "is_recipient_or_domain_contacted"):
+            if self.storage_backend.is_recipient_or_domain_contacted(
+                email=recipient_email,
+                domain=getattr(lead, "website", ""),
+                company_name=getattr(lead, "company_name", ""),
+                within_days=45,
+                exclude_lead_id=lead.lead_id,
+            ):
+                lead.transition(State.ARCHIVED, f"Recipient {recipient_email} or company {lead.company_name} already contacted within 45 days")
+                raise ValueError(f"Recipient {recipient_email} / {lead.company_name} was already contacted within 45 days (anti-duplicate suppression)")
+
         # 2. Run Unified Outreach Quality Gatekeeper
         gate_res = self.quality_gate.evaluate(lead=lead, pitch=pitch, notify_on_pass=False)
         if not gate_res.passed:
@@ -378,17 +390,32 @@ class PitcherService:
         final_subject = final_pitch.subject
         final_body = final_pitch.body_text
 
-        # 3. Dispatch email via native Gmail SMTP
+        # 3. Select available inbox account and dispatch email via SMTP (Zoho or Gmail)
+        chosen_inbox = None
+        if hasattr(self.warmup_manager, "get_available_inbox_account"):
+            chosen_inbox = self.warmup_manager.get_available_inbox_account(check_jitter=True) or self.warmup_manager.get_available_inbox_account(check_jitter=False)
+        inbox_id = chosen_inbox.id if chosen_inbox else (self.warmup_manager.get_available_inbox() or "primary")
+
         send_result = self.client.send_email(
             to_email=recipient_email,
             to_name=recipient_name,
             subject=final_subject,
             text_body=final_body,
             html_body=final_pitch.body_html,
+            inbox=chosen_inbox,
         )
 
-        self.warmup_manager.record_send(recipient=recipient_email, lead_id=lead.lead_id)
-        lead.transition(State.OUTREACH_SENT, f"Pitch dispatched via native Gmail SMTP (approved by: {approver})")
+        self.warmup_manager.record_send(inbox_id=inbox_id, recipient=recipient_email, lead_id=lead.lead_id)
+        
+        # Enforce per-inbox 5-30 min jitter cooldown for this specific account
+        min_j = int(os.environ.get("AUTO_OUTREACH_MIN_JITTER_SECONDS", "300"))
+        max_j = int(os.environ.get("AUTO_OUTREACH_MAX_JITTER_SECONDS", "1800"))
+        jitter_dur = 0.01 if os.environ.get("PYTEST_CURRENT_TEST") else random.uniform(min_j, max_j)
+        if hasattr(self.warmup_manager, "record_inbox_jitter"):
+            self.warmup_manager.record_inbox_jitter(inbox_id, jitter_dur)
+
+        provider_desc = f"{chosen_inbox.provider.title()} [{chosen_inbox.email_address}]" if chosen_inbox else f"SMTP [{inbox_id}]"
+        lead.transition(State.OUTREACH_SENT, f"Pitch dispatched via {provider_desc} (approved by: {approver})")
 
         # 4. Notify operator via Discord and Telegram
         self.notifier.notify_lead_qualified_and_dispatching(

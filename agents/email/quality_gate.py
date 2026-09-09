@@ -115,7 +115,7 @@ class OutreachQualityGatekeeper:
             metrics["deliverability_status"] = v_res.status.value
             metrics["deliverability_reason"] = v_res.reason
             if not v_res.is_safe_to_send or v_res.status != DeliverabilityStatus.DELIVERABLE:
-                reasons.append(f"Contact email {contact_email} failed deliverability verification: {v_res.reason}")
+                reasons.append(f"Contact email {contact_email} is {v_res.status.value}: {v_res.reason}")
                 return QualityGateResult(
                     passed=False,
                     gate_failed="DELIVERABILITY_BOUNCE_CHECK",
@@ -155,10 +155,13 @@ class OutreachQualityGatekeeper:
         # -------------------------------------------------------------
         # Gate 4: Daily Warmup Quota Gate
         # -------------------------------------------------------------
-        can_send, sent_today, quota = self.warmup_manager.can_send_today()
+        available_inbox = self.warmup_manager.get_available_inbox()
+        can_send_primary, sent_today, quota = self.warmup_manager.can_send_today()
+        can_send = available_inbox is not None
         warmup_week = self.warmup_manager.get_active_warmup_week()
         quota_info = {
             "can_send": can_send,
+            "available_inbox": available_inbox,
             "sent_today": sent_today,
             "daily_quota": quota,
             "warmup_week": warmup_week,
@@ -167,7 +170,7 @@ class OutreachQualityGatekeeper:
 
         if not can_send and not os.environ.get("PYTEST_CURRENT_TEST"):
             reasons.append(
-                f"Daily warmup limit reached ({sent_today}/{quota} sent for Week {warmup_week}). "
+                f"Daily warmup limit reached across all active inboxes ({sent_today}/{quota} sent for Week {warmup_week}). "
                 f"Outreach held for next dispatch window."
             )
             # Notify operator that warmup cap was reached

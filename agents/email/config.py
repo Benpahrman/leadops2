@@ -1,15 +1,55 @@
 """Configuration dataclass and environment loader for LeadOps native email module."""
 
+import json
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import Literal
 
+logger = logging.getLogger("leadops.email.config")
+
+
+@dataclass
+class InboxAccountConfig:
+    """Configuration for an individual inbox account (Zoho, Gmail, or Generic SMTP)."""
+
+    id: str
+    email_address: str
+    password: str
+    provider: Literal["zoho", "gmail", "smtp_generic"] = "zoho"
+    from_name: str = "Alex | OmniLeadFeeder"
+    smtp_host: str = ""
+    smtp_port: int = 465
+    smtp_use_ssl: bool = True
+    smtp_use_tls: bool = False
+    imap_host: str = ""
+    imap_port: int = 993
+    imap_use_ssl: bool = True
+    imap_enabled: bool = True
+    warmup_start_date: str = ""
+    daily_limit: int = 25
+    is_active: bool = True
+
+    def __post_init__(self) -> None:
+        """Auto-configure host and port presets based on provider if not explicitly provided."""
+        clean_email = (self.email_address or "").strip().lower()
+        if self.provider == "zoho":
+            if not self.smtp_host:
+                self.smtp_host = "smtp.zoho.com"
+            if not self.imap_host:
+                self.imap_host = "imap.zoho.com"
+        elif self.provider == "gmail":
+            if not self.smtp_host:
+                self.smtp_host = "smtp.gmail.com"
+            if not self.imap_host:
+                self.imap_host = "imap.gmail.com"
+
 
 @dataclass
 class EmailSettings:
-    """Settings for company Gmail SMTP dispatch, IMAP listening, warmup, and outreach."""
+    """Settings for company Gmail/Zoho SMTP dispatch, IMAP listening, warmup, and outreach."""
 
-    # Authentication & Mailbox
+    # Authentication & Mailbox (Primary / Default)
     user: str = ""
     app_password: str = ""
     from_name: str = "Alex | LeadOps"
@@ -19,7 +59,6 @@ class EmailSettings:
     client_id: str = ""
     client_secret: str = ""
 
-
     # SMTP Configuration
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 465
@@ -27,7 +66,7 @@ class EmailSettings:
     smtp_use_tls: bool = False
     smtp_timeout: int = 20
 
-    # IMAP Configuration (Cloudflare Email Routing to Gmail)
+    # IMAP Configuration (Cloudflare Email Routing to Gmail / Zoho)
     imap_host: str = "imap.gmail.com"
     imap_port: int = 993
     imap_use_ssl: bool = True
@@ -54,6 +93,9 @@ class EmailSettings:
     # Multi-Inbox Accounts (list of {id, user, password, from_name, from_email, start_date})
     extra_inboxes: list[dict[str, str]] = field(default_factory=list)
 
+    # Fully typed multi-inbox pool (including Zoho inboxes)
+    inbox_pool: list[InboxAccountConfig] = field(default_factory=list)
+
     # Cloudflare Registered Sending Subdomains (email.omnileadfeeder.tech & contact.omnileadfeeder.tech)
     allowed_sending_domains: list[str] = field(
         default_factory=lambda: ["email.omnileadfeeder.tech", "contact.omnileadfeeder.tech"]
@@ -62,6 +104,9 @@ class EmailSettings:
         default_factory=lambda: ["email.omnileadfeeder.tech", "contact.omnileadfeeder.tech"]
     )
     sending_strategy: Literal["rotate", "email_only", "contact_only"] = "rotate"
+
+    # Outbound Dispatch Policy: When False, strictly use dedicated custom domain/Zoho inboxes for outbound pitches, reserving Gmail for inbound replies and monitoring
+    outbound_use_gmail: bool = False
 
     def resolve_sender_email(self, hint: str = "", preferred_domain: str | None = None) -> str:
         """Resolve the authentic From: address enforcing registered Cloudflare sending domains.
@@ -100,6 +145,77 @@ class EmailSettings:
             chosen = active_pool[0]
 
         return f"{user_part}@{chosen}"
+
+    def get_outbound_inboxes(self) -> list[InboxAccountConfig]:
+        """Return only inboxes authorized for outbound cold outreach (excluding Gmail when Zoho/custom inboxes are configured)."""
+        all_inboxes = self.get_all_inboxes()
+        zoho_or_custom = [inb for inb in all_inboxes if inb.provider != "gmail" and inb.id != "primary"]
+        if zoho_or_custom and not self.outbound_use_gmail:
+            return zoho_or_custom
+        return all_inboxes
+
+    def get_all_inboxes(self) -> list[InboxAccountConfig]:
+        """Return all active and configured inbox accounts (primary + Zoho / extra inboxes)."""
+        accounts: list[InboxAccountConfig] = []
+
+        # 1. Primary Inbox (always default to primary inbox slot)
+        primary_provider = "gmail" if ("gmail" in self.smtp_host.lower() or not self.smtp_host) else "smtp_generic"
+        accounts.append(
+            InboxAccountConfig(
+                id="primary",
+                email_address=self.user or "primary@omnileadfeeder.tech",
+                password=self.app_password,
+                provider=primary_provider,
+                from_name=self.from_name,
+                smtp_host=self.smtp_host,
+                smtp_port=self.smtp_port,
+                smtp_use_ssl=self.smtp_use_ssl,
+                smtp_use_tls=self.smtp_use_tls,
+                imap_host=self.imap_host,
+                imap_port=self.imap_port,
+                imap_use_ssl=self.imap_use_ssl,
+                warmup_start_date=self.warmup_start_date,
+                daily_limit=self.warmup_week1_limit,
+                is_active=True,
+            )
+        )
+
+        # 2. Structured inbox pool (Zoho inboxes, etc.)
+        existing_ids = {a.id for a in accounts}
+        for inbox in self.inbox_pool:
+            if inbox.id not in existing_ids:
+                accounts.append(inbox)
+                existing_ids.add(inbox.id)
+
+        # 3. Legacy extra_inboxes dictionary format
+        for i, extra in enumerate(self.extra_inboxes):
+            inbox_id = extra.get("id") or f"inbox_{i+1}"
+            if inbox_id in existing_ids:
+                continue
+            email_addr = extra.get("email_address") or extra.get("user") or extra.get("email") or ""
+            pwd = extra.get("password") or extra.get("app_password") or ""
+            provider = extra.get("provider", "zoho" if ("zoho" in email_addr or "zoho" in extra.get("smtp_host", "")) else "smtp_generic")
+            accounts.append(
+                InboxAccountConfig(
+                    id=inbox_id,
+                    email_address=email_addr,
+                    password=pwd,
+                    provider=provider,
+                    from_name=extra.get("from_name", self.from_name),
+                    smtp_host=extra.get("smtp_host", ""),
+                    smtp_port=int(extra.get("smtp_port", 465)),
+                    smtp_use_ssl=str(extra.get("smtp_use_ssl", "true")).lower() == "true",
+                    imap_host=extra.get("imap_host", ""),
+                    imap_port=int(extra.get("imap_port", 993)),
+                    imap_use_ssl=str(extra.get("imap_use_ssl", "true")).lower() == "true",
+                    warmup_start_date=extra.get("warmup_start_date", self.warmup_start_date),
+                    daily_limit=int(extra.get("daily_limit", self.warmup_week1_limit)),
+                    is_active=str(extra.get("is_active", "true")).lower() in ("true", "1", "yes"),
+                )
+            )
+            existing_ids.add(inbox_id)
+
+        return accounts
 
     @classmethod
     def from_environment(cls) -> "EmailSettings":
@@ -170,6 +286,82 @@ class EmailSettings:
             "true" if os.environ.get("PYTEST_CURRENT_TEST") else "false",
         ).strip().lower() in ("true", "1", "yes")
 
+        inbox_pool: list[InboxAccountConfig] = []
+
+        # 1. Parse JSON inboxes if provided: ZOHO_INBOXES_JSON or INBOXES_CONFIG_JSON
+        json_inboxes_raw = os.environ.get("ZOHO_INBOXES_JSON") or os.environ.get("INBOXES_CONFIG_JSON") or ""
+        if json_inboxes_raw.strip():
+            try:
+                parsed_list = json.loads(json_inboxes_raw)
+                if isinstance(parsed_list, list):
+                    for idx, item in enumerate(parsed_list):
+                        if isinstance(item, dict):
+                            inbox_pool.append(
+                                InboxAccountConfig(
+                                    id=item.get("id") or f"zoho_{idx+1}",
+                                    email_address=item.get("email_address") or item.get("email") or "",
+                                    password=item.get("password") or item.get("app_password") or "",
+                                    provider=item.get("provider", "zoho"),
+                                    from_name=item.get("from_name", from_name),
+                                    smtp_host=item.get("smtp_host", ""),
+                                    smtp_port=int(item.get("smtp_port", 465)),
+                                    smtp_use_ssl=str(item.get("smtp_use_ssl", "true")).lower() == "true",
+                                    imap_host=item.get("imap_host", ""),
+                                    imap_port=int(item.get("imap_port", 993)),
+                                    imap_use_ssl=str(item.get("imap_use_ssl", "true")).lower() == "true",
+                                    warmup_start_date=item.get("warmup_start_date", warmup_start_date),
+                                    daily_limit=int(item.get("daily_limit", warmup_week1_limit)),
+                                    is_active=str(item.get("is_active", "true")).lower() in ("true", "1", "yes"),
+                                )
+                            )
+            except Exception as err:
+                logger.error(f"Failed to parse ZOHO_INBOXES_JSON: {err}")
+
+        # 2. Parse numbered Zoho environment variables: ZOHO_INBOX_1_EMAIL ... ZOHO_INBOX_10_EMAIL
+        for idx in range(1, 11):
+            z_email = (
+                os.environ.get(f"ZOHO_INBOX_{idx}_EMAIL")
+                or os.environ.get(f"ZOHO_INBOX_{idx}_USER")
+                or os.environ.get(f"INBOX_{idx}_EMAIL")
+                or ""
+            ).strip()
+            z_pwd = (
+                os.environ.get(f"ZOHO_INBOX_{idx}_APP_PASSWORD")
+                or os.environ.get(f"ZOHO_INBOX_{idx}_PASSWORD")
+                or os.environ.get(f"INBOX_{idx}_PASSWORD")
+                or ""
+            ).strip()
+
+            if z_email:
+                z_name = os.environ.get(f"ZOHO_INBOX_{idx}_FROM_NAME", from_name).strip()
+                z_host = os.environ.get(f"ZOHO_INBOX_{idx}_SMTP_HOST", "").strip()
+                z_port = int(os.environ.get(f"ZOHO_INBOX_{idx}_SMTP_PORT", "465"))
+                z_imap_host = os.environ.get(f"ZOHO_INBOX_{idx}_IMAP_HOST", "").strip()
+                z_imap_port = int(os.environ.get(f"ZOHO_INBOX_{idx}_IMAP_PORT", "993"))
+                z_limit = int(os.environ.get(f"ZOHO_INBOX_{idx}_DAILY_LIMIT", str(warmup_week1_limit)))
+
+                z_imap_enabled = os.environ.get(f"ZOHO_INBOX_{idx}_IMAP_ENABLED", "true").lower() in ("true", "1", "yes")
+
+                inbox_pool.append(
+                    InboxAccountConfig(
+                        id=f"zoho_{idx}",
+                        email_address=z_email,
+                        password=z_pwd,
+                        provider="zoho",
+                        from_name=z_name,
+                        smtp_host=z_host,
+                        smtp_port=z_port,
+                        imap_host=z_imap_host,
+                        imap_port=z_imap_port,
+                        imap_enabled=z_imap_enabled,
+                        daily_limit=z_limit,
+                        warmup_start_date=warmup_start_date,
+                        is_active=True,
+                    )
+                )
+
+        outbound_use_gmail = os.environ.get("OUTBOUND_USE_GMAIL", "false").strip().lower() in ("true", "1", "yes")
+
         return cls(
             user=user,
             app_password=app_password,
@@ -193,4 +385,6 @@ class EmailSettings:
             warmup_start_date=warmup_start_date,
             cold_email_link_mode=link_mode,
             outreach_dispatch_enabled=outreach_dispatch_enabled,
+            outbound_use_gmail=outbound_use_gmail,
+            inbox_pool=inbox_pool,
         )

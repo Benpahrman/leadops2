@@ -29,10 +29,14 @@ DUMMY_DOMAINS = {
     "mycompany.com", "somedomain.com", "test.com"
 }
 
-# Role-based addresses that typically yield low conversion or spam complaints
+# Role-based addresses that typically yield low conversion, bounce, or spam complaints
 GENERIC_ROLE_PREFIXES = {
     "noreply", "no-reply", "donotreply", "mailer-daemon", "postmaster",
-    "abuse", "spam", "admin", "root", "test", "webmaster", "hostmaster"
+    "abuse", "spam", "admin", "root", "test", "webmaster", "hostmaster",
+    "operations", "executive", "info", "support", "contact", "sales",
+    "general", "inquiries", "service", "mail", "frontdesk", "office",
+    "billing", "team", "hello", "help", "jobs", "careers", "hr",
+    "marketing", "media", "press", "inquiry", "customerservice"
 }
 
 

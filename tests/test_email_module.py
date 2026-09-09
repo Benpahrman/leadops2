@@ -124,6 +124,7 @@ def test_warmup_quota_enforcement_with_storage():
 def test_multi_inbox_selection():
     settings = EmailSettings(
         warmup_week1_limit=2,
+        outbound_use_gmail=True,
         extra_inboxes=[{"id": "secondary_gmail"}],
     )
     storage = InMemoryStorageBackend()
@@ -605,6 +606,186 @@ def test_inbound_watcher_extracts_bounced_email_and_archives_lead():
     updated_lead = storage.get_lead("lead-bounced-partner")
     assert updated_lead.state == State.ARCHIVED
     assert "Delivery bounce received" in updated_lead.audit_log[-1]["reason"]
+
+
+# =============================================================
+# ZOHO MAIL & MULTI-INBOX TEST SUITE
+# =============================================================
+
+def test_zoho_inbox_config_defaults():
+    """Verify Zoho workplace and personal domain host/port presets."""
+    from agents.email.config import InboxAccountConfig
+
+    # 1. Custom domain Zoho Workplace -> smtp.zoho.com & imap.zoho.com
+    workplace_inbox = InboxAccountConfig(
+        id="zoho_workplace",
+        email_address="alex@omnileadfeeder.tech",
+        password="app-secret-pwd",
+        provider="zoho",
+    )
+    assert workplace_inbox.smtp_host == "smtp.zoho.com"
+    assert workplace_inbox.smtp_port == 465
+    assert workplace_inbox.smtp_use_ssl is True
+    assert workplace_inbox.imap_host == "imap.zoho.com"
+    assert workplace_inbox.imap_port == 993
+    assert workplace_inbox.imap_use_ssl is True
+
+    # 2. Personal @zoho.com -> smtp.zoho.com & imap.zoho.com
+    personal_inbox = InboxAccountConfig(
+        id="zoho_personal",
+        email_address="founder@zoho.com",
+        password="personal-app-pwd",
+        provider="zoho",
+    )
+    assert personal_inbox.smtp_host == "smtp.zoho.com"
+    assert personal_inbox.imap_host == "imap.zoho.com"
+
+
+def test_zoho_inbox_env_loader(monkeypatch):
+    """Verify loading numbered Zoho inboxes and JSON pool from environment variables."""
+    from agents.email.config import EmailSettings
+
+    # Clear any surrounding env inboxes for test isolation
+    for i in range(1, 11):
+        monkeypatch.delenv(f"ZOHO_INBOX_{i}_EMAIL", raising=False)
+        monkeypatch.delenv(f"ZOHO_INBOX_{i}_APP_PASSWORD", raising=False)
+        monkeypatch.delenv(f"ZOHO_INBOX_{i}_FROM_NAME", raising=False)
+    monkeypatch.delenv("ZOHO_INBOXES_JSON", raising=False)
+
+    monkeypatch.setenv("ZOHO_INBOX_1_EMAIL", "outreach1@company.com")
+    monkeypatch.setenv("ZOHO_INBOX_1_APP_PASSWORD", "pwd-one-1234")
+    monkeypatch.setenv("ZOHO_INBOX_1_FROM_NAME", "Alex | Outreach 1")
+    monkeypatch.setenv("ZOHO_INBOX_2_EMAIL", "outreach2@company.com")
+    monkeypatch.setenv("ZOHO_INBOX_2_APP_PASSWORD", "pwd-two-5678")
+
+    settings = EmailSettings.from_environment()
+    accounts = settings.inbox_pool
+    assert len(accounts) == 2
+
+    acc1 = next(a for a in accounts if a.id == "zoho_1")
+    assert acc1.email_address == "outreach1@company.com"
+    assert acc1.password == "pwd-one-1234"
+    assert acc1.from_name == "Alex | Outreach 1"
+    assert acc1.smtp_host == "smtp.zoho.com"
+    assert acc1.imap_host == "imap.zoho.com"
+
+    acc2 = next(a for a in accounts if a.id == "zoho_2")
+    assert acc2.email_address == "outreach2@company.com"
+    assert acc2.password == "pwd-two-5678"
+
+
+def test_multi_inbox_warmup_load_balancing_4_zoho():
+    """Verify round-robin load balancing across 4 Zoho inboxes without using Gmail for outbound."""
+    from agents.email.config import EmailSettings, InboxAccountConfig
+    from agents.email.warmup import WarmupManager
+
+    inbox1 = InboxAccountConfig(id="zoho_1", email_address="z1@corp.com", password="p1", daily_limit=2)
+    inbox2 = InboxAccountConfig(id="zoho_2", email_address="z2@corp.com", password="p2", daily_limit=2)
+    inbox3 = InboxAccountConfig(id="zoho_3", email_address="z3@corp.com", password="p3", daily_limit=2)
+    inbox4 = InboxAccountConfig(id="zoho_4", email_address="z4@corp.com", password="p4", daily_limit=2)
+
+    settings = EmailSettings(
+        warmup_week1_limit=2,
+        outbound_use_gmail=False,
+        inbox_pool=[inbox1, inbox2, inbox3, inbox4],
+    )
+    storage = InMemoryStorageBackend()
+    warmup = WarmupManager(settings=settings, storage_backend=storage)
+
+    # 1. First Zoho inbox has quota (Gmail excluded from outbound)
+    assert warmup.get_available_inbox() == "zoho_1"
+    warmup.record_send(inbox_id="zoho_1", recipient="z1_a@a.com")
+    warmup.record_send(inbox_id="zoho_1", recipient="z1_b@a.com")
+
+    # 2. Zoho 1 exhausted -> falls over to Zoho 2
+    assert warmup.get_available_inbox() == "zoho_2"
+    warmup.record_send(inbox_id="zoho_2", recipient="z2_a@a.com")
+    warmup.record_send(inbox_id="zoho_2", recipient="z2_b@a.com")
+
+    # 3. Zoho 2 exhausted -> falls over to Zoho 3
+    assert warmup.get_available_inbox() == "zoho_3"
+    warmup.record_send(inbox_id="zoho_3", recipient="z3_a@a.com")
+    warmup.record_send(inbox_id="zoho_3", recipient="z3_b@a.com")
+
+    # 4. Zoho 3 exhausted -> falls over to Zoho 4
+    assert warmup.get_available_inbox() == "zoho_4"
+    warmup.record_send(inbox_id="zoho_4", recipient="z4_a@a.com")
+    warmup.record_send(inbox_id="zoho_4", recipient="z4_b@a.com")
+
+    # 5. All 4 Zoho inboxes exhausted for today -> returns None
+    assert warmup.get_available_inbox() is None
+
+
+def test_email_client_zoho_from_header_binding():
+    """Verify EmailClient strictly binds From: header to authentic Zoho mailbox address."""
+    from agents.email.config import InboxAccountConfig
+
+    dispatched_data = {}
+
+    def mock_transport(payload):
+        dispatched_data.update(payload)
+        return {"ok": True, "message_id": "<test-msg-1@zoho>"}
+
+    client = EmailClient(transport_hook=mock_transport)
+
+    zoho_inbox = InboxAccountConfig(
+        id="zoho_acct_3",
+        email_address="alex.outreach@customdomain.com",
+        password="app-secret-pwd",
+        from_name="Alex | OmniLeadFeeder",
+        provider="zoho",
+    )
+
+    res = client.send_email(
+        to_email="prospect@targetcorp.com",
+        to_name="Target Prospect",
+        subject="Quick question about building permits",
+        text_body="Hi Target, would you like to review sample data?",
+        inbox=zoho_inbox,
+    )
+
+    assert res["ok"] is True
+    # Crucial: From email MUST match the Zoho authenticated user to avoid relay rejection
+    assert dispatched_data["from_email"] == "alex.outreach@customdomain.com"
+    assert dispatched_data["from_name"] == "Alex | OmniLeadFeeder"
+    assert dispatched_data["inbox_id"] == "zoho_acct_3"
+
+
+def test_storage_inbox_accounts_crud():
+    """Verify list, get, upsert, and delete operations on inbox accounts."""
+    storage = InMemoryStorageBackend()
+
+    account = {
+        "inbox_id": "zoho_test_inbox",
+        "email_address": "inbox1@zoho-corp.com",
+        "provider": "zoho",
+        "smtp_host": "smtppro.zoho.com",
+        "smtp_port": 465,
+        "smtp_use_ssl": True,
+        "imap_host": "imappro.zoho.com",
+        "imap_port": 993,
+        "imap_use_ssl": True,
+        "daily_limit": 50,
+        "warmup_start_date": "2026-09-08T00:00:00Z",
+        "is_active": 1,
+    }
+
+    storage.upsert_inbox_account(account)
+
+    fetched = storage.get_inbox_account("zoho_test_inbox")
+    assert fetched is not None
+    assert fetched["email_address"] == "inbox1@zoho-corp.com"
+    assert fetched["provider"] == "zoho"
+    assert fetched["daily_limit"] == 50
+
+    all_inboxes = storage.list_inbox_accounts()
+    assert len(all_inboxes) == 1
+    assert all_inboxes[0]["inbox_id"] == "zoho_test_inbox"
+
+    storage.delete_inbox_account("zoho_test_inbox")
+    assert storage.get_inbox_account("zoho_test_inbox") is None
+    assert len(storage.list_inbox_accounts()) == 0
+
 
 
 

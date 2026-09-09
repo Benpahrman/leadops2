@@ -467,15 +467,15 @@ class ScoutBackgroundWorker:
             job_intent=job_intent,
         )
 
+        # STRICT ZERO-HALLUCINATION: Contact emails MUST come directly from web scraping or DNS, NEVER LLM hallucinations!
+        raw_web_emails = contact_info.get("emails") or []
         verified_email = (
             contact_info.get("verified_email")
-            or llm_candidate.get("contact_email")
-            or (contact_info.get("emails")[0] if contact_info.get("emails") else None)
+            or (raw_web_emails[0] if raw_web_emails else None)
             or None
         )
         verified_phone = (
             contact_info.get("verified_phone")
-            or llm_candidate.get("contact_phone")
             or (contact_info.get("phones")[0] if contact_info.get("phones") else None)
             or ""
         )
@@ -516,7 +516,27 @@ class ScoutBackgroundWorker:
             "job_intent": job_intent,
         }
 
+        # Deduplication check against persistent contact history
+        if self.storage and hasattr(self.storage, "is_recipient_or_domain_contacted"):
+            if self.storage.is_recipient_or_domain_contacted(
+                email=target.get("contact_email"),
+                domain=target.get("website", ""),
+                company_name=target["company_name"],
+                within_days=45,
+            ):
+                logger.info(f"⏭️ [SCOUT DEDUPLICATION] Company '{target['company_name']}' / domain '{target.get('website')}' already contacted within 45 days. Skipping duplicate.")
+                return {
+                    "ok": False,
+                    "status": "DUPLICATE_COMPANY",
+                    "reason": f"Company '{target['company_name']}' already contacted within 45 days.",
+                }
+
+        # Strip trailing timestamps and numeric IDs from company name
+        clean_name = re.sub(r"\s+\d{4,}$", "", target["company_name"]).strip()
+        target["company_name"] = clean_name or target["company_name"]
+
         clean_company = re.sub(r"[^a-z0-9]+", "-", target["company_name"].lower()).strip("-")
+        clean_company = re.sub(r"-\d{4,}$", "", clean_company)
         lead_id = f"lead-{clean_company}-{int(time.time() * 1000)}"
 
         # STRICT BUYER GATE: Government departments, courts, and municipalities are sources, NOT commercial buyers!
@@ -565,7 +585,7 @@ class ScoutBackgroundWorker:
         from .email.verifier import DeliverabilityVerifier, DeliverabilityStatus
         verifier = DeliverabilityVerifier(probe_smtp=not bool(os.environ.get("PYTEST_CURRENT_TEST")))
         contact_email = (target.get("contact_email") or "").strip()
-        if not contact_email or any(contact_email.lower().endswith(f"@{d}") for d in ("company.com", "example.com", "testcompany.com", "domain.com")):
+        if not contact_email or "@" not in contact_email or any(contact_email.lower().endswith(f"@{d}") for d in ("company.com", "example.com", "testcompany.com", "domain.com")):
             logger.warning(f"❌ [SCOUT REJECTED] Candidate '{discovered_name}' rejected: No genuine contact email discovered on website {company_website}.")
             return {
                 "ok": False,
@@ -575,12 +595,12 @@ class ScoutBackgroundWorker:
 
         if not os.environ.get("PYTEST_CURRENT_TEST"):
             v_res = verifier.verify(contact_email)
-            if not v_res.is_safe_to_send or v_res.status == DeliverabilityStatus.UNDELIVERABLE:
-                logger.warning(f"❌ [SCOUT REJECTED] Contact email '{contact_email}' is undeliverable or risky: {v_res.reason}")
+            if not v_res.is_safe_to_send or v_res.status != DeliverabilityStatus.DELIVERABLE:
+                logger.warning(f"❌ [SCOUT REJECTED] Contact email '{contact_email}' is undeliverable or risky ({v_res.status.value}): {v_res.reason}")
                 return {
                     "ok": False,
                     "status": "REJECTED_UNDELIVERABLE_EMAIL",
-                    "reason": f"Contact email {contact_email} failed deliverability check: {v_res.reason}",
+                    "reason": f"Contact email {contact_email} failed deliverability check ({v_res.status.value}): {v_res.reason}",
                 }
 
         # 3. Real Network & WAF Probe against target data source
@@ -1021,6 +1041,41 @@ class ScoutAutomationSupervisor:
                     continue
 
                 self._status["is_office_hours"] = True
+
+                # Check if daily email sending capacity is exhausted across all inboxes
+                from .email.warmup import WarmupManager
+                from .email.config import EmailSettings
+                warmup_mgr = WarmupManager(settings=EmailSettings.from_environment(), storage_backend=self.storage)
+                available_inbox = warmup_mgr.get_available_inbox()
+
+                if not available_inbox:
+                    next_run_dt = datetime.now(timezone.utc) + timedelta(seconds=wait_seconds if not is_open else 1800)
+                    self._status.update({
+                        "phase": "STANDBY_DAILY_LIMIT",
+                        "message": "Daily email limit reached on all configured inboxes. Pausing prospecting to avoid queue saturation.",
+                        "next_run_at": next_run_dt.isoformat(),
+                        "last_activity_at": datetime.now(timezone.utc).isoformat(),
+                    })
+                    logger.info("🛑 [SCOUT QUOTA SATURATED] All inboxes have reached daily send limit. Pausing prospecting.")
+                    await asyncio.sleep(min(wait_seconds if not is_open else 1800, 300))
+                    continue
+
+                # Check pending review/dispatch queue backlog
+                max_pending = int(os.environ.get("SCOUT_MAX_PENDING_QUEUE", "5"))
+                if self.storage and hasattr(self.storage, "list_leads"):
+                    leads = self.storage.list_leads()
+                    pending_count = sum(1 for l in leads if l.state in (State.PITCH_PENDING_APPROVAL, State.REVIEW))
+                    if pending_count >= max_pending:
+                        self._status.update({
+                            "phase": "STANDBY_QUEUE_FULL",
+                            "message": f"Pending outreach queue has {pending_count} leads waiting for dispatch (max: {max_pending}). Pausing discovery.",
+                            "next_run_at": (datetime.now(timezone.utc) + timedelta(seconds=300)).isoformat(),
+                            "last_activity_at": datetime.now(timezone.utc).isoformat(),
+                        })
+                        logger.info(f"⏸️ [SCOUT QUEUE BACKLOG] {pending_count} leads pending in approval queue. Standing by.")
+                        await asyncio.sleep(300)
+                        continue
+
                 # When office hours open, dispatch any cold outreach pitches held overnight in background thread
                 try:
                     import threading
@@ -1194,7 +1249,11 @@ class B2BWebScoutWorker:
         company_name = dossier.get("company_name") or top_company.get("title", "Lone Star Commercial Capital")
         contact_name = dossier.get("contact_name") or "Operations Director"
         contact_role = dossier.get("contact_role") or "Director of Operations"
-        contact_email = dossier.get("contact_email") or contact_info.get("verified_email", "")
+        website = dossier.get("website") or contact_info.get("website") or company_domain
+        
+        # STRICT ZERO-HALLUCINATION: Require actual scraped email from website, not LLM dossier imagination
+        raw_web_emails = contact_info.get("emails") or []
+        contact_email = contact_info.get("verified_email", "") or (raw_web_emails[0] if raw_web_emails else "")
         if not contact_email or "@" not in contact_email or any(contact_email.lower().endswith(f"@{d}") for d in ("company.com", "example.com", "testcompany.com", "domain.com")):
             logger.warning(f"❌ [WEB SCOUT] Rejected candidate '{company_name}': No genuine contact email discovered on website {website}.")
             return {
@@ -1202,8 +1261,36 @@ class B2BWebScoutWorker:
                 "status": "REJECTED_NO_VERIFIED_EMAIL",
                 "reason": f"No genuine contact email discovered on {website}",
             }
+        
+        # Deduplication check against storage
+        if self.storage and hasattr(self.storage, "is_recipient_or_domain_contacted"):
+            if self.storage.is_recipient_or_domain_contacted(
+                email=contact_email,
+                domain=website,
+                company_name=company_name,
+                within_days=45,
+            ):
+                logger.info(f"⏭️ [WEB SCOUT DEDUPLICATION] Company '{company_name}' / domain '{website}' already contacted within 45 days. Skipping duplicate.")
+                return {
+                    "ok": False,
+                    "status": "DUPLICATE_COMPANY",
+                    "reason": f"Company '{company_name}' already contacted within 45 days.",
+                }
+
+        # Deliverability pre-flight verification
+        from .email.verifier import DeliverabilityVerifier, DeliverabilityStatus
+        verifier = DeliverabilityVerifier(probe_smtp=not bool(os.environ.get("PYTEST_CURRENT_TEST")))
+        if not os.environ.get("PYTEST_CURRENT_TEST"):
+            v_res = verifier.verify(contact_email)
+            if not v_res.is_safe_to_send or v_res.status != DeliverabilityStatus.DELIVERABLE:
+                logger.warning(f"❌ [WEB SCOUT REJECTED] Contact email '{contact_email}' is undeliverable or risky ({v_res.status.value}): {v_res.reason}")
+                return {
+                    "ok": False,
+                    "status": "REJECTED_UNDELIVERABLE_EMAIL",
+                    "reason": f"Contact email {contact_email} failed deliverability check ({v_res.status.value}): {v_res.reason}",
+                }
+
         contact_phone = dossier.get("contact_phone") or contact_info.get("verified_phone", "")
-        website = dossier.get("website") or contact_info.get("website") or company_domain
         pain_point = dossier.get("pain_point") or "Needs automated tracking of new records to eliminate manual entry."
         target_url = dossier.get("target_url") or portal_url
         portal_name = dossier.get("portal_name") or top_portal.get("title", "Public Registry Portal")

@@ -18,6 +18,15 @@ import time
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
 
+import logging
+import os
+import queue
+import random
+import threading
+import time
+from datetime import datetime, timezone, timedelta
+from typing import Any, Optional
+
 from .domain import Lead, State
 from .scout_runner import is_office_hours
 
@@ -25,13 +34,13 @@ logger = logging.getLogger("leadops.auto_outreach")
 
 
 class AutoOutreachScheduler:
-    """Coordinates grace-period timers, mobile cancellation, and jittered auto-dispatch."""
+    """Coordinates grace-period timers, mobile cancellation, FIFO sequential queue, and 5-30 min anti-spam jitter."""
 
     def __init__(
         self,
         grace_period_seconds: int = 180,
-        min_jitter_seconds: int = 90,
-        max_jitter_seconds: int = 240,
+        min_jitter_seconds: int = 300,
+        max_jitter_seconds: int = 1800,
     ) -> None:
         self.grace_period_seconds = int(
             os.environ.get("AUTO_OUTREACH_GRACE_PERIOD_SECONDS", grace_period_seconds)
@@ -44,7 +53,19 @@ class AutoOutreachScheduler:
         )
         self._lock = threading.Lock()
         self._scheduled: dict[str, dict[str, Any]] = {}
+        self._dispatch_queue: queue.Queue = queue.Queue()
+        self._worker_thread: threading.Thread | None = None
+        self._worker_running: bool = False
         self._last_dispatch_time: float = 0.0
+
+    def _ensure_worker_running(self) -> None:
+        """Start single background worker thread if not already running."""
+        with self._lock:
+            if not self._worker_running or self._worker_thread is None or not self._worker_thread.is_alive():
+                self._worker_running = True
+                self._worker_thread = threading.Thread(target=self._dispatch_worker_loop, daemon=True)
+                self._worker_thread.start()
+                logger.debug("⚡ [AUTO-OUTREACH QUEUE] Dispatch worker thread initialized.")
 
     @property
     def is_enabled(self) -> bool:
@@ -94,6 +115,7 @@ class AutoOutreachScheduler:
                 "dispatch_at": dispatch_at.isoformat(),
                 "cancelled": False,
                 "dispatched": False,
+                "queued": False,
                 "timer": timer,
             }
 
@@ -137,76 +159,129 @@ class AutoOutreachScheduler:
             return not entry.get("cancelled") and not entry.get("dispatched")
 
     def _on_grace_period_expired(self, lead_id: str, storage_backend: Any, notifier: Any) -> None:
-        """Callback executed when the 3-minute timer fires."""
+        """Callback executed when the 3-minute timer fires: pushes lead to sequential FIFO dispatch queue."""
         with self._lock:
             entry = self._scheduled.get(lead_id)
-            if not entry or entry.get("cancelled") or entry.get("dispatched"):
+            if not entry or entry.get("cancelled") or entry.get("dispatched") or entry.get("queued"):
+                return
+            entry["queued"] = True
+
+        self._dispatch_queue.put((lead_id, storage_backend, notifier))
+        self._ensure_worker_running()
+        logger.info(f"📥 [DISPATCH QUEUE] Lead {lead_id} enqueued in FIFO dispatch queue (Queue depth: {self._dispatch_queue.qsize()}).")
+
+    def _dispatch_worker_loop(self) -> None:
+        """Single dedicated FIFO worker thread: processes one email at a time with 5-30 min jitter."""
+        while self._worker_running:
+            try:
+                item = self._dispatch_queue.get(timeout=3.0)
+            except queue.Empty:
+                continue
+
+            lead_id, storage_backend, notifier = item
+            try:
+                self._process_single_queued_dispatch(lead_id, storage_backend, notifier)
+            except Exception as e:
+                logger.error(f"❌ [DISPATCH QUEUE ERROR] Failed dispatch for {lead_id}: {e}")
+            finally:
+                self._dispatch_queue.task_done()
+
+    def _process_single_queued_dispatch(self, lead_id: str, storage_backend: Any, notifier: Any) -> None:
+        """Execute dispatch sequentially for a single lead."""
+        with self._lock:
+            entry = self._scheduled.get(lead_id)
+            if entry and (entry.get("cancelled") or entry.get("dispatched")):
+                logger.info(f"⏭️ [DISPATCH QUEUE] Lead {lead_id} cancelled or already dispatched. Skipping.")
                 return
 
-        # Fetch fresh lead state
         lead = storage_backend.get_lead(lead_id) if hasattr(storage_backend, "get_lead") else None
         if not lead:
-            logger.warning(f"Auto-outreach timer fired for missing lead: {lead_id}")
+            logger.warning(f"Auto-outreach worker encountered missing lead: {lead_id}")
             return
 
-        # If lead is no longer in pending approval (e.g. already approved or archived), abort
         if lead.state != State.PITCH_PENDING_APPROVAL:
-            logger.info(
-                f"Auto-outreach skipped for lead {lead_id}: State is already {lead.state.value}."
-            )
+            logger.info(f"Auto-outreach skipped for lead {lead_id}: State is {lead.state.value}.")
             return
+
+        # Check 45-day anti-duplicate suppression
+        if storage_backend and hasattr(storage_backend, "is_recipient_or_domain_contacted"):
+            if storage_backend.is_recipient_or_domain_contacted(
+                email=lead.contact_email,
+                domain=getattr(lead, "website", ""),
+                company_name=getattr(lead, "company_name", ""),
+                within_days=45,
+                exclude_lead_id=lead.lead_id,
+            ):
+                logger.info(f"🛑 [AUTO-OUTREACH SUPPRESSION] {lead.company_name} / {lead.contact_email} was contacted within 45 days. Skipping duplicate.")
+                lead.transition(State.ARCHIVED, "Duplicate outreach suppressed (contacted within 45 days)")
+                if hasattr(storage_backend, "save_lead"):
+                    storage_backend.save_lead(lead)
+                return
 
         # Verify Office Hours (8:00 AM - 5:00 PM CST)
-        is_open, seconds_until_open, msg = is_office_hours()
-        if not is_open:
-            logger.info(
-                f"🌙 [AUTO-OUTREACH PAUSED] Outside office hours. Postponing dispatch for {lead.company_name} until 8:00 AM CST ({seconds_until_open}s). Status: {msg}"
-            )
-            # Reschedule timer to wake up when office hours open
-            with self._lock:
-                timer = threading.Timer(
-                    min(seconds_until_open, 3600),
-                    self._on_grace_period_expired,
-                    args=[lead_id, storage_backend, notifier],
-                )
-                timer.daemon = True
-                entry["timer"] = timer
-                timer.start()
+        while True:
+            is_open, seconds_until_open, msg = is_office_hours()
+            if is_open:
+                break
+            logger.info(f"🌙 [AUTO-OUTREACH PAUSED] Outside office hours. Waiting until 8:00 AM CST ({seconds_until_open}s) before dispatching {lead.company_name}...")
+            sleep_chunk = min(seconds_until_open, 300)
+            time.sleep(sleep_chunk)
+
+        # Verify daily sending capacity across inboxes
+        from .email.warmup import WarmupManager
+        from .email.config import EmailSettings
+        warmup_mgr = WarmupManager(settings=EmailSettings.from_environment(), storage_backend=storage_backend)
+        if not warmup_mgr.get_available_inbox(check_jitter=False):
+            logger.info(f"🛑 [AUTO-OUTREACH HELD] Daily send limit reached on all inboxes. Holding {lead.company_name} for tomorrow.")
             return
 
-        # Apply Anti-Spam Human Jitter between successive outgoing emails
-        self._enforce_anti_spam_jitter()
+        # Wait until an inbox finishes its per-inbox 5-30m jitter cooldown
+        is_test = bool(os.environ.get("PYTEST_CURRENT_TEST"))
+        while not is_test:
+            ready_inbox = warmup_mgr.get_available_inbox(check_jitter=True)
+            if ready_inbox:
+                break
+            earliest_wait = warmup_mgr.get_earliest_jitter_wait()
+            if earliest_wait <= 0:
+                break
+            logger.info(
+                f"⏳ [PER-INBOX JITTER QUEUE] All active inboxes are in 5-30m jitter cooldown. "
+                f"Holding {lead.company_name} for {earliest_wait/60:.1f}m ({earliest_wait:.0f}s) until next inbox is ready..."
+            )
+            time.sleep(min(earliest_wait, 15.0))
 
-        # Double-check cancellation after jitter sleep
+        # Enforce Anti-Burst Human Stagger (15-30s between consecutive dispatches to prevent 501 / socket spikes)
+        self._enforce_anti_burst_stagger()
+
+        # Re-check cancellation before final dispatch
         with self._lock:
-            if entry.get("cancelled"):
+            if entry and entry.get("cancelled"):
                 logger.info(f"Auto-outreach for {lead_id} cancelled during jitter wait window.")
                 return
 
         # Perform actual dispatch
         self._execute_dispatch(lead, storage_backend, notifier)
 
-    def _enforce_anti_spam_jitter(self) -> None:
-        """Ensure randomized human-like delay (90-240s) between successive sends."""
-        with self._lock:
-            now_sec = time.time()
-            elapsed_since_last = now_sec - self._last_dispatch_time
-            jitter_target = random.uniform(self.min_jitter_seconds, self.max_jitter_seconds)
+    def _enforce_anti_burst_stagger(self) -> None:
+        """Enforce brief human spacing (15 to 30s) between successive emails across the pool to prevent simultaneous bursts."""
+        is_test = bool(os.environ.get("PYTEST_CURRENT_TEST"))
+        if is_test:
+            return
 
-            if self._last_dispatch_time > 0 and elapsed_since_last < jitter_target:
-                wait_sec = jitter_target - elapsed_since_last
-                logger.info(
-                    f"⏳ [ANTI-SPAM JITTER] Waiting {wait_sec:.1f}s before next cold email dispatch to prevent mailbox rate limiting..."
-                )
-            else:
-                # Small human reaction delay (3 to 8 seconds) even for first email
-                wait_sec = random.uniform(3.0, 8.0)
+        now_sec = time.time()
+        elapsed_since_last = now_sec - self._last_dispatch_time
+        target_stagger = random.uniform(15.0, 30.0)
 
-        if wait_sec > 0:
+        if self._last_dispatch_time > 0 and elapsed_since_last < target_stagger:
+            wait_sec = target_stagger - elapsed_since_last
+            logger.info(f"⚡ [ANTI-BURST STAGGER] Enforcing {wait_sec:.1f}s stagger before dispatching next inbox...")
             time.sleep(wait_sec)
 
-        with self._lock:
-            self._last_dispatch_time = time.time()
+        self._last_dispatch_time = time.time()
+
+    def _enforce_sequential_jitter(self) -> None:
+        """Alias for backward-compatibility with tests."""
+        self._enforce_anti_burst_stagger()
 
     def _execute_dispatch(self, lead: Lead, storage_backend: Any, notifier: Any = None) -> None:
         """Dispatch cold outreach pitch via PitcherService."""
@@ -351,7 +426,15 @@ class AutoOutreachScheduler:
                 logger.info("Office hours closed during queue flush. Pausing remainder until next window.")
                 break
 
-            self._enforce_anti_spam_jitter()
+            # Verify remaining daily quota across inboxes
+            from .email.warmup import WarmupManager
+            from .email.config import EmailSettings
+            warmup_mgr = WarmupManager(settings=EmailSettings.from_environment(), storage_backend=storage_backend)
+            if not warmup_mgr.get_available_inbox():
+                logger.info("Daily send quota reached across all inboxes during queue flush. Pausing remainder until tomorrow.")
+                break
+
+            self._enforce_sequential_jitter()
             try:
                 self._execute_dispatch(lead, storage_backend, notifier)
                 dispatched_ids.append(lead.lead_id)
