@@ -345,4 +345,52 @@ def test_quick_action_cancel_and_send_now(test_setup):
     assert storage.get_lead("lead-quick-test").state == State.OUTREACH_SENT
 
 
+def test_archival_isolation_and_jitter_cadence(test_setup):
+    """Verify that archived leads are strictly segregated from active pipeline and jitter settings are 5-20m."""
+    storage, admin_service, client = test_setup
+    admin_headers = {"Authorization": "Bearer mock_user_founder_lead_admin"}
 
+    # Create 1 active lead and 1 archived lead
+    lead_active = Lead("lead-active-1", "daily", state=State.PROSPECTING)
+    lead_active.company_name = "Active Logistics"
+    lead_active.contact_email = "dispatch@activelogistics.com"
+    storage.save_lead(lead_active)
+
+    lead_archived = Lead("lead-archived-1", "daily", state=State.ARCHIVED)
+    lead_archived.company_name = "Archived Bounced Inc"
+    lead_archived.contact_email = "bounced@invalid-domain-xyz.com"
+    lead_archived.audit_log.append({
+        "from": State.PROSPECTING.value,
+        "to": State.ARCHIVED.value,
+        "reason": "Email bounced: 550 User unknown",
+        "timestamp": "2026-09-09T12:00:00Z",
+    })
+    storage.save_lead(lead_archived)
+
+    # 1. Pipeline API must isolate archived leads from active columns
+    res = client.get("/api/admin/pipeline", headers=admin_headers)
+    assert res.status_code == 200
+    data = res.json()
+
+    # Active leads list must NOT contain archived lead
+    active_ids = [l["lead_id"] for l in data["leads"]]
+    assert "lead-active-1" in active_ids
+    assert "lead-archived-1" not in active_ids
+
+    # Kanban columns must NOT contain archived lead
+    for col_name, col_leads in data["kanban"]["columns"].items():
+        col_lead_ids = [l["lead_id"] for l in col_leads]
+        assert "lead-archived-1" not in col_lead_ids, f"Archived lead leaked into kanban column: {col_name}"
+
+    # Archived vault list must contain the archived lead
+    archived_ids = [l["lead_id"] for l in data["archived"]]
+    assert "lead-archived-1" in archived_ids
+
+    # 2. Inboxes API must return live jitter cadence configuration (300s - 1200s)
+    res_inboxes = client.get("/api/admin/inboxes", headers=admin_headers)
+    assert res_inboxes.status_code == 200
+    inboxes_data = res_inboxes.json()
+    assert inboxes_data["ok"] is True
+    assert inboxes_data["fleet_summary"]["min_jitter_seconds"] == 300
+    assert inboxes_data["fleet_summary"]["max_jitter_seconds"] == 1200
+    assert "jitter_wait_seconds" in inboxes_data["inboxes"][0]

@@ -34,13 +34,13 @@ logger = logging.getLogger("leadops.auto_outreach")
 
 
 class AutoOutreachScheduler:
-    """Coordinates grace-period timers, mobile cancellation, FIFO sequential queue, and 5-30 min anti-spam jitter."""
+    """Coordinates grace-period timers, mobile cancellation, FIFO sequential queue, and 5-20 min anti-spam jitter."""
 
     def __init__(
         self,
         grace_period_seconds: int = 180,
         min_jitter_seconds: int = 300,
-        max_jitter_seconds: int = 1800,
+        max_jitter_seconds: int = 1200,
     ) -> None:
         def _clean_int(val: Any, default: int) -> int:
             try:
@@ -464,6 +464,7 @@ class AutoOutreachScheduler:
                 "min_jitter_seconds": self.min_jitter_seconds,
                 "max_jitter_seconds": self.max_jitter_seconds,
                 "pending_queue_count": pending_count,
+                "queue_depth": self._dispatch_queue.qsize(),
                 "total_tracked": len(self._scheduled),
                 "scheduled": [
                     {

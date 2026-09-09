@@ -452,12 +452,12 @@ def run_daily_automation(
 def run_continuous_scout_loop(
     storage: SqliteStorageBackend,
     portal: PortalService,
-    min_interval_seconds: int = 3600,  # 60 minutes
-    max_interval_seconds: int = 7200,  # 120 minutes
+    min_interval_seconds: int = 600,   # 10 minutes
+    max_interval_seconds: int = 1200,  # 20 minutes
     stop_event: threading.Event | None = None,
 ) -> None:
     """Continuous background thread that autonomously discovers new target enterprises and seeds prospective sandboxes 24/7.
-    Runs randomly 1-2 hours apart in production (3600-7200s), and respects mobile pause/resume controls."""
+    Runs randomly 10-20 minutes apart in production (600-1200s), and respects mobile pause/resume controls."""
     import random
     from agents.logging_config import get_logger
     log = get_logger("scout_continuous")
@@ -491,14 +491,16 @@ def run_continuous_scout_loop(
                 time.sleep(sleep_chunk)
             continue
 
-        try:
-            candidate = worker.discover_next_candidate()
-            if candidate and candidate.get("ok"):
-                log.info(f"✨ [SCOUT AUTONOMOUS STREAM] Discovered: '{candidate['company_name']}' | Contact: {candidate.get('contact_email')} -> /p/{candidate['slug']}")
-        except Exception as e:
-            log.warning(f"Scout continuous discovery iteration: {e}")
+        target_per_cycle = int(os.environ.get("SCOUT_TARGET_PER_CYCLE", "2"))
+        for cycle_idx in range(target_per_cycle):
+            try:
+                candidate = worker.discover_next_candidate()
+                if candidate and candidate.get("ok"):
+                    log.info(f"✨ [SCOUT AUTONOMOUS STREAM] Discovered ({cycle_idx+1}/{target_per_cycle}): '{candidate['company_name']}' | Contact: {candidate.get('contact_email')} -> /p/{candidate['slug']}")
+            except Exception as e:
+                log.warning(f"Scout continuous discovery iteration ({cycle_idx+1}/{target_per_cycle}): {e}")
         
-        # Calculate random sleep duration between 1 and 2 hours
+        # Calculate random sleep duration between 10 and 20 minutes
         sleep_duration = random.randint(min_sec, max_sec)
         log.info(f"⏳ [SCOUT DAEMON] Next prospecting discovery window in {sleep_duration // 60} minutes ({sleep_duration}s)")
 
@@ -519,15 +521,15 @@ def main():
     print("           ⚡ LEADOPS LIVE PRODUCTION ENGINE & SERVER ⚡          ")
     print("==================================================================")
 
-    # 1. Start Continuous Scout Thread (randomized 1-2 hour intervals)
+    # 1. Start Continuous Scout Thread (randomized 10-20 min intervals)
     stop_event = threading.Event()
     scout_thread = threading.Thread(
         target=run_continuous_scout_loop,
-        args=(storage, portal, 3600, 7200, stop_event),
+        args=(storage, portal, 600, 1200, stop_event),
         daemon=True,
     )
     scout_thread.start()
-    print("✓ Continuous Scout Crawler: Active (paced 1-2 hour production interval)")
+    print("✓ Continuous Scout Crawler: Active (paced 10-20 min production interval)")
 
     monitor = RetainerMonitorWorker()
     dashboard_service = CustomerDashboardService(storage=storage)

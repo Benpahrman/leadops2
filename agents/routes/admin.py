@@ -110,7 +110,9 @@ def get_pipeline_kanban(
         cols = kanban_res.get("columns", {}) if isinstance(kanban_res, dict) else {}
         for col_list in cols.values():
             if isinstance(col_list, list):
-                all_leads.extend(col_list)
+                for item in col_list:
+                    if item.get("state") != "ARCHIVED":
+                        all_leads.append(item)
 
         return {
             "leads": all_leads,
@@ -1622,9 +1624,16 @@ def list_admin_inboxes(
             "warmup_start_date": acc.warmup_start_date,
             "is_active": acc.is_active,
             "password_configured": bool(acc.password),
+            "jitter_wait_seconds": round(warmup.get_inbox_jitter_wait(acc.id), 1),
+            "is_on_jitter": warmup.is_inbox_on_jitter(acc.id),
         })
 
     fleet_summary = warmup.get_fleet_capacity_summary()
+    fleet_summary["min_jitter_seconds"] = int(str(os.environ.get("AUTO_OUTREACH_MIN_JITTER_SECONDS", "300")).split("#")[0].strip().strip("\"'"))
+    fleet_summary["max_jitter_seconds"] = int(str(os.environ.get("AUTO_OUTREACH_MAX_JITTER_SECONDS", "1200")).split("#")[0].strip().strip("\"'"))
+    fleet_summary["earliest_jitter_wait"] = round(warmup.get_earliest_jitter_wait(), 1)
+    fleet_summary["available_inbox"] = warmup.get_available_inbox(check_jitter=True)
+
     return {
         "ok": True,
         "inboxes": inbox_list,

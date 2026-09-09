@@ -430,15 +430,15 @@ class PitcherService:
         else:
             logger.info(f"ℹ️ [WARMUP QUOTA] Skipped recording send for simulated dispatch on inbox '{inbox_id}'.")
         
-        # Enforce per-inbox 5-30 min jitter cooldown for this specific account
+        # Enforce per-inbox 5-20 min jitter cooldown for this specific account
         try:
             min_j = int(str(os.environ.get("AUTO_OUTREACH_MIN_JITTER_SECONDS", "300")).split("#")[0].strip().strip("\"'"))
         except (ValueError, TypeError):
             min_j = 300
         try:
-            max_j = int(str(os.environ.get("AUTO_OUTREACH_MAX_JITTER_SECONDS", "1800")).split("#")[0].strip().strip("\"'"))
+            max_j = int(str(os.environ.get("AUTO_OUTREACH_MAX_JITTER_SECONDS", "1200")).split("#")[0].strip().strip("\"'"))
         except (ValueError, TypeError):
-            max_j = 1800
+            max_j = 1200
         jitter_dur = 0.01 if os.environ.get("PYTEST_CURRENT_TEST") else random.uniform(min_j, max_j)
         if hasattr(self.warmup_manager, "record_inbox_jitter"):
             self.warmup_manager.record_inbox_jitter(inbox_id, jitter_dur)

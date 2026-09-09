@@ -232,6 +232,7 @@ export default function AdminPage() {
 
   // Inboxes & Email Infrastructure State
   const [inboxes, setInboxes] = useState([]);
+  const [fleetSummary, setFleetSummary] = useState(null);
   const [inboxesLoading, setInboxesLoading] = useState(false);
   const [testingInboxId, setTestingInboxId] = useState(null);
   const [testResults, setTestResults] = useState({});
@@ -321,18 +322,21 @@ export default function AdminPage() {
     setLoading(true);
     try {
       const token = await resolveToken();
-      const [pipeData, metricData, buildsData, scoutData, autoData] = await Promise.allSettled([
+      const [pipeData, metricData, buildsData, scoutData, autoData, inboxesData] = await Promise.allSettled([
         fetchAdminPipeline(token),
         fetchAdminMetrics(token),
         fetchActiveBuilds(token),
         fetchScoutStatus(token),
         fetchAutoOutreachStatus(token),
+        fetchAdminInboxes(token),
       ]);
 
       if (pipeData.status === 'fulfilled') {
         const raw = pipeData.value || {};
         const list = Array.isArray(raw) ? raw : (raw.leads || raw.pipeline || []);
-        setPipeline(list);
+        // Strict Archival Isolation: Active pipeline exclusively contains non-archived leads
+        const activeOnly = list.filter((l) => l.state !== 'ARCHIVED');
+        setPipeline(activeOnly);
         if (raw.archived && Array.isArray(raw.archived)) {
           setArchivedLeads(raw.archived);
         }
@@ -351,6 +355,11 @@ export default function AdminPage() {
       }
       if (autoData.status === 'fulfilled') {
         setAutoOutreachStatus(autoData.value);
+      }
+      if (inboxesData.status === 'fulfilled') {
+        const iVal = inboxesData.value || {};
+        if (iVal.inboxes) setInboxes(iVal.inboxes);
+        if (iVal.fleet_summary) setFleetSummary(iVal.fleet_summary);
       }
     } catch (err) {
       console.warn('Admin load note:', err);
@@ -393,6 +402,9 @@ export default function AdminPage() {
       const res = await fetchAdminInboxes(token);
       if (res && res.inboxes) {
         setInboxes(res.inboxes);
+      }
+      if (res && res.fleet_summary) {
+        setFleetSummary(res.fleet_summary);
       }
       loadMsOAuthStatus();
     } catch (err) {
@@ -537,6 +549,9 @@ export default function AdminPage() {
   // Filtered Leads
   const filteredLeads = useMemo(() => {
     return pipeline.filter((l) => {
+      // 1. Strict Archival Isolation: Archived leads are put away in Vault and NEVER shown in active Deals & Customers
+      if (l.state === 'ARCHIVED') return false;
+
       const q = searchQuery.toLowerCase().trim();
       const matchesSearch =
         !q ||
@@ -1220,14 +1235,203 @@ export default function AdminPage() {
           </div>
 
           <div className="stat-card">
-            <div className="stat-label">🎯 Total Pipeline Deals</div>
+            <div className="stat-label">🎯 Active Pipeline Deals</div>
             <div className="stat-value" style={{ color: '#fff' }}>
-              {pipeline.length}
+              {pipeline.filter((l) => l.state !== 'ARCHIVED').length}
             </div>
             <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-              Across all lifecycle stages
+              Excludes {archivedLeads.length} archived in Vault
             </div>
           </div>
+        </div>
+
+        {/* =========================================================
+            ⚡ FLEET DISPATCH VELOCITY & JITTER ENGINE CARD
+           ========================================================= */}
+        <div
+          style={{
+            background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(10, 19, 36, 0.98) 100%)',
+            border: '1px solid rgba(56, 189, 248, 0.25)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.35)',
+            borderRadius: 'var(--radius-md)',
+            padding: '20px 24px',
+            marginBottom: '24px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span style={{ fontSize: '24px', background: 'rgba(56, 189, 248, 0.12)', padding: '8px', borderRadius: '10px', border: '1px solid rgba(56, 189, 248, 0.25)' }}>⚡</span>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#fff', margin: 0, letterSpacing: '-0.3px' }}>
+                    Fleet Dispatch Velocity &amp; Jitter Engine
+                  </h3>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      background: 'rgba(16, 185, 129, 0.15)',
+                      color: 'var(--green)',
+                      border: '1px solid rgba(16, 185, 129, 0.35)',
+                    }}
+                  >
+                    ● 5 Zoho Inboxes Active
+                  </span>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      background: 'rgba(56, 189, 248, 0.15)',
+                      color: 'var(--cyan)',
+                      border: '1px solid rgba(56, 189, 248, 0.35)',
+                    }}
+                  >
+                    ⏱️ 5 – 20 min Jitter Window
+                  </span>
+                </div>
+                <p style={{ fontSize: '12px', color: 'var(--text-dim)', margin: '4px 0 0' }}>
+                  Sequential anti-spam dispatch pool rotating across 5 Zoho accounts with randomized 5–20 minute cooldowns.
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button
+                className="btn btn-outline"
+                style={{
+                  fontSize: '11px',
+                  padding: '7px 14px',
+                  borderColor: 'rgba(56, 189, 248, 0.35)',
+                  color: 'var(--cyan)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontWeight: 600,
+                }}
+                onClick={handleFlushOutreachQueue}
+                disabled={flushingQueue}
+                title="Immediately process any queued pitches adhering to anti-burst human stagger"
+              >
+                <span>{flushingQueue ? '⏳ Flushing...' : '⚡ Flush Outreach Queue'}</span>
+              </button>
+              <button
+                className="btn btn-outline"
+                style={{
+                  fontSize: '11px',
+                  padding: '7px 14px',
+                  borderColor: 'rgba(168, 85, 247, 0.35)',
+                  color: '#c084fc',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontWeight: 600,
+                }}
+                onClick={() => handleTriggerWebScout()}
+                disabled={scoutingInProgress}
+                title="Prospect next qualified B2B lead immediately via autonomous Scout"
+              >
+                <span>{scoutingInProgress ? '⏳ Scouting...' : '🔎 Scout Lead'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Velocity Progress Bar & Key Metrics */}
+          {(() => {
+            const fleetSent = fleetSummary?.fleet_sent_today ?? inboxes.reduce((acc, i) => acc + (i.sent_today || 0), 0);
+            const fleetQuota = fleetSummary?.fleet_daily_quota ?? 125;
+            const velocityPct = Math.min(100, Math.round((fleetSent / (fleetQuota || 1)) * 100));
+            const nextInboxId = fleetSummary?.available_inbox || (inboxes.find((i) => !i.is_on_jitter && (i.sent_today || 0) < (i.daily_limit || 25))?.inbox_id) || 'zoho_1';
+            const earliestWait = fleetSummary?.earliest_jitter_wait ?? Math.min(...inboxes.map((i) => i.jitter_wait_seconds || 0));
+
+            return (
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '12px', marginBottom: '12px' }}>
+                  <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '12px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700 }}>TODAY'S FLEET VELOCITY</div>
+                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#fff', marginTop: '3px', display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                      <span>{fleetSent} / {fleetQuota}</span>
+                      <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 500 }}>dispatched today ({velocityPct}%)</span>
+                    </div>
+                  </div>
+
+                  <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '12px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700 }}>NEXT DISPATCH CADENCE</div>
+                    <div style={{ fontSize: '15px', fontWeight: 700, color: earliestWait > 0 ? '#fbbf24' : 'var(--green)', marginTop: '3px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>{earliestWait > 0 ? `⏳ Next dispatch in ~${(earliestWait / 60).toFixed(1)}m` : '🟢 Ready for immediate send'}</span>
+                    </div>
+                  </div>
+
+                  <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '12px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700 }}>NEXT INBOX IN ROTATION</div>
+                    <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--cyan)', marginTop: '3px' }}>
+                      📬 {String(nextInboxId).replace('_', ' ').toUpperCase()}
+                    </div>
+                  </div>
+
+                  <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '12px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700 }}>SCOUT REPLENISHMENT</div>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: '#c084fc', marginTop: '3px' }}>
+                      🚀 10 – 20 min (2 leads / cycle)
+                    </div>
+                  </div>
+                </div>
+
+                {/* Progress bar */}
+                <div style={{ height: '7px', background: 'rgba(255, 255, 255, 0.08)', borderRadius: '4px', overflow: 'hidden', position: 'relative' }}>
+                  <div
+                    style={{
+                      height: '100%',
+                      width: `${Math.max(velocityPct, 3)}%`,
+                      background: 'linear-gradient(90deg, #38bdf8 0%, #10b981 100%)',
+                      borderRadius: '4px',
+                      transition: 'width 0.4s ease',
+                    }}
+                  />
+                </div>
+
+                {/* Inboxes Fleet Chips */}
+                {inboxes.length > 0 && (
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '14px' }}>
+                    {inboxes.map((inb) => {
+                      const onJitter = inb.is_on_jitter;
+                      const waitSec = inb.jitter_wait_seconds || 0;
+                      return (
+                        <div
+                          key={inb.inbox_id}
+                          style={{
+                            fontSize: '11px',
+                            padding: '5px 10px',
+                            borderRadius: '6px',
+                            background: onJitter ? 'rgba(245, 158, 11, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                            border: `1px solid ${onJitter ? 'rgba(245, 158, 11, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
+                            color: onJitter ? '#fbbf24' : 'var(--green)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                          }}
+                          title={onJitter ? `Jitter cooldown: ~${(waitSec / 60).toFixed(1)}m remaining` : 'Ready to dispatch'}
+                        >
+                          <span>{onJitter ? '⏳' : '🟢'}</span>
+                          <span style={{ fontWeight: 700, color: '#fff' }}>{inb.inbox_id}:</span>
+                          <span>{inb.sent_today || 0}/{inb.daily_limit || 25} sent</span>
+                          {onJitter && waitSec > 0 && (
+                            <span style={{ color: '#fbbf24', fontSize: '10px' }}>({(waitSec / 60).toFixed(0)}m wait)</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Tab Navigation */}
@@ -1236,7 +1440,7 @@ export default function AdminPage() {
             className={`admin-tab-btn ${activeTab === 'deals' ? 'active' : ''}`}
             onClick={() => setActiveTab('deals')}
           >
-            📊 Deals &amp; Customers ({pipeline.length})
+            📊 Deals &amp; Customers ({pipeline.filter((l) => l.state !== 'ARCHIVED').length})
           </button>
           <button
             className={`admin-tab-btn ${activeTab === 'kanban' ? 'active' : ''}`}
@@ -1252,7 +1456,7 @@ export default function AdminPage() {
               color: activeTab === 'archived' ? '#fbbf24' : undefined,
             }}
           >
-            📦 Archived &amp; Recovery ({archivedLeads.length})
+            📦 Archived Vault ({archivedLeads.length})
           </button>
           <button
             className={`admin-tab-btn ${activeTab === 'swarm' ? 'active' : ''}`}

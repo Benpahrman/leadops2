@@ -68,7 +68,7 @@ class AdminMissionControlService:
         }
         archived_leads: list[dict[str, Any]] = []
 
-        # Deduplicate leads by company name, keeping highest progress state
+        # Deduplicate leads by company name, keeping highest progress state while respecting ARCHIVED quarantine
         seen_companies: dict[str, Lead] = {}
         state_priority = {
             State.WARRANTY_ACTIVE: 10,
@@ -86,13 +86,42 @@ class AdminMissionControlService:
             State.ARCHIVED: -1,
         }
 
+        def _norm_state(st: Any) -> State:
+            if isinstance(st, State):
+                return st
+            clean = str(st).replace("State.", "").strip().upper()
+            return State[clean] if clean in State.__members__ else State.PROSPECTING
+
         for lead in leads:
             comp_norm = (getattr(lead, "company_name", "") or lead.lead_id).lower().strip()
-            state_val = lead.state if isinstance(lead.state, State) else State(str(lead.state).replace("State.", "").strip()) if str(lead.state).replace("State.", "").strip() in State.__members__ else State.PROSPECTING
-            score = state_priority.get(state_val, 1) + (10 if lead.deposit_paid else 0)
-            seen_state = seen_companies[comp_norm].state if comp_norm in seen_companies else None
-            seen_state_val = seen_state if isinstance(seen_state, State) else State(str(seen_state).replace("State.", "").strip()) if str(seen_state).replace("State.", "").strip() in State.__members__ else State.PROSPECTING
-            if comp_norm not in seen_companies or score > state_priority.get(seen_state_val, 1) + (10 if seen_companies[comp_norm].deposit_paid else 0):
+            state_val = _norm_state(lead.state)
+
+            if comp_norm not in seen_companies:
+                seen_companies[comp_norm] = lead
+                continue
+
+            prev_lead = seen_companies[comp_norm]
+            prev_state_val = _norm_state(prev_lead.state)
+
+            # 1. Deposit paid always takes top priority
+            if lead.deposit_paid and not prev_lead.deposit_paid:
+                seen_companies[comp_norm] = lead
+                continue
+            elif prev_lead.deposit_paid and not lead.deposit_paid:
+                continue
+
+            # 2. Strict Archival Quarantine: If a lead failed deliverability, opt-out, or 45-day cooldown,
+            # it stays quarantined in ARCHIVED and is not superseded by pre-archive prospect stubs
+            if state_val == State.ARCHIVED:
+                seen_companies[comp_norm] = lead
+                continue
+            elif prev_state_val == State.ARCHIVED:
+                continue
+
+            # 3. Normal progression order
+            score = state_priority.get(state_val, 1)
+            prev_score = state_priority.get(prev_state_val, 1)
+            if score > prev_score:
                 seen_companies[comp_norm] = lead
 
         unique_leads = list(seen_companies.values())
@@ -165,7 +194,7 @@ class AdminMissionControlService:
                 "next_target_state": action_info["target"].value if action_info["target"] else None,
                 "action_color": action_info["color"],
             }
-            if state_val == State.ARCHIVED:
+            if state_val == State.ARCHIVED or str(state_val).upper() in ("ARCHIVED", "STATE.ARCHIVED"):
                 reason = "Archived (failed deliverability or suppressed)"
                 for ev in reversed(lead.audit_log):
                     det = str(ev.get("details", "") or ev.get("reason", ""))
@@ -181,7 +210,7 @@ class AdminMissionControlService:
             state_key = state_val.value
             if state_key in kanban:
                 kanban[state_key].append(entry)
-            else:
+            elif state_key not in ("ARCHIVED", "State.ARCHIVED"):
                 kanban["PROSPECTING"].append(entry)
 
         return {
