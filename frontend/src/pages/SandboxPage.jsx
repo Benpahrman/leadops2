@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { fetchSandbox } from '../services/api';
 import { useToast } from '../context/ToastContext';
 import DataTable from '../components/sandbox/DataTable';
@@ -9,6 +9,7 @@ import EscrowCheckoutModal from '../components/sandbox/EscrowCheckoutModal';
 export default function SandboxPage() {
   const { slug } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { showToast } = useToast();
 
   const [sandboxData, setSandboxData] = useState(null);
@@ -24,7 +25,20 @@ export default function SandboxPage() {
     'property_address',
   ]);
 
-  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  // Auto-open PayPal checkout modal if ?checkout=1 is in the URL
+  // (set by PipelineIntakePage after pipeline creation)
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(
+    () => searchParams.get('checkout') === '1'
+  );
+
+  // Once modal opens from ?checkout=1, clean the URL param to avoid re-open on refresh
+  useEffect(() => {
+    if (searchParams.get('checkout') === '1') {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('checkout');
+      window.history.replaceState(null, '', url.toString());
+    }
+  }, []);
 
   // Load live sandbox data from backend
   useEffect(() => {

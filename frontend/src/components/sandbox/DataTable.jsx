@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { unlockBacklog } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 
@@ -10,6 +10,9 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
   const [email, setEmail] = useState(defaultEmail || '');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isUnlocked, setIsUnlocked] = useState(false);
+  const [backlogPaypalReady, setBacklogPaypalReady] = useState(false);
+  const [backlogPaypalError, setBacklogPaypalError] = useState(null);
+  const emailRef = useRef(email);
 
   const [sortField, setSortField] = useState('date');
   const [sortAsc, setSortAsc] = useState(false);
@@ -32,6 +35,9 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
       setEmail(defaultEmail);
     }
   }, [defaultEmail]);
+
+  // Keep emailRef in sync for use inside PayPal SDK callbacks
+  useEffect(() => { emailRef.current = email; }, [email]);
 
   // Sorting helper
   const handleSort = (field) => {
@@ -155,34 +161,154 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
     setTimeout(() => setCopiedJson(false), 2500);
   };
 
-  const handleUnlockBacklog = async (e) => {
-    e.preventDefault();
-    if (!email || !email.includes('@')) {
-      showToast('Please enter a valid billing/work email.', 'error');
+  // Real PayPal Buttons for $49 backlog unlock — rendered when modal opens
+  useEffect(() => {
+    if (!isBacklogModalOpen) {
+      setBacklogPaypalReady(false);
+      setBacklogPaypalError(null);
       return;
     }
 
-    setIsProcessing(true);
-    showToast('Unlocking 30-day historical backlog dataset ($49)...', 'info');
+    let isMounted = true;
+    let buttonsInstance = null;
+    let retryCount = 0;
 
-    try {
-      const data = await unlockBacklog(slug, { email });
-      if (data.ok && data.rows) {
-        setIsUnlocked(true);
-        setRows(data.rows);
-        setIsBacklogModalOpen(false);
-        showToast(`✓ Backlog Unlocked! Downloaded ${data.rows_count} records.`, 'success', 6000);
-        triggerDownload(data.rows, 'full_30d_backlog');
-      } else {
-        showToast('Could not unlock backlog. Please try again.', 'error');
+    const renderBacklogPayPal = () => {
+      if (!isMounted) return;
+      const clientId = window.__PAYPAL_CLIENT_ID__ || 'BAAa18mhTonKniN6UJij6PasfiTBu0_sQgMKP9XwyMeXtBurHvoUD4YkDD09KTmC8RHwVTpOW_qbqalGkY';
+
+      if (!window.paypal || !window.paypal.Buttons) {
+        let script = document.getElementById('paypal-js-sdk');
+        if (!script) {
+          script = document.createElement('script');
+          script.id = 'paypal-js-sdk';
+          script.src = `https://www.paypal.com/sdk/js?client-id=${clientId}&currency=USD`;
+          script.onload = () => { if (isMounted) renderBacklogPayPal(); };
+          script.onerror = () => { if (isMounted) setBacklogPaypalError('Unable to reach PayPal. Please disable any content blockers and try again.'); };
+          document.head.appendChild(script);
+        }
+        if (retryCount < 20) {
+          retryCount++;
+          setTimeout(() => { if (isMounted) renderBacklogPayPal(); }, 350);
+        } else {
+          setBacklogPaypalError('PayPal checkout took too long to load. Please refresh and try again.');
+        }
+        return;
       }
-    } catch (err) {
-      console.error('Backlog unlock error:', err);
-      showToast(`Unlock failed: ${err.message}`, 'error');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+
+      const container = document.getElementById('paypal-backlog-button-container');
+      if (!container) return;
+      container.innerHTML = '';
+
+      try {
+        buttonsInstance = window.paypal.Buttons({
+          style: { layout: 'vertical', color: 'blue', shape: 'rect', label: 'pay', height: 44 },
+          createOrder: async (data, actions) => {
+            if (!emailRef.current || !emailRef.current.includes('@')) {
+              showToast('Please enter a valid billing email before paying.', 'error');
+              throw new Error('Valid email required');
+            }
+            // Try server-side order creation first
+            try {
+              const res = await fetch(`/api/paypal/create-order/${slug}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  deposit_amount: 49.00,
+                  email: emailRef.current,
+                  cardholder: companyName || slug,
+                  target_url: sourceUrl || '',
+                }),
+              });
+              if (res.ok) {
+                const orderData = await res.json();
+                if (orderData.order_id) return orderData.order_id;
+              }
+            } catch (serverErr) {
+              console.warn('Backlog: backend order creation fallback to client SDK:', serverErr);
+            }
+            // Client-side SDK fallback
+            return actions.order.create({
+              purchase_units: [{
+                description: `LeadOps 30-Day Backlog Unlock — ${companyName || slug}`,
+                custom_id: 'backlog',
+                invoice_id: `backlog-${slug}-${Date.now()}`,
+                amount: { currency_code: 'USD', value: '49.00',
+                  breakdown: { item_total: { currency_code: 'USD', value: '49.00' } } },
+                items: [{ name: '30-Day Historical Backlog Dataset', quantity: '1',
+                  unit_amount: { currency_code: 'USD', value: '49.00' },
+                  description: '200–500 verified records • Instant CSV download • 100% credited toward Setup Sprint',
+                }],
+              }],
+              application_context: { shipping_preference: 'NO_SHIPPING', user_action: 'PAY_NOW', brand_name: 'LeadOps / OmniLeadFeeder' },
+            });
+          },
+          onApprove: async (data, actions) => {
+            setIsProcessing(true);
+            showToast('✓ Capturing $49 payment...', 'info');
+            try {
+              let captureId = data.orderID;
+              // Server-side capture
+              try {
+                const captureRes = await fetch(`/api/paypal/capture-order/${slug}`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ order_id: data.orderID, email: emailRef.current, cardholder: companyName || slug, target_url: sourceUrl || '' }),
+                });
+                if (captureRes.ok) {
+                  const capData = await captureRes.json();
+                  captureId = capData.capture_id || data.orderID;
+                }
+              } catch (capErr) {
+                const orderDetails = await actions.order.capture();
+                captureId = orderDetails?.purchase_units?.[0]?.payments?.captures?.[0]?.id || orderDetails?.id || data.orderID;
+              }
+              // Unlock backlog with verified paypal_order_id
+              const unlockData = await unlockBacklog(slug, { email: emailRef.current, paypalOrderId: captureId });
+              if (unlockData.ok && unlockData.rows) {
+                setIsUnlocked(true);
+                setRows(unlockData.rows);
+                setIsBacklogModalOpen(false);
+                showToast(`✓ Backlog Unlocked! ${unlockData.rows_count} verified records downloaded.`, 'success', 6000);
+                triggerDownload(unlockData.rows, 'full_30d_backlog');
+              } else {
+                showToast('Payment captured but backlog delivery failed. Our team will follow up within minutes.', 'error');
+              }
+            } catch (err) {
+              console.error('Backlog onApprove error:', err);
+              showToast(`Payment error: ${err.message}`, 'error');
+            } finally {
+              setIsProcessing(false);
+            }
+          },
+          onError: (err) => {
+            console.error('Backlog PayPal error:', err);
+            showToast('PayPal could not complete the transaction. Please try again.', 'error');
+          },
+          onCancel: () => {
+            showToast('Payment cancelled. Your backlog unlock is waiting whenever you\'re ready.', 'info');
+          },
+        });
+
+        if (isMounted && container) {
+          buttonsInstance.render('#paypal-backlog-button-container');
+          setBacklogPaypalReady(true);
+        }
+      } catch (err) {
+        console.error('Failed to render backlog PayPal Buttons:', err);
+        setBacklogPaypalError('Failed to initialize PayPal. Please reload the page.');
+      }
+    };
+
+    renderBacklogPayPal();
+
+    return () => {
+      isMounted = false;
+      if (buttonsInstance && buttonsInstance.close) {
+        try { buttonsInstance.close(); } catch (e) {}
+      }
+    };
+  }, [isBacklogModalOpen, slug, companyName, sourceUrl, showToast]);
 
   const hostDisplay = sourceUrl ? (() => {
     try { return new URL(sourceUrl).hostname; } catch { return 'records.official.gov'; }
@@ -595,7 +721,7 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
         </div>
       )}
 
-      {/* 30-Day Historical Backlog Unlock Modal ($49 Tripwire) */}
+      {/* 30-Day Historical Backlog Unlock Modal ($49) — Real PayPal */}
       {isBacklogModalOpen && (
         <div className="modal-overlay" onClick={() => setIsBacklogModalOpen(false)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
@@ -603,15 +729,9 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
 
             <div style={{ textAlign: 'center', marginBottom: '18px' }}>
               <div style={{
-                width: '44px',
-                height: '44px',
-                borderRadius: '50%',
-                background: 'rgba(56, 189, 248, 0.12)',
-                border: '1px solid rgba(56, 189, 248, 0.3)',
-                display: 'grid',
-                placeItems: 'center',
-                margin: '0 auto 12px',
-                color: 'var(--cyan)',
+                width: '44px', height: '44px', borderRadius: '50%',
+                background: 'rgba(56, 189, 248, 0.12)', border: '1px solid rgba(56, 189, 248, 0.3)',
+                display: 'grid', placeItems: 'center', margin: '0 auto 12px', color: 'var(--cyan)',
               }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
@@ -640,44 +760,50 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
                 <span style={{ color: 'var(--green)', fontWeight: 800, fontFamily: 'var(--mono)', fontSize: '14px' }}>$49.00 USD</span>
               </div>
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '8px', color: 'var(--green)', fontWeight: 600 }}>
-                100% Credited: Upgrade to an automated daily feed anytime, and your $49 is credited straight toward your setup sprint!
+                100% Credited: Upgrade to an automated daily feed anytime, and your $49 is credited toward your setup sprint!
               </div>
             </div>
 
-            <form onSubmit={handleUnlockBacklog}>
-              <div style={{ marginBottom: '18px' }}>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '6px', color: '#fff' }}>
-                  Delivery / Work Email
-                </label>
-                <input
-                  type="email"
-                  required
-                  className="form-input"
-                  placeholder="alex@yourcompany.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
+            {/* Billing Email */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '6px', color: '#fff' }}>
+                Delivery / Work Email *
+              </label>
+              <input
+                type="email"
+                required
+                className="form-input"
+                placeholder="alex@yourcompany.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
 
-              <button
-                type="submit"
-                className="btn btn-primary"
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  fontSize: '14px',
-                  fontWeight: 800,
-                  background: 'linear-gradient(135deg, #0284c7 0%, #2563eb 100%)',
-                  border: '1px solid #38bdf8',
-                }}
-                disabled={isProcessing}
-              >
-                {isProcessing ? 'Processing CSV Extraction...' : 'Pay $49 & Download Full 30-Day CSV ➔'}
-              </button>
-            </form>
+            {/* PayPal Buttons Container */}
+            <div style={{ minHeight: '100px' }}>
+              {backlogPaypalError ? (
+                <div style={{ textAlign: 'center', padding: '14px', color: '#f87171', fontSize: '12px', background: 'rgba(239,68,68,0.1)', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.25)' }}>
+                  ⚠️ {backlogPaypalError}
+                  <div style={{ marginTop: '8px' }}>
+                    <button type="button" onClick={() => window.location.reload()} className="btn btn-secondary" style={{ fontSize: '11px', padding: '4px 12px' }}>Reload Page</button>
+                  </div>
+                </div>
+              ) : !backlogPaypalReady && !isProcessing ? (
+                <div style={{ textAlign: 'center', padding: '14px', color: 'var(--text-muted)', fontSize: '12px' }}>
+                  <div className="spinner" style={{ width: '22px', height: '22px', margin: '0 auto 8px' }}></div>
+                  Connecting to secure PayPal checkout...
+                </div>
+              ) : null}
+              {backlogPaypalReady && !isProcessing && (
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '8px' }}>
+                  Select payment method below to pay $49 and instantly download your backlog:
+                </div>
+              )}
+              <div id="paypal-backlog-button-container"></div>
+            </div>
 
-            <div style={{ textAlign: 'center', marginTop: '16px', fontSize: '11px', color: 'var(--text-dim)' }}>
-              Instant Delivery • Secure Stripe / PayPal Escrow
+            <div style={{ textAlign: 'center', marginTop: '14px', borderTop: '1px solid var(--border)', paddingTop: '10px', fontSize: '10px', color: 'var(--text-dim)' }}>
+              🔒 256-Bit Encrypted Payment • PayPal, Visa, Mastercard, AMEX & Discover Accepted
             </div>
           </div>
         </div>

@@ -84,7 +84,7 @@ export default function PipelineIntakePage() {
     }
 
     setIsSubmitting(true);
-    showToast('Initializing your custom scraper pipeline and provisioning verified sandbox...', 'info');
+    showToast('Provisioning your verified live sandbox...', 'info');
 
     try {
       const payload = {
@@ -101,9 +101,15 @@ export default function PipelineIntakePage() {
 
       if (result.ok && result.slug) {
         localStorage.setItem('leadops_active_lead_id', result.lead_id || result.slug);
-        showToast(`✓ Scraper pipeline created for ${result.company_name}! Opening your live sandbox...`, 'success', 5000);
+        showToast(
+          `✓ Sandbox ready for ${result.company_name}! Redirecting to secure PayPal checkout...`,
+          'success',
+          4000
+        );
+        // Navigate to sandbox with ?checkout=1 to auto-open the PayPal modal
         setTimeout(() => {
-          navigate(result.sandbox_url || `/p/${result.slug}`);
+          const sandboxPath = result.sandbox_url || `/p/${result.slug}`;
+          navigate(`${sandboxPath}?checkout=1`);
         }, 600);
       } else {
         showToast('Could not initialize pipeline. Please try again.', 'error');
@@ -410,10 +416,10 @@ export default function PipelineIntakePage() {
                 {isSubmitting ? (
                   <>
                     <span style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite', display: 'inline-block' }}></span>
-                    <span>Synthesizing Scraper &amp; Provisioning Sandbox...</span>
+                    <span>Preparing Your Sandbox &amp; PayPal Checkout...</span>
                   </>
                 ) : (
-                  <span>Generate Live Scraper Pipeline &amp; Verified Sandbox ➔</span>
+                  <span>See Live Data &amp; Authorize $99 Setup Sprint ➔</span>
                 )}
               </button>
               <div style={{ textAlign: 'center', marginTop: '10px', fontSize: '11px', color: 'var(--text-dim)' }}>
