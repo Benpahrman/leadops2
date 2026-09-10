@@ -208,18 +208,16 @@ class NotificationManager:
             if (self.settings.telegram_bot_token and self.settings.telegram_chat_id)
             else None
         )
-        is_cloud = bool(
-            os.environ.get("CONTAINER_APP_NAME")
-            or os.environ.get("DATABASE_URL", "").startswith("postgresql")
-            or os.environ.get("ENVIRONMENT") == "production"
-        )
-        default_base = "https://www.omnileadfeeder.tech" if is_cloud else "http://127.0.0.1:8000"
+        default_base = os.environ.get("LEADOPS_PUBLIC_BASE_URL", "https://www.omnileadfeeder.tech")
         self.base_url = (
             base_url
+            or os.environ.get("LEADOPS_PUBLIC_BASE_URL", "")
             or os.environ.get("LEADOPS_PUBLIC_URL", "")
             or os.environ.get("BASE_URL", "")
             or default_base
         ).rstrip("/")
+        if any(bad in self.base_url.lower() for bad in ["127.0.0.1", "137.0.0.1", "localhost", "0.0.0.0"]) and not os.environ.get("PYTEST_CURRENT_TEST"):
+            self.base_url = "https://www.omnileadfeeder.tech"
         self.async_dispatch = async_dispatch
         self.force_dispatch_in_test = force_dispatch_in_test
 

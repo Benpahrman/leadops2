@@ -25,7 +25,7 @@ Every agent interacting with scopes, quotes, or invoices must enforce the follow
 * **Production Feed (Flagship):** $250/mo. Daily morning automated extraction (06:00 UTC), up to 15,000 filings/mo, max 20 fields. Google Sheets + Webhook + REST API dispatch, Cloudflare/WAF anti-bot bypass, autonomous AST self-healing.
 * **Enterprise Swarm:** $590/mo. Continuous/hourly multi-jurisdiction sync, unlimited records, max 50 fields. Automated AI OCR on PDF filings, dedicated residential IP pool, direct PostgreSQL/Snowflake ingestion.
 * **The $99 Setup Sprint Rule:** Every tier starts with a flat **$99 Setup Sprint Deposit** that is 100% credited toward Month 1.
-* **The Milestone Balance Rule:** The remaining Month 1 balance ($51 for Starter, $151 for Production, $491 for Enterprise) is unlocked and billed **only after** the client reviews and approves a verified 25-row live test dataset with a verified $\ge 95\%$ QA pass rate.
+* **The Milestone Balance Rule:** The remaining Month 1 balance ($51 for Starter, $151 for Production, $491 for Enterprise) is unlocked and billed **only after** the client reviews and approves a verified 5–10 row live test dataset with a verified $\ge 95\%$ QA pass rate.
 
 
 
@@ -105,7 +105,7 @@ Every agent interacting with scopes, quotes, or invoices must enforce the follow
 * **Replan Routing:** Any run scoring $<95\%$ is rejected and returned to Dev Lead with structured failure logs; it is strictly prohibited from advancing.
 
 
-* **Verification Payload:** Once passed, generates a dataset of exactly 25 fresh records and unlocks the customer verification view in the portal.
+* **Verification Payload:** Once passed, generates a dataset of 5–10 fresh records and unlocks the customer verification view in the portal.
 
 
 

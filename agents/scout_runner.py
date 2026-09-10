@@ -1135,7 +1135,7 @@ class ScoutBackgroundWorker:
                     agent_name="Data Verification Specialist",
                     filename="01_initial_sample.json",
                     content=target["sample_data"],
-                    description="Verified 25-row sample dataset extracted from public registry"
+                    description="Verified 5–10 row sample dataset extracted from public registry"
                 )
                 artifact_store.save_artifact(
                     lead_id=candidate.lead_id,
@@ -1264,7 +1264,7 @@ class ScoutBackgroundWorker:
                                     "portal_name": target["portal_name"],
                                     "sample_preview": fresh_rows[:3],
                                 },
-                                description="Verified 25-row live sample injected into customer sandbox pre-outreach"
+                                description="Verified 5–10 row live sample injected into customer sandbox pre-outreach"
                             )
                         except Exception as art_err:
                             logger.debug(f"Sandbox enricher artifact save notice: {art_err}")

@@ -287,16 +287,22 @@ class ContactEnricherResearcherAgent:
 
         # Regenerate personalized outreach subject & body for the new decision maker
         first_name = new_name.split()[0] if new_name else "there"
-        portal_name = getattr(lead, "target_portal_name", "public records portal")
-        lead.outreach_subject = f"{portal_name.lower()} docket feed for {lead.company_name.split()[0]}"
-        lead.outreach_body = (
-            f"Hi {first_name},\n\n"
-            f"We set up a live feed tracking daily {portal_name} dockets for {lead.company_name} "
-            f"so your team doesn't have to pull filings manually.\n\n"
-            f"You can review your live sandbox here: /p/{lead.slug}\n\n"
-            f"Would it be helpful to stream these daily, or are you all set in-house?\n\n"
-            f"Best,\nAlex | LeadOps Automation"
+        portal_name = getattr(lead, "target_portal_name", "") or getattr(lead, "jurisdiction", "County Portal") or "County Portal"
+        clean_company = re.sub(r"(?i)\s+(inc\.?|llc|corp\.?|ltd\.?|co\.?|pllc)$", "", lead.company_name).strip() or lead.company_name
+        from .pitcher import render_sub_60_word_pitch
+        pitch = render_sub_60_word_pitch(
+            company_name=clean_company,
+            niche=getattr(lead, "niche", "Public Records") or "Public Records",
+            portal_name=portal_name,
+            sample_count=getattr(lead, "preview_rows", 10) or 10,
+            slug=lead.slug,
+            contact_name=first_name,
+            contact_role=new_role or getattr(lead, "contact_role", "Operations"),
+            llm_engine=self.llm_engine,
         )
+        lead.outreach_subject = pitch.subject
+        lead.outreach_body = pitch.body_text
+        lead.outreach_html = pitch.body_html
 
         lead.research["contact_enricher_recovery"] = {
             "recovered_at": datetime.now(timezone.utc).isoformat(),

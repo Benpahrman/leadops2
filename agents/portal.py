@@ -79,19 +79,21 @@ class PortalService:
         if not lead.contact_email:
             name_slug = re.sub(r"[^a-zA-Z0-9]+", "", company_name).lower()
             lead.contact_email = f"team@{name_slug}.com"
-        if not lead.outreach_subject:
-            lead.outreach_subject = f"Automated Record Feed for {company_name} [Interactive Sandbox Ready]"
-        if not lead.outreach_body:
-            lead.outreach_body = (
-                f"Hi {company_name} Team,\n\n"
-                f"We analyzed your public filings workflow from {source_url}.\n"
-                f"Our autonomous crawler has already built a live sample feed for your pipeline.\n\n"
-                f"Review your interactive data sandbox and test custom schema fields here:\n"
-                f"http://127.0.0.1:8000/p/{slug}\n\n"
-                f"Once you approve the schema, lock in your $99 refundable down payment (100% credited toward Month 1) to deploy your production feed.\n\n"
-                f"Best,\n"
-                f"Alex | LeadOps Automation Engineering"
+        if not lead.outreach_subject or not lead.outreach_body:
+            from .pitcher import render_sub_60_word_pitch
+            pitch = render_sub_60_word_pitch(
+                company_name=company_name,
+                niche=getattr(lead, "niche", "Public Records") or "Public Records",
+                portal_name=getattr(lead, "target_portal_name", "") or getattr(lead, "jurisdiction", "Official Records Portal") or "Official Records Portal",
+                sample_count=min(len(rows), 10) if rows else 5,
+                slug=slug,
+                base_url=os.environ.get("LEADOPS_PUBLIC_BASE_URL", "https://omnileadfeeder.tech"),
+                contact_name=(getattr(lead, "contact_name", "") or "there").split()[0],
+                contact_role=getattr(lead, "contact_role", "Operations"),
             )
+            lead.outreach_subject = pitch.subject
+            lead.outreach_body = pitch.body_text
+            lead.outreach_html = pitch.body_html
 
         if lead.state == State.PROSPECTING:
             lead.transition(State.REVIEW, "sandbox published")

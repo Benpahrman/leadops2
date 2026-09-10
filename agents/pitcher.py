@@ -87,6 +87,18 @@ def generate_natural_subject(
     return random.choice(candidates)
 
 
+def get_public_base_url(base_url: str | None = None) -> str:
+    """Return sanitized public base URL, strictly rejecting localhost/127.0.0.1/137.0.0.1/bare-slash in customer-facing links."""
+    default_public = os.environ.get("LEADOPS_PUBLIC_BASE_URL", "https://omnileadfeeder.tech").strip().rstrip("/")
+    if not base_url or not str(base_url).strip():
+        return default_public
+    url = str(base_url).strip().rstrip("/")
+    # Guard against local/private addresses or bare relative paths leaking into customer communications
+    if any(bad in url.lower() for bad in ["127.0.0.1", "137.0.0.1", "localhost", "0.0.0.0", "192.168."]) or url.startswith("/"):
+        return default_public
+    return url
+
+
 def render_executive_email_html(body_text: str, sandbox_url: str = "", include_button: bool = False) -> str:
     """Format plaintext email into clean, executive-styled HTML with proper paragraph spacing and mobile typography."""
     paragraphs = [p.strip() for p in body_text.strip().split("\n\n") if p.strip()]
@@ -472,28 +484,31 @@ def render_escrow_ready_email(
     lead_id: str,
     slug: str,
     qa_score: float = 98.5,
-    sample_count: int = 25,
-    tier_name: str = "Daily Sync",
+    sample_count: int = 10,
+    tier_name: str = "Production Feed (Flagship)",
     final_balance_usd: float = 151.0,
-    base_url: str = "http://127.0.0.1:8000",
+    base_url: str = "",
     contact_name: str = "there",
 ) -> PitchMessage:
-    """Generate professional Escrow Ready notification prompting for final milestone payment."""
-    dashboard_url = f"{base_url.rstrip('/')}/dashboard/{lead_id}"
-    sandbox_url = f"{base_url.rstrip('/')}/p/{slug}" if slug else dashboard_url
-    subject = f"Extractor Ready & QA Passed ({qa_score:.1f}%) for {company_name} — Milestone 2 Action Required"
+    """Generate professional QA Pass notification prompting for final milestone payment."""
+    public_base = get_public_base_url(base_url)
+    dashboard_url = f"{public_base}/dashboard/{lead_id}"
+    sandbox_url = f"{public_base}/p/{slug}" if slug else dashboard_url
+    subject = f"Extractor Ready & QA Passed ({qa_score:.1f}%) for {company_name} — Data Verification Required"
+
+    effective_sample_text = f"{sample_count} live records"
 
     body_text = (
         f"Hi {contact_name},\n\n"
         f"Great news! Our Autonomous Dev Swarm has completed the custom data extractor for {company_name}.\n\n"
         f"Build & QA Summary:\n"
         f"• Independent QA Score: {qa_score:.1f}% PASSED\n"
-        f"• Verified Sample Output: {sample_count} live records extracted and schema-validated\n"
+        f"• Verified Sample Output: {effective_sample_text} extracted and schema-validated\n"
         f"• Extraction Routine: Anti-bot verified Playwright crawler\n"
         f"• Tier: {tier_name}\n\n"
-        f"Review your live 25-row Verified Preview here:\n{sandbox_url}\n\n"
+        f"Review your live Verified Preview here:\n{sandbox_url}\n\n"
         f"Next Step for Live Deployment & Subscription:\n"
-        f"Complete your final milestone payment (${final_balance_usd:.2f}) to activate your live data feed "
+        f"Complete your remaining Month 1 balance payment (${final_balance_usd:.2f}) to activate your live data feed "
         f"and initiate your {tier_name} subscription with automated destination delivery (Google Sheets / Webhook).\n\n"
         f"Best,\nAlex | LeadOps Automation Engineering"
     )
@@ -505,18 +520,17 @@ def render_escrow_ready_email(
         f"<p>Our Autonomous Dev Swarm has successfully completed building and validating your custom data extractor for <strong>{company_name}</strong>.</p>"
         f"<div style='background: #f4f6f8; border-left: 4px solid #10b981; padding: 15px; margin: 20px 0; border-radius: 4px;'>"
         f"<p style='margin: 0 0 6px;'><strong>QA Quality Score:</strong> <span style='color: #10b981; font-weight: bold;'>{qa_score:.1f}% PASSED</span></p>"
-        f"<p style='margin: 0 0 6px;'><strong>Verified Records:</strong> {sample_count} live records mapped to schema</p>"
+        f"<p style='margin: 0 0 6px;'><strong>Verified Records:</strong> {effective_sample_text} mapped to schema</p>"
         f"<p style='margin: 0 0 6px;'><strong>Pipeline Tier:</strong> {tier_name}</p>"
-        f"<p style='margin: 0;'><strong>Status:</strong> Milestone 1 Verified &amp; Down Payment Credited</p>"
+        f"<p style='margin: 0;'><strong>Status:</strong> Setup Sprint Verified &amp; $99.00 Deposit Credited</p>"
         f"</div>"
-        f"<p>You can review all {sample_count} extracted rows in your Live Sandbox:</p>"
+        f"<p>You can review all extracted rows in your Live Sandbox:</p>"
         f"<p style='margin: 24px 0;'><a href='{sandbox_url}' style='background: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; font-weight: bold; border-radius: 6px; display: inline-block;'>Review Verified Sample &amp; Unlock Feed</a></p>"
-        f"<p>Once you verify the data, complete your final milestone payment (<strong>${final_balance_usd:.2f}</strong>) to activate live feed delivery and start your <strong>{tier_name}</strong> recurring subscription.</p>"
+        f"<p>Once you verify the data, complete your final Month 1 balance payment (<strong>${final_balance_usd:.2f}</strong>) to activate live feed delivery and start your <strong>{tier_name}</strong> recurring subscription.</p>"
         f"<hr style='border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;' />"
         f"<p style='font-size: 13px; color: #6b7280;'>OmniLeadFeeder Automation Engineering • Support: support@omnileadfeeder.tech</p>"
         f"</div>"
     )
-
 
     word_count = len(body_text.split())
     return PitchMessage(
@@ -533,14 +547,16 @@ def render_deposit_confirmation_email(
     lead_id: str,
     slug: str,
     deposit_amount: float = 99.0,
-    tier_name: str = "Daily Sync",
-    monthly_price: float = 495.0,
-    base_url: str = "http://127.0.0.1:8000",
+    tier_name: str = "Production Feed (Flagship)",
+    monthly_price: float = 250.0,
+    base_url: str = "",
     contact_name: str = "there",
 ) -> PitchMessage:
     """Generate professional deposit confirmation email with receipt and next steps."""
-    dashboard_url = f"{base_url.rstrip('/')}/dashboard/{lead_id}"
-    sandbox_url = f"{base_url.rstrip('/')}/p/{slug}" if slug else dashboard_url
+    public_base = get_public_base_url(base_url)
+    dashboard_url = f"{public_base}/dashboard/{lead_id}"
+    sandbox_url = f"{public_base}/p/{slug}" if slug else dashboard_url
+    remaining_balance = max(0.0, monthly_price - deposit_amount)
     
     # A/B test subject lines
     subject_a = f"First Look: Yours – {company_name} Records Ready 📊"
@@ -559,9 +575,9 @@ def render_deposit_confirmation_email(
         f"You can track live progress here:\n{sandbox_url}\n\n"
         f"🎯 What to expect next:\n"
         f"1. Live progress updates in your portal (terminal view)\n"
-        f"2. QA Gatekeeper validation (25 sample rows against live public records)\n"
-        f"3. Escrow Preview ready for your review\n"
-        f"4. Remaining Month 1 balance payment ($151.00 net) to activate live feed + subscription\n\n"
+        f"2. QA Gatekeeper validation (5–10 sample rows against live public records)\n"
+        f"3. Live Verification Preview ready for your review\n"
+        f"4. Remaining Month 1 balance payment (${remaining_balance:.2f} net) to activate live feed + subscription\n\n"
         f"Questions? Reply to this email — I'm monitoring this build personally.\n\n"
         f"Best,\nAlex | LeadOps Automation Engineering"
     )
@@ -585,9 +601,9 @@ def render_deposit_confirmation_email(
         f"<p><strong>🎯 What to expect next:</strong></p>"
         f"<ol style='padding-left: 20px;'>"
         f"<li>Live progress updates in your portal (terminal view)</li>"
-        f"<li>QA Gatekeeper validation (25 sample rows against live public records)</li>"
-        f"<li>Escrow Preview ready for your review</li>"
-        f"<li>Remaining Month 1 balance ($151.00 net) to activate live feed + subscription</li>"
+        f"<li>QA Gatekeeper validation (5–10 sample rows against live public records)</li>"
+        f"<li>Live Verification Preview ready for your review</li>"
+        f"<li>Remaining Month 1 balance (${remaining_balance:.2f} net) to activate live feed + subscription</li>"
         f"</ol>"
         f"<p>Questions? Reply to this email — I'm monitoring this build personally.</p>"
         f"<hr style='border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;' />"
@@ -606,7 +622,7 @@ def render_deposit_confirmation_email(
 
 def send_deposit_confirmation_email(
     lead: Lead,
-    base_url: str = "http://127.0.0.1:8000",
+    base_url: str = "",
     client: SendPulseClient | None = None,
     variant: str = "A",
 ) -> dict[str, Any]:
@@ -614,7 +630,7 @@ def send_deposit_confirmation_email(
     recipient_email = lead.contact_email or f"team@{lead.lead_id}.com"
     company = lead.company_name or f"Lead {lead.lead_id}"
     tier_name = lead.tier.name
-    monthly_price = lead.tier.price_cents / 100.0
+    monthly_price = lead.tier.price_cents / 100.0 if lead.tier else 250.0
     deposit_amount = getattr(lead, "deposit_amount_usd", 99.0) or 99.0
 
     pitch = render_deposit_confirmation_email(
@@ -624,7 +640,7 @@ def send_deposit_confirmation_email(
         deposit_amount=deposit_amount,
         tier_name=tier_name,
         monthly_price=monthly_price,
-        base_url=base_url,
+        base_url=get_public_base_url(base_url),
     )
 
     # Apply A/B test variant
@@ -681,33 +697,34 @@ def get_ab_variant(lead_id: str, template_name: str = "deposit_confirmation") ->
 
 def send_ab_test_email(
     lead: Lead,
-    base_url: str = "http://127.0.0.1:8000",
+    base_url: str = "",
     client: SendPulseClient | None = None,
     template_name: str = "deposit_confirmation",
 ) -> dict[str, Any]:
     """Send email with A/B test variant automatically assigned."""
     variant = get_ab_variant(lead.lead_id, template_name)
     if template_name == "deposit_confirmation":
-        return send_deposit_confirmation_email(lead, base_url, client, variant)
+        return send_deposit_confirmation_email(lead, get_public_base_url(base_url), client, variant)
     elif template_name == "escrow_ready":
         # For escrow ready, we could also have A/B variants
-        return send_escrow_ready_notification(lead, base_url, client)
+        return send_escrow_ready_notification(lead, get_public_base_url(base_url), client)
     else:
         raise ValueError(f"Unknown template: {template_name}")
 
 
 def send_escrow_ready_notification(
     lead: Lead,
-    base_url: str = "http://127.0.0.1:8000",
+    base_url: str = "",
     client: SendPulseClient | None = None,
 ) -> dict[str, Any]:
     """Sends automated email notification to customer when dev swarm finishes and QA passes."""
     recipient_email = lead.contact_email or f"team@{lead.lead_id}.com"
     company = lead.company_name or f"Lead {lead.lead_id}"
     qa_score = lead.qa_score or 98.5
-    preview_count = lead.preview_rows or 25
+    preview_count = lead.preview_rows or 10
     deposit_usd = float(getattr(lead, "deposit_amount_usd", 99.0) or 99.0)
-    final_balance = max(0.0, (lead.tier.price_cents / 100.0) - deposit_usd) if lead.tier_key != "buyout" else 1500.0
+    monthly_price = (lead.tier.price_cents / 100.0) if lead.tier else 250.0
+    final_balance = max(0.0, monthly_price - deposit_usd) if lead.tier_key != "buyout" else 1500.0
 
     pitch = render_escrow_ready_email(
         company_name=company,
@@ -715,9 +732,9 @@ def send_escrow_ready_notification(
         slug=getattr(lead, "slug", ""),
         qa_score=qa_score,
         sample_count=preview_count,
-        tier_name=lead.tier.name,
+        tier_name=lead.tier.name if lead.tier else "Production Feed (Flagship)",
         final_balance_usd=final_balance,
-        base_url=base_url,
+        base_url=get_public_base_url(base_url),
     )
 
     from .logging_config import get_logger
@@ -1049,20 +1066,20 @@ class LifecycleEmailGenerator:
             "outreach_pitch": (
                 f"Hi {variables.get('contact_name', 'there')},\n\n"
                 f"We deployed an automated data feed for {variables.get('portal_name', 'public records')} for {variables.get('company_name', 'your team')}.\n\n"
-                f"Review your verified 25-row sample feed here: {variables.get('sandbox_url', '#')}\n\n"
+                f"Review your verified 5–10 row sample feed here: {variables.get('sandbox_url', '#')}\n\n"
                 f"Best,\nAlex | LeadOps"
             ),
             "deposit_confirmation": (
                 f"Hi {variables.get('contact_name', 'there')},\n\n"
-                f"Your Setup Sprint refundable down payment of $99.00 has been confirmed for {variables.get('company_name', 'your company')} (100% credited toward your Month 1 subscription).\n\n"
+                f"Your $99 Setup Sprint deposit has been confirmed for {variables.get('company_name', 'your company')} (100% credited toward your Month 1 subscription).\n\n"
                 f"The 7-agent dev swarm is now compiling your extractor.\n\n"
                 f"Track live: {variables.get('sandbox_url', '#')}\n\n"
                 f"Best,\nAlex | LeadOps"
             ),
             "escrow_ready": (
                 f"Hi {variables.get('contact_name', 'there')},\n\n"
-                f"Your custom extractor build for {variables.get('company_name', 'your company')} is complete and certified (100% QA).\n\n"
-                f"Review preview records & activate feed: {variables.get('sandbox_url', '#')}\n\n"
+                f"Your custom extractor build for {variables.get('company_name', 'your company')} is complete and certified (>=95% QA pass).\n\n"
+                f"Review verified preview records & activate feed: {variables.get('sandbox_url', '#')}\n\n"
                 f"Best,\nAlex | LeadOps"
             ),
             "buyout_offer": (
@@ -1077,7 +1094,7 @@ class LifecycleEmailGenerator:
                 f"Niche: {variables.get('niche', 'N/A')}\n"
                 f"Portal: {variables.get('portal_name', 'N/A')}\n"
                 f"Tier: {variables.get('tier_name', 'N/A')}\n\n"
-                f"Next steps: approve scope → refundable down payment → dev swarm build → QA → verified preview → final payment → delivery.\n\n"
+                f"Next steps: approve scope → $99 setup sprint deposit → dev swarm build → >=95% QA pass → verified preview → final payment → delivery.\n\n"
                 f"Track progress: {variables.get('sandbox_url', '#')}\n\n"
                 f"Best,\nAlex | LeadOps"
             ),
@@ -1146,7 +1163,7 @@ class LifecycleEmailGenerator:
                 f"LeadOps Daily Briefing — {variables.get('date', 'today')}\n\n"
                 f"• Total leads: {variables.get('total_leads', 0)}\n"
                 f"• Active builds: {variables.get('active_builds', 0)}\n"
-                f"• In escrow: {variables.get('escrow_ready', 0)}\n"
+                f"• Ready for verification: {variables.get('escrow_ready', 0)}\n"
                 f"• Delivered today: {variables.get('delivered_today', 0)}\n"
                 f"• Alerts: {variables.get('alerts', 'None')}\n"
                 f"• SLA tickets: {variables.get('sla_tickets', 0)}\n"
@@ -1182,7 +1199,7 @@ class LifecycleEmailGenerator:
 def send_lifecycle_email(
     lead: Lead,
     template_name: str,
-    base_url: str = "http://127.0.0.1:8000",
+    base_url: str = "",
     client: SendPulseClient | None = None,
     llm_engine: LLMAgentEngine | None = None,
     extra_variables: dict[str, Any] | None = None,
@@ -1193,19 +1210,21 @@ def send_lifecycle_email(
     if not template:
         raise ValueError(f"Unknown lifecycle template: {template_name}")
 
+    public_base = get_public_base_url(base_url)
+
     # Prepare variables
     variables = {
         "company_name": lead.company_name or f"Lead {lead.lead_id}",
         "contact_name": lead.contact_email.split("@")[0] if lead.contact_email else "there",
         "niche": getattr(lead, "niche", "") or "public records",
         "portal_name": getattr(lead, "jurisdiction", "") or "target portal",
-        "tier_name": lead.tier.name,
-        "monthly_price": lead.tier.price_cents / 100.0,
+        "tier_name": lead.tier.name if lead.tier else "Production Feed (Flagship)",
+        "monthly_price": (lead.tier.price_cents / 100.0) if lead.tier else 250.0,
         "delivery_count": getattr(lead, "delivery_count", 0),
-        "sandbox_url": f"{base_url.rstrip('/')}/p/{getattr(lead, 'slug', '')}" if getattr(lead, 'slug', '') else f"{base_url.rstrip('/')}/dashboard/{lead.lead_id}",
-        "dashboard_url": f"{base_url.rstrip('/')}/dashboard/{lead.lead_id}",
+        "sandbox_url": f"{public_base}/p/{getattr(lead, 'slug', '')}" if getattr(lead, 'slug', '') else f"{public_base}/dashboard/{lead.lead_id}",
+        "dashboard_url": f"{public_base}/dashboard/{lead.lead_id}",
         "destination": "Google Sheets / Webhook",
-        "next_tier": "Daily Sync" if lead.tier_key == "weekly" else "AI / Heavy Extraction",
+        "next_tier": "Daily Sync" if lead.tier_key == "weekly" else "Enterprise Swarm",
         "next_tier_benefits": "higher frequency, more fields, priority support",
         "field_name": "unknown",
         "old_sample": "N/A",

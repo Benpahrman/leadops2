@@ -136,11 +136,13 @@ def run_autonomous_dev_team(
     lead: Lead,
     slug: str | None = None,
     portal: Any = None,
-    base_url: str = "http://127.0.0.1:8000",
+    base_url: str = "",
     llm: Any | None = None,
     progress_callback: Any | None = None,
 ) -> BuildIterationResult:
     """Autonomous execution of the full 7-step Builder Swarm with live portal progress syncing and customer notification."""
+    from .pitcher import get_public_base_url
+    public_base = get_public_base_url(base_url)
     logger.info(f"🤖 [DEV SWARM INITIATED] Lead ID: {lead.lead_id} | Slug: {slug}")
     if progress_callback:
         progress_callback(State.DEV_BUILDING, 10, "Dev swarm initiated, formulating build plan...")
@@ -559,7 +561,7 @@ python extractor.py
             logger.warning(f"Feed delivery operator notification notice: {notif_err}")
 
         try:
-            notification = send_escrow_ready_notification(lead, base_url=base_url)
+            notification = send_escrow_ready_notification(lead, base_url=public_base)
             logger.info(f"📬 [CUSTOMER NOTIFIED] Notification status: {notification.get('status')} for {lead.contact_email}")
         except Exception as e:
             logger.warning(f"Could not send automated customer notification: {e}")

@@ -193,8 +193,8 @@ class Lead:
         if target == State.ESCROW_PREVIEW:
             if self.qa_score is None or self.qa_score < 95:
                 raise InvalidTransition("QA score must be at least 95 before escrow preview")
-            if self.preview_rows != 25:
-                raise InvalidTransition("Escrow preview must contain exactly 25 rows")
+            if not (5 <= self.preview_rows <= 10 or self.preview_rows == 25):
+                raise InvalidTransition("Escrow preview must contain 5 to 10 rows")
         if target == State.DELIVERED and not self.final_paid and not self.buyout_paid:
             raise InvalidTransition("Final payment or buyout payment is required before delivery")
         self.state = target

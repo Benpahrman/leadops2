@@ -147,14 +147,14 @@ class AdminMissionControlService:
                 "jurisdiction": getattr(lead, "jurisdiction", "County Public Registry"),
                 "source_url": getattr(lead, "source_url", "") or "",
                 "slug": slug,
-                "checkout_url": f"/p/{slug}",
-                "dashboard_url": f"/dashboard/{lead.lead_id}",
+                "checkout_url": f"{os.environ.get('LEADOPS_PUBLIC_BASE_URL', 'https://omnileadfeeder.tech').rstrip('/')}/p/{slug}",
+                "dashboard_url": f"{os.environ.get('LEADOPS_PUBLIC_BASE_URL', 'https://omnileadfeeder.tech').rstrip('/')}/dashboard/{lead.lead_id}",
                 "outreach_subject": getattr(lead, "outreach_subject", "") or f"{getattr(lead, 'target_portal_name', 'public registry').lower()} filings",
                 "outreach_body": getattr(lead, "outreach_body", "") or (
                     f"Hi {first_name},\n\n"
                     f"We set up a live feed tracking daily {getattr(lead, 'target_portal_name', 'registry')} dockets for {company_name} so you don't have to pull records manually.\n\n"
-                    f"You can review your live sandbox here: /p/{slug}\n\n"
-                    f"Would it be helpful to stream these daily, or are you all set in-house?\n\n"
+                    f"Already indexed 5–10 live records for your team.\n\n"
+                    f"Would it be helpful to see the live feed sandbox, or are you all set in-house?\n\n"
                     f"Best,\nAlex | LeadOps"
                 ),
                 "state": state_val.value,

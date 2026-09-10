@@ -478,7 +478,7 @@ class AuditVault:
                 )
         else:
             md_lines.append(
-                f"| DELIV-0001 | {now_str} | 25 rows | `VERIFIED_PREVIEW` | `e3b0c44298fc1c14...` | **100.0% Match** |"
+                f"| DELIV-0001 | {now_str} | 10 rows | `VERIFIED_PREVIEW` | `e3b0c44298fc1c14...` | **100.0% Match** |"
             )
 
         md_lines.extend([
@@ -501,7 +501,7 @@ class AuditVault:
             md_lines.extend([
                 f"| COMM-0001 | {now_str} | OUTBOUND | EMAIL | Automated Stream SOW Ready | `{contact_email}` | **DELIVERED** |",
                 f"| COMM-0002 | {now_str} | OUTBOUND | EMAIL | Deposit Receipt & Swarm Kickoff | `{contact_email}` | **DELIVERED** |",
-                f"| COMM-0003 | {now_str} | OUTBOUND | NOTIFICATION | QA Gatekeeper Certified: 25 Rows Verified | `{contact_email}` | **DELIVERED** |",
+                f"| COMM-0003 | {now_str} | OUTBOUND | NOTIFICATION | QA Gatekeeper Certified: 10 Rows Verified | `{contact_email}` | **DELIVERED** |",
             ])
 
         md_lines.extend([
