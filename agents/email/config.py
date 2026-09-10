@@ -440,7 +440,7 @@ class EmailSettings:
                 z_imap_port = _clean_int(os.environ.get(f"ZOHO_INBOX_{idx}_IMAP_PORT", "993"), 993)
                 z_limit = _clean_int(os.environ.get(f"ZOHO_INBOX_{idx}_DAILY_LIMIT", str(warmup_week1_limit)), warmup_week1_limit)
 
-                z_imap_enabled = os.environ.get(f"ZOHO_INBOX_{idx}_IMAP_ENABLED", "true").lower() in ("true", "1", "yes")
+                z_imap_enabled = os.environ.get(f"ZOHO_INBOX_{idx}_IMAP_ENABLED", "false").lower() in ("true", "1", "yes")
 
                 inbox_pool.append(
                     InboxAccountConfig(

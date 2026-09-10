@@ -1759,6 +1759,7 @@ class PostgresStorageBackend:
             "automation_opportunity_score": getattr(lead, "automation_opportunity_score", 75) or 75,
             "purchase_probability": getattr(lead, "purchase_probability", 60) or 60,
             "pain_severity": getattr(lead, "pain_severity", 6) or 6,
+            "qualification_verdict": getattr(lead, "qualification_verdict", "QUALIFIED_HOT") or "QUALIFIED_HOT",
             "research": json.dumps({
                 **(getattr(lead, "research", {}) or {}),
                 **({"discovery_channel": lead.discovery_channel} if getattr(lead, "discovery_channel", None) else {}),
