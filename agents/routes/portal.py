@@ -246,13 +246,9 @@ def ensure_demo_sandbox(slug: str, portal_service, storage_backend) -> Any:
     from ..datasets import AUTHENTIC_REGISTRY_DATASETS
     from ..portal import Sandbox
 
-    # Resolve real storage backend if Depends was passed as default argument
+    # Resolve real storage backend if Depends or non-storage object was passed
     if storage_backend and not hasattr(storage_backend, "get_lead"):
-        try:
-            from ..storage import get_storage
-            storage_backend = get_storage()
-        except Exception:
-            storage_backend = None
+        storage_backend = getattr(portal_service, "storage", None) or getattr(portal_service, "storage_backend", None)
 
     # Check if lead exists for this slug (with custom target URL)
     lead_id = f"lead-{slug}"
@@ -832,6 +828,18 @@ def initialize_custom_pipeline(
     if storage_backend:
         storage_backend.save_sandbox(sandbox)
         storage_backend.save_lead(lead)
+        if lead.contact_email:
+            try:
+                import threading
+                from ..auto_outreach import auto_outreach_scheduler
+                threading.Thread(
+                    target=auto_outreach_scheduler.auto_prepare_review_pitches,
+                    args=(storage_backend, None, llm_engine),
+                    daemon=True,
+                    name="portal-auto-pitch-generator",
+                ).start()
+            except Exception as auto_pitch_err:
+                logger.debug(f"Portal auto-pitch dispatch note: {auto_pitch_err}")
 
     return {
         "ok": True,

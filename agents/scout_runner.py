@@ -1463,6 +1463,20 @@ class ScoutAutomationSupervisor:
                     # fall-through: still run _run_cycle(), skip is the outreach scheduler's job
 
 
+                # Autonomous copywriter sweep: ensure leads in State.REVIEW have pitch copy generated & scheduled
+                try:
+                    import threading
+                    from .auto_outreach import auto_outreach_scheduler
+                    from .notifications import notification_manager
+                    threading.Thread(
+                        target=auto_outreach_scheduler.auto_prepare_review_pitches,
+                        args=(self.storage, notification_manager, self.llm_engine),
+                        daemon=True,
+                        name="auto-prepare-review-pitches",
+                    ).start()
+                except Exception as prep_err:
+                    logger.debug(f"Auto-prepare review pitches trigger note: {prep_err}")
+
                 # Check pending review/dispatch queue backlog
                 try:
                     max_pending = int(str(os.environ.get("SCOUT_MAX_PENDING_QUEUE", "200")).split("#")[0].strip().strip("\"'"))

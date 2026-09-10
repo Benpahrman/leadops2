@@ -328,6 +328,20 @@ class ContactEnricherResearcherAgent:
             f"Updated contact: {new_email} ({new_name}) -> State: {lead.state.value}"
         )
 
+        # Trigger autonomous copywriter & auto-outreach scheduling for the rehabilitated lead in background
+        if storage_backend:
+            try:
+                import threading
+                from .auto_outreach import auto_outreach_scheduler
+                threading.Thread(
+                    target=auto_outreach_scheduler.auto_prepare_review_pitches,
+                    args=(storage_backend, None, self.llm_engine),
+                    daemon=True,
+                    name="contact-enricher-auto-pitch",
+                ).start()
+            except Exception as auto_err:
+                logger.debug(f"Auto-outreach dispatch trigger note for rehabilitated lead: {auto_err}")
+
         return {
             "ok": True,
             "recovered": True,

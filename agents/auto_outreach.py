@@ -393,6 +393,11 @@ class AutoOutreachScheduler:
             except Exception:
                 notifier = None
 
+        try:
+            self.auto_prepare_review_pitches(storage_backend, notifier)
+        except Exception as p_err:
+            logger.debug(f"Auto-prepare review pitches error in flush: {p_err}")
+
         is_open, seconds_until_open, msg = is_office_hours()
         if not is_open:
             logger.debug(f"flush_pending_office_hours_queue: Outside office hours ({msg}). Standing by.")
@@ -451,6 +456,113 @@ class AutoOutreachScheduler:
                 logger.warning(f"Error during office hours queue flush for {lead.lead_id}: {exc}")
 
         return dispatched_ids
+
+    def auto_prepare_review_pitches(
+        self,
+        storage_backend: Any,
+        notifier: Any = None,
+        llm_engine: Any = None,
+    ) -> list[str]:
+        """Autonomous copywriter sweep: finds leads in State.REVIEW with verified contact emails,
+        generates sub-60-word pitch copy, transitions them to State.PITCH_PENDING_APPROVAL,
+        and registers them in the auto-outreach scheduler for grace-period dispatch."""
+        if not storage_backend or not hasattr(storage_backend, "list_leads"):
+            return []
+
+        if notifier is None:
+            try:
+                from .notifications import notification_manager
+                notifier = notification_manager
+            except Exception:
+                notifier = None
+
+        try:
+            leads = storage_backend.list_leads()
+        except Exception as e:
+            logger.warning(f"Failed to list leads for review sweep: {e}")
+            return []
+
+        review_leads = [
+            l for l in leads
+            if l.state == State.REVIEW
+            and (l.contact_email or "").strip()
+            and "@" in (l.contact_email or "")
+            and not getattr(l, "opt_out", False)
+        ]
+
+        if not review_leads:
+            return []
+
+        logger.info(f"🤖 [AUTONOMOUS COPYWRITER SWEEP] Found {len(review_leads)} lead(s) in State.REVIEW awaiting pitch copy.")
+        processed_ids = []
+
+        for lead in review_leads:
+            try:
+                slug = getattr(lead, "slug", "") or lead.lead_id
+                company = lead.company_name or (slug.split("-")[0].capitalize() if slug else "Target Company")
+                sb = storage_backend.get_sandbox(slug) if hasattr(storage_backend, "get_sandbox") else None
+                sample_count = len(sb.rows) if sb and getattr(sb, "rows", None) else 4
+
+                from .pitcher import PitchMessage, render_sub_60_word_pitch
+
+                if getattr(lead, "outreach_subject", "") and getattr(lead, "outreach_body", ""):
+                    pitch = PitchMessage(
+                        subject=lead.outreach_subject,
+                        body_text=lead.outreach_body,
+                        body_html=getattr(lead, "outreach_html", "") or f"<p>{lead.outreach_body}</p>",
+                        sandbox_url=f"{os.environ.get('LEADOPS_PUBLIC_BASE_URL', 'https://omnileadfeeder.tech')}/p/{slug}",
+                        word_count=len(lead.outreach_body.split()),
+                    )
+                else:
+                    if llm_engine is None:
+                        try:
+                            from .llm_client import LLMAgentEngine
+                            llm_engine = LLMAgentEngine()
+                        except Exception as l_err:
+                            logger.warning(f"Could not initialize LLMAgentEngine: {l_err}")
+
+                    pitch = render_sub_60_word_pitch(
+                        company_name=company,
+                        niche=getattr(lead, "niche", "Public Records") or "Public Records",
+                        portal_name=getattr(lead, "target_portal_name", "") or getattr(lead, "jurisdiction", "Official Records Portal") or "Official Records Portal",
+                        sample_count=sample_count,
+                        slug=slug,
+                        base_url=os.environ.get("LEADOPS_PUBLIC_BASE_URL", "https://omnileadfeeder.tech"),
+                        contact_name=(getattr(lead, "contact_name", "") or "there").split()[0],
+                        contact_role=getattr(lead, "contact_role", "Operations"),
+                        llm_engine=llm_engine,
+                    )
+                    lead.outreach_subject = pitch.subject
+                    lead.outreach_body = pitch.body_text
+                    lead.outreach_html = pitch.body_html
+
+                lead.transition(State.PITCH_PENDING_APPROVAL, "Autonomous copywriter generated pitch and queued for review")
+                storage_backend.save_lead(lead)
+
+                # Enroll lead in the 3-minute grace period scheduler
+                self.schedule_lead_for_dispatch(
+                    lead=lead,
+                    pitch=pitch,
+                    storage_backend=storage_backend,
+                    notifier=notifier,
+                )
+
+                if notifier and hasattr(notifier, "notify_lead_qualified_and_dispatching"):
+                    try:
+                        notifier.notify_lead_qualified_and_dispatching(
+                            lead=lead,
+                            pitch=pitch,
+                            grace_period_seconds=self.grace_period_seconds,
+                        )
+                    except Exception as ne:
+                        logger.debug(f"Notification alert dispatch notice: {ne}")
+
+                processed_ids.append(lead.lead_id)
+                logger.info(f"✨ [AUTONOMOUS COPYWRITER] Pitch generated & auto-dispatch scheduled for {lead.company_name} ({lead.contact_email})")
+            except Exception as err:
+                logger.error(f"❌ [AUTONOMOUS COPYWRITER] Failed to prepare pitch for {lead.lead_id}: {err}")
+
+        return processed_ids
 
     def get_status(self) -> dict[str, Any]:
         """Return current status of auto-outreach engine."""
