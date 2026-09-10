@@ -216,8 +216,17 @@ def trigger_web_scout_run(
 ):
     niche = req.niche if req else None
     channel = req.channel if req else None
-    worker = B2BWebScoutWorker(storage=storage_backend, portal=portal_service)
-    return worker.discover_next_candidate(custom_niche=niche, channel=channel)
+    # High-ROI structured channels (county_filing_party, state_bar, sos_entity,
+    # local_business) are handled by ScoutBackgroundWorker which has the full
+    # multi-channel dispatch logic.  The generic B2BWebScoutWorker is only used
+    # when no specific channel is requested.
+    HIGH_ROI_CHANNELS = {"county_filing_party", "state_bar", "sos_entity", "local_business"}
+    if channel in HIGH_ROI_CHANNELS or (channel is None and not niche):
+        worker = ScoutBackgroundWorker(storage=storage_backend, portal=portal_service)
+        return worker.discover_next_candidate(channel=channel)
+    # Explicit niche brainstorm path — use B2B web scout
+    web_worker = B2BWebScoutWorker(storage=storage_backend, portal=portal_service)
+    return web_worker.discover_next_candidate(custom_niche=niche)
 
 @router.post("/api/admin/leads/{lead_id}/override-transition", tags=["Admin Operations"])
 def override_lead_transition(
