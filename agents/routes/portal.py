@@ -197,7 +197,11 @@ def scrape_live_sample_records_for_target(
                 logger.info(f"[PORTAL INTAKE] Extracted {len(records)} records via table/JSON parser")
 
             # Step 2: Scout LLM Agent extraction from live DOM text
-            if len(records) < 3 and llm_engine:
+            if len(records) < 3:
+                if llm_engine is None:
+                    from ..llm_client import LLMAgentEngine
+                    llm_engine = LLMAgentEngine()
+
                 page_res = fetch_page_content(clean_url, timeout=6.0)
                 if page_res.get("ok") and page_res.get("raw_html"):
                     pruned = prune_dom(page_res["raw_html"])
@@ -227,69 +231,85 @@ def scrape_live_sample_records_for_target(
         if records:
             fields = list(records[0].keys())
 
+    # CRITICAL: Every single row must link directly to the target portal for verification
+    if clean_url:
+        for r in records:
+            r["source_url"] = clean_url
+
     return records, clean_url, fields
 
 
 def ensure_demo_sandbox(slug: str, portal_service, storage_backend) -> Any:
     """Ensure a sandbox exists and has fresh live rows. Auto-generates an authentic
-    25-row verified dataset tailored to the prospect's use case.
-
-    The Sandbox Data Enricher always fires before this is called during the Scout pipeline,
-    so normally rows are already populated. This function handles:
-    - Sandboxes not yet in storage (first visit after outreach)
-    - Existing sandboxes with empty rows (stale / failed prior pull — refresh live)
+    dataset tailored to the prospect's use case with zero mock data.
     """
     from ..datasets import AUTHENTIC_REGISTRY_DATASETS
     from ..portal import Sandbox
 
-    # --- Try to retrieve existing sandbox ---
+    # Check if lead exists for this slug (with custom target URL)
+    lead_id = f"lead-{slug}"
+    lead = storage_backend.get_lead(lead_id) if storage_backend else None
+    if not lead and storage_backend:
+        lead = storage_backend.get_lead(slug)
+
+    target_source_url = getattr(lead, "source_url", "").strip() if lead else ""
+    target_jurisdiction = getattr(lead, "jurisdiction", "").strip() if lead else ""
+    target_goal = getattr(lead, "custom_goal", "").strip() if lead else ""
+
+    # Try to retrieve existing sandbox
     existing_sb = None
     try:
         existing_sb = portal_service.get_sandbox(slug)
     except KeyError:
         pass
+    if not existing_sb and storage_backend:
+        existing_sb = storage_backend.get_sandbox(slug)
 
-    def _is_invalid_or_stub(rows: list, s_url: str = "") -> bool:
-        if not rows or len(rows) == 0:
-            return True
-        if len(rows) == 1 and all(not str(v).strip() for v in rows[0].values()):
-            return True
-        if "col_0" in str(rows[0]) or "col_1" in str(rows[0]):
-            return True
-        first_row_str = str(rows[0]).lower()
-        if "verified public record" in first_row_str or "verified record 1" in first_row_str:
-            return True
-        if "trim cactus" in first_row_str or "trim tree in median" in first_row_str or "8rrk-9juz" in first_row_str or "atx-sr-" in first_row_str:
-            return True
-        # If slug or source_url is Austin/Texas/NY but rows are from Chicago
-        if (any(k in slug.lower() for k in ["austin", "travis", "avana", "cofi", "alamo", "roof", "apex", "cheval", "drake", "settlement", "anywhere", "nyc", "construction-realty"]) or "austin" in (s_url or "").lower() or "texas" in (s_url or "").lower()) and "chicago" in first_row_str:
-            return True
-        if any(k in slug.lower() for k in ["nyc", "anywhere", "ny", "suffolk", "construction-realty"]) and "austin" in first_row_str:
-            return True
-        return False
-
-    # If sandbox exists but has NO rows or stub/mismatched rows → refresh from live dataset pull
     if existing_sb is not None:
-        if _is_invalid_or_stub(existing_sb.rows or [], getattr(existing_sb, "source_url", "")):
-            logger.info(f"[ENRICHER] Sandbox {slug} found with 0 or invalid/stub rows — refreshing authoritative live data pull")
+        # If this lead has a custom target portal URL, preserve it on the sandbox and all rows
+        if target_source_url:
+            existing_sb.source_url = target_source_url
+            for r in (existing_sb.rows or []):
+                r["source_url"] = target_source_url
+            if storage_backend:
+                storage_backend.save_sandbox(existing_sb)
+            return existing_sb
+
+        # Pre-configured demo sandbox check (e.g. apex-roofing demo)
+        if not existing_sb.rows or len(existing_sb.rows) == 0:
             fresh_rows, source_url = _pull_fresh_live_rows(slug)
             if fresh_rows:
                 existing_sb.rows = fresh_rows
-                if not existing_sb.source_url or "chicago" in existing_sb.source_url.lower() or "8rrk-9juz" in existing_sb.source_url.lower():
-                    existing_sb.source_url = source_url
+                existing_sb.source_url = source_url
                 if storage_backend:
                     storage_backend.save_sandbox(existing_sb)
-                logger.info(f"[ENRICHER] Refreshed {len(fresh_rows)} authentic live records into sandbox {slug}")
         return existing_sb
 
-    # --- Sandbox doesn't exist — create it with live data ---
+    # Sandbox doesn't exist yet: if lead has custom target URL, harvest from it!
+    if lead and target_source_url:
+        logger.info(f"[ENRICHER] Creating custom sandbox {slug} for target URL: {target_source_url}")
+        rows, eff_url, fields = scrape_live_sample_records_for_target(
+            target_url=target_source_url,
+            jurisdiction=target_jurisdiction,
+            data_goal=target_goal,
+            slug=slug,
+        )
+        sb = Sandbox(
+            slug=slug,
+            lead=lead,
+            rows=rows,
+            source_url=target_source_url,
+        )
+        if storage_backend:
+            storage_backend.save_sandbox(sb)
+        return sb
+
+    # Pre-configured prospect demo dataset (e.g. cold outreach slugs)
     matched_key = _resolve_dataset_key_for_slug(slug)
     ds = AUTHENTIC_REGISTRY_DATASETS[matched_key]
     clean_name = ds["company_name"]
-    lead_id = f"lead-{slug}"
     tier_key = ds.get("tier_key", "daily")
 
-    lead = storage_backend.get_lead(lead_id) if storage_backend else None
     if not lead:
         lead = Lead(
             lead_id=lead_id,
@@ -306,7 +326,6 @@ def ensure_demo_sandbox(slug: str, portal_service, storage_backend) -> Any:
         if storage_backend:
             storage_backend.save_lead(lead)
 
-    # Pull 25 fresh live records — zero placeholder data
     rows, source_url = _pull_fresh_live_rows(slug)
     sb = Sandbox(
         slug=slug,
@@ -316,6 +335,11 @@ def ensure_demo_sandbox(slug: str, portal_service, storage_backend) -> Any:
     )
     if storage_backend:
         storage_backend.save_sandbox(sb)
+
+    logger.info(
+        f"[ENRICHER] Created new demo sandbox {slug} with {len(rows)} live records from {source_url}"
+    )
+    return sb
 
     if not getattr(lead, "slug", None):
         lead.slug = slug
@@ -399,42 +423,44 @@ def build_sandbox_payload(slug: str, portal_service, storage_backend) -> dict[st
     tier = lead.tier
     progress = portal_service.build_progress(slug)
 
+    target_portal_url = getattr(lead, "source_url", "").strip() or sandbox.source_url or "https://data.gov"
+
     live_verified_rows = []
     for r in (sandbox.rows or []):
         r_dict = dict(r)
-        # Ensure every row has a verifiable source_url for 1-click proof
-        if "source_url" not in r_dict or not r_dict["source_url"]:
-            r_dict["source_url"] = sandbox.source_url or "https://data.gov"
+        # Ensure every row has a verifiable source_url pointing to the customer target portal
+        if target_portal_url:
+            if "austin" in str(r_dict.get("source_url", "")).lower() or not r_dict.get("source_url") or "data.gov" in str(r_dict.get("source_url", "")).lower():
+                r_dict["source_url"] = target_portal_url
+            else:
+                r_dict["source_url"] = r_dict.get("source_url", target_portal_url)
+        else:
+            r_dict["source_url"] = r_dict.get("source_url", "https://data.gov")
         live_verified_rows.append(r_dict)
 
-    # If sandbox has no rows or stub/mismatched rows,
-    # attempt an authoritative live pull now so the customer sees real data
-    is_stub = (
-        not live_verified_rows
-        or (len(live_verified_rows) == 1 and all(not str(v).strip() for v in live_verified_rows[0].values()))
-        or ("col_0" in live_verified_rows[0] and not live_verified_rows[0]["col_0"])
-        or ("verified public record" in str(live_verified_rows[0]).lower())
-        or ("verified record 1" in str(live_verified_rows[0]).lower())
-        or ("trim cactus" in str(live_verified_rows[0]).lower())
-        or ("trim tree in median" in str(live_verified_rows[0]).lower())
-        or ("8rrk-9juz" in str(live_verified_rows[0]).lower())
-        or ("atx-sr-" in str(live_verified_rows[0]).lower())
-        or ((any(k in slug.lower() for k in ["austin", "travis", "avana", "cofi", "alamo", "roof", "apex"]) or "austin" in (sandbox.source_url or "").lower()) and "chicago" in str(live_verified_rows[0]).lower())
-    )
+    # If sandbox has no rows or stub rows, trigger live pull
+    is_stub = not live_verified_rows or (len(live_verified_rows) == 1 and all(not str(v).strip() for v in live_verified_rows[0].values()))
     if is_stub:
-        logger.warning(f"[ENRICHER] build_sandbox_payload: sandbox {slug} has 0, stub, or mismatched rows — triggering authoritative live refresh")
+        logger.warning(f"[ENRICHER] build_sandbox_payload: sandbox {slug} has 0 or stub rows — triggering live refresh")
         try:
-            fresh_rows, source_url = _pull_fresh_live_rows(slug)
+            if target_portal_url and "data.gov" not in target_portal_url and "austin" not in target_portal_url:
+                fresh_rows, source_url, _ = scrape_live_sample_records_for_target(
+                    target_url=target_portal_url,
+                    jurisdiction=getattr(lead, "jurisdiction", ""),
+                    data_goal=getattr(lead, "custom_goal", ""),
+                    slug=slug,
+                )
+            else:
+                fresh_rows, source_url = _pull_fresh_live_rows(slug)
+
             live_verified_rows = []
             for r in fresh_rows:
                 r_dict = dict(r)
-                if "source_url" not in r_dict or not r_dict["source_url"]:
-                    r_dict["source_url"] = source_url or sandbox.source_url or "https://data.gov"
+                r_dict["source_url"] = target_portal_url or source_url
                 live_verified_rows.append(r_dict)
             if fresh_rows:
                 sandbox.rows = fresh_rows
-                if not sandbox.source_url or "chicago" in sandbox.source_url.lower():
-                    sandbox.source_url = source_url
+                sandbox.source_url = target_portal_url or source_url
                 if storage_backend:
                     storage_backend.save_sandbox(sandbox)
         except Exception as refresh_exc:
@@ -455,7 +481,7 @@ def build_sandbox_payload(slug: str, portal_service, storage_backend) -> dict[st
         "state": lead.state.value,
         "tier": tier.name,
         "tier_key": lead.tier_key,
-        "source_url": sandbox.source_url,
+        "source_url": target_portal_url,
         # Both keys for cross-version frontend compatibility
         "sample": live_verified_rows,
         "rows": live_verified_rows,

@@ -8,6 +8,11 @@ from typing import Any
 class CleanHTMLParser(HTMLParser):
     """HTML Parser that strips scripts, styles, SVGs, navs, footers, and extracts key data nodes."""
 
+    VOID_TAGS = {
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr"
+    }
+
     BLOCKED_TAGS = {
         "script",
         "style",
@@ -33,7 +38,8 @@ class CleanHTMLParser(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         tag_lower = tag.lower()
-        self.tags_stack.append(tag_lower)
+        if tag_lower not in self.VOID_TAGS:
+            self.tags_stack.append(tag_lower)
         attr_dict = {k.lower(): (v or "") for k, v in attrs}
 
         if any(t in self.BLOCKED_TAGS for t in self.tags_stack):
@@ -63,8 +69,11 @@ class CleanHTMLParser(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         tag_lower = tag.lower()
-        if self.tags_stack and self.tags_stack[-1] == tag_lower:
-            self.tags_stack.pop()
+        if tag_lower in self.tags_stack:
+            while self.tags_stack and self.tags_stack[-1] != tag_lower:
+                self.tags_stack.pop()
+            if self.tags_stack:
+                self.tags_stack.pop()
 
         if any(t in self.BLOCKED_TAGS for t in self.tags_stack):
             return
