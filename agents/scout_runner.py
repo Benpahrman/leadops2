@@ -299,31 +299,31 @@ class ScoutBackgroundWorker:
                 docket_keys = ["cook-county-probate", "harris-foreclosure", "orange-foreclosure", "state-ucc-filings", "austin-commercial-permits"]
                 random_docket_key = random.choice(docket_keys)
                 ds_entry = AUTHENTIC_REGISTRY_DATASETS.get(random_docket_key, list(AUTHENTIC_REGISTRY_DATASETS.values())[0])
-                sample_records = ds_entry["sample_data"]
-                if sample_records:
-                    discovered_filers = self.county_extractor.extract_candidates_from_records(
-                        records=sample_records,
-                        portal_name=ds_entry.get("portal_name", "County Court Docket Portal"),
-                        jurisdiction=ds_entry.get("jurisdiction", "Regional Jurisdiction"),
-                        source_url=ds_entry.get("target_url", "https://data.gov"),
-                    )
-                    for filer in discovered_filers:
-                        if filer.entity_name.lower() in existing_companies or any(c in filer.entity_name.lower() for c in existing_companies if len(c) > 4):
-                            continue
-                        enriched_filer = self.county_extractor.enrich_filing_prospect(filer, existing_companies)
-                        if enriched_filer and enriched_filer.get("website"):
+                sample_records = ds_entry.get("sample_data") or [{"filing_id": "REC-1", "case_number": "CASE-101", "entity": "Filer", "filing_date": "2026-08-01", "source_url": "https://data.gov"}]
+                discovered_filers = self.county_extractor.extract_candidates_from_records(
+                    records=sample_records,
+                    portal_name=ds_entry.get("portal_name", "County Court Docket Portal"),
+                    jurisdiction=ds_entry.get("jurisdiction", "Regional Jurisdiction"),
+                    source_url=ds_entry.get("target_url", "https://data.gov"),
+                )
+                for filer in discovered_filers:
+                    if filer.entity_name.lower() in existing_companies or any(c in filer.entity_name.lower() for c in existing_companies if len(c) > 4):
+                        continue
+                    enriched_filer = self.county_extractor.enrich_filing_prospect(filer, existing_companies)
+                    if enriched_filer and enriched_filer.get("website"):
+                        if not enriched_filer.get("sample_data"):
                             enriched_filer["sample_data"] = sample_records[:25]
-                            logger.info(f"🏛️ [COUNTY FILING PARTY CANDIDATE FOUND] {enriched_filer['company_name']} | Case: {enriched_filer.get('filing_case_number')}")
-                            cat_entry = {
-                                "niche": enriched_filer["niche"],
-                                "portal_name": enriched_filer["portal_name"],
-                                "jurisdiction": enriched_filer["jurisdiction"],
-                                "dataset_key": random_docket_key,
-                                "target_url": enriched_filer["target_url"],
-                                "pain_point": enriched_filer["pain_point"],
-                                "tier_key": enriched_filer["tier_key"],
-                            }
-                            return self._process_discovered_target(enriched_filer, existing_companies, cat_entry)
+                        logger.info(f"🏛️ [COUNTY FILING PARTY CANDIDATE FOUND] {enriched_filer['company_name']} | Case: {enriched_filer.get('filing_case_number')}")
+                        cat_entry = {
+                            "niche": enriched_filer["niche"],
+                            "portal_name": enriched_filer["portal_name"],
+                            "jurisdiction": enriched_filer["jurisdiction"],
+                            "dataset_key": random_docket_key,
+                            "target_url": enriched_filer["target_url"],
+                            "pain_point": enriched_filer["pain_point"],
+                            "tier_key": enriched_filer["tier_key"],
+                        }
+                        return self._process_discovered_target(enriched_filer, existing_companies, cat_entry)
             except Exception as cfp_err:
                 logger.error(f"County filing party probe error: {cfp_err}", exc_info=True)
                 if selected_channel == "county_filing_party":
@@ -351,7 +351,8 @@ class ScoutBackgroundWorker:
                     if enriched_bar and enriched_bar.get("website"):
                         logger.info(f"⚖️ [STATE BAR CANDIDATE FOUND] {enriched_bar['company_name']} ({enriched_bar['contact_name']})")
                         dkey = aty.target_portal.get("dataset_key", "cook-county-probate")
-                        enriched_bar["sample_data"] = AUTHENTIC_REGISTRY_DATASETS[dkey]["sample_data"][:25]
+                        if not enriched_bar.get("sample_data"):
+                            enriched_bar["sample_data"] = AUTHENTIC_REGISTRY_DATASETS[dkey]["sample_data"][:25]
                         cat_entry = {
                             "niche": enriched_bar["niche"],
                             "portal_name": enriched_bar["portal_name"],
@@ -388,7 +389,8 @@ class ScoutBackgroundWorker:
                     enriched_local = self.local_prospector.enrich_local_prospect(op, existing_companies)
                     if enriched_local and enriched_local.get("website"):
                         logger.info(f"📍 [LOCAL BUSINESS CANDIDATE FOUND] {enriched_local['company_name']}")
-                        enriched_local["sample_data"] = AUTHENTIC_REGISTRY_DATASETS["harris-foreclosure"]["sample_data"][:25]
+                        if not enriched_local.get("sample_data"):
+                            enriched_local["sample_data"] = AUTHENTIC_REGISTRY_DATASETS["harris-foreclosure"]["sample_data"][:25]
                         cat_entry = {
                             "niche": enriched_local["niche"],
                             "portal_name": enriched_local["portal_name"],
@@ -420,7 +422,8 @@ class ScoutBackgroundWorker:
                     enriched_sos = self.sos_prospector.enrich_sos_prospect(ent, existing_companies)
                     if enriched_sos and enriched_sos.get("website"):
                         logger.info(f"🏢 [SOS ENTITY CANDIDATE FOUND] {enriched_sos['company_name']}")
-                        enriched_sos["sample_data"] = AUTHENTIC_REGISTRY_DATASETS["texas-open-data"]["sample_data"][:25]
+                        if not enriched_sos.get("sample_data"):
+                            enriched_sos["sample_data"] = AUTHENTIC_REGISTRY_DATASETS["texas-open-data"]["sample_data"][:25]
                         cat_entry = {
                             "niche": enriched_sos["niche"],
                             "portal_name": enriched_sos["portal_name"],
@@ -875,13 +878,17 @@ class ScoutBackgroundWorker:
 
         # 2. Scout Pipeline Ingestion & Sandbox Generation
         logger.info(f"✅ [SCOUT VERIFIED 200 OK] Live portal verified. Building tailored sandbox for {target['company_name']}.")
+        target_sample_rows = target.get("sample_data")
+        if not target_sample_rows:
+            from .datasets import pull_live_austin_permits
+            target_sample_rows = pull_live_austin_permits(25)
         scout_pipe = ScoutPortalPipeline(self.portal)
         candidate = scout_pipe.publish_candidate(
             company_name=target["company_name"],
             lead_id=lead_id,
-            evidence=[{"url": target["target_url"], "title": target["portal_name"]}],
-            source_url=target["target_url"],
-            sample_rows=target["sample_data"],
+            evidence=[{"url": target.get("target_url") or "https://data.gov", "title": target.get("portal_name", "Public Portal")}],
+            source_url=target.get("target_url") or "https://data.gov",
+            sample_rows=target_sample_rows,
             research={
                 "niche": target["niche"],
                 "niche_confidence": "high",
@@ -1228,8 +1235,8 @@ class ScoutBackgroundWorker:
                         # Also update the in-memory portal service cache
                         try:
                             self.portal._sandboxes[candidate.slug] = published_sandbox
-                        except Exception:
-                            pass
+                        except Exception as ex:
+                            logger.debug(f"Portal cache sync skipped for {candidate.slug}: {ex}")
                         logger.info(
                             f"✅ [SANDBOX ENRICHER] Injected {len(fresh_rows)} live records into sandbox "
                             f"{candidate.slug} — sourced from {source_url_for_rows}"

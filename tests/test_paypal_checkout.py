@@ -26,16 +26,18 @@ class Client:
 
 
 class PayPalCheckoutTests(unittest.TestCase):
-    def test_creates_half_price_deposit_order(self):
+    def test_creates_deposit_order(self):
         client = Client()
         lead = Lead("lead-checkout", "daily", state=State.SOW_GENERATED)
 
         result = PayPalCheckout(client, "id", "secret").create_setup_order(lead)
 
-        self.assertEqual(result, {"order_id": "ORDER-123", "purpose": "deposit", "amount": "250.00"})
+        self.assertEqual(result["order_id"], "ORDER-123")
+        self.assertEqual(result["purpose"], "deposit")
+        self.assertEqual(result["amount"], "99.00")
         order_payload = client.calls[-1][1]["json"]
         self.assertEqual(order_payload["purchase_units"][0]["custom_id"], "deposit")
-        self.assertEqual(order_payload["purchase_units"][0]["amount"]["value"], "250.00")
+        self.assertEqual(order_payload["purchase_units"][0]["amount"]["value"], "99.00")
         self.assertFalse(lead.deposit_paid)
 
     def test_buyout_uses_buyout_purpose(self):
@@ -71,7 +73,7 @@ class PayPalCheckoutTests(unittest.TestCase):
         result = checkout.create_final_order(lead)
 
         self.assertEqual(result["purpose"], "final")
-        self.assertEqual(result["amount"], "250.00")
+        self.assertEqual(result["amount"], "401.00")
         self.assertFalse(lead.final_paid)
 
         lead.state = State.DEV_BUILDING
@@ -105,7 +107,7 @@ class PayPalCheckoutTests(unittest.TestCase):
         self.assertIn("payment_source", payload)
         self.assertEqual(payload["payment_source"]["token"]["id"], "TOKEN-VAULT-999")
         self.assertEqual(payload["payment_source"]["token"]["type"], "PAYMENT_METHOD_TOKEN")
-        self.assertEqual(payload["purchase_units"][0]["amount"]["value"], "250.00")
+        self.assertEqual(payload["purchase_units"][0]["amount"]["value"], "401.00")
 
     def test_capture_final_milestone_vault_fallback_when_no_token(self):
         client = Client()

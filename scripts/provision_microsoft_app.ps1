@@ -1,9 +1,6 @@
 # =====================================================================
 # LeadOps Microsoft Entra ID App Provisioning Script for Outlook OAuth
 # =====================================================================
-# Creates an Azure AD App Registration configured for Personal & Work Microsoft
-# accounts, generates a client secret, configures the redirect URI, and writes
-# the credentials directly into .env.
 
 $ErrorActionPreference = "Stop"
 
@@ -13,58 +10,78 @@ Write-Host "==========================================================" -Foregro
 
 # 1. Verify Azure CLI is installed
 if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
-    Write-Error "Azure CLI ('az') is not installed or not in PATH. Please install from https://aka.ms/installazurecliwindows."
+    Write-Error "Azure CLI ('az') is not installed or not in PATH."
     exit 1
 }
 
-# 2. Verify / Refresh Azure Login
-Write-Host "`n[1/4] Checking Azure CLI authentication..." -ForegroundColor Yellow
-$account = az account show 2>$null
-if (-not $account) {
-    Write-Host "Please authenticate your Azure account in the browser..." -ForegroundColor Yellow
-    az login --tenant "d0547f8c-7cec-4eb6-b27c-6bb508b6c57c" --scope "https://graph.microsoft.com/.default"
-    $account = az account show | ConvertFrom-Json
-} else {
-    $account = $account | ConvertFrom-Json
+# 2. Check and Refresh Azure Login
+Write-Host "`n[1/4] Verifying Azure CLI authentication..." -ForegroundColor Yellow
+$tenantId = "d0547f8c-7cec-4eb6-b27c-6bb508b6c57c"
+
+$tokenValid = $false
+try {
+    $test = az account get-access-token --resource "https://graph.microsoft.com" 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        $tokenValid = $true
+    }
+} catch {
+    $tokenValid = $false
 }
 
-Write-Host "✓ Authenticated as: $($account.user.name) (Subscription: $($account.name))" -ForegroundColor Green
+if (-not $tokenValid) {
+    Write-Host "Azure CLI session expired or requires interactive sign-in." -ForegroundColor Yellow
+    Write-Host "Using device-code authentication to bypass local port/firewall issues..." -ForegroundColor Cyan
+    az login --use-device-code --tenant $tenantId
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Azure sign-in was not completed."
+        exit 1
+    }
+}
 
-# 3. Create Azure AD App Registration (multitenant + personal Microsoft accounts)
-Write-Host "`n[2/4] Creating Azure AD App Registration ('OmniLeadFeeder-Outlook-Watcher')..." -ForegroundColor Yellow
+$account = az account show | ConvertFrom-Json
+Write-Host "[OK] Authenticated as: $($account.user.name) ($($account.name))" -ForegroundColor Green
+
+# 3. Create or Locate App Registration
+Write-Host "`n[2/4] Checking/Creating App Registration ('OmniLeadFeeder-Outlook-Watcher')..." -ForegroundColor Yellow
 $appName = "OmniLeadFeeder-Outlook-Watcher"
 $redirectUri = "http://localhost:8000/api/admin/oauth/microsoft/callback"
 
-$createAppJson = az ad app create `
-    --display-name $appName `
-    --sign-in-audience "AzureADandPersonalMicrosoftAccount" `
-    --web-redirect-uris $redirectUri `
-    --output json
+$clientId = $null
+$existingJson = az ad app list --display-name $appName --output json 2>$null
+if ($existingJson) {
+    $existing = $existingJson | ConvertFrom-Json
+    if ($existing -and $existing.Count -gt 0) {
+        $clientId = $existing[0].appId
+        Write-Host "[OK] Found existing App Registration: $appName (Client ID: $clientId)" -ForegroundColor Green
+    }
+}
 
-if (-not $createAppJson) {
-    Write-Error "Failed to create Azure AD App Registration."
+if (-not $clientId) {
+    Write-Host "Registering new multitenant app '$appName'..." -ForegroundColor Cyan
+    $createAppJson = az ad app create --display-name $appName --sign-in-audience "AzureADandPersonalMicrosoftAccount" --web-redirect-uris $redirectUri --output json
+    if (-not $createAppJson) {
+        Write-Error "Failed to create Azure AD App Registration."
+        exit 1
+    }
+    $app = $createAppJson | ConvertFrom-Json
+    $clientId = $app.appId
+    Write-Host "[OK] Created new App Registration: $appName (Client ID: $clientId)" -ForegroundColor Green
+}
+
+# 4. Generate Client Secret
+Write-Host "`n[3/4] Generating fresh Client Secret..." -ForegroundColor Yellow
+$secretJson = az ad app credential reset --id $clientId --append --display-name "OmniLeadFeederSecret" --output json
+if (-not $secretJson) {
+    Write-Error "Failed to generate client secret."
     exit 1
 }
 
-$app = $createAppJson | ConvertFrom-Json
-$clientId = $app.appId
-Write-Host "✓ Created App Registration: $appName" -ForegroundColor Green
-Write-Host "✓ Application (Client) ID: $clientId" -ForegroundColor Green
-
-# 4. Generate Client Secret
-Write-Host "`n[3/4] Generating Client Secret..." -ForegroundColor Yellow
-$secretJson = az ad app credential reset `
-    --id $clientId `
-    --append `
-    --display-name "OmniLeadFeederSecret" `
-    --output json
-
 $secret = $secretJson | ConvertFrom-Json
 $clientSecret = $secret.password
-Write-Host "✓ Generated Client Secret successfully." -ForegroundColor Green
+Write-Host "[OK] Client Secret generated successfully." -ForegroundColor Green
 
 # 5. Update .env File
-Write-Host "`n[4/4] Updating .env file..." -ForegroundColor Yellow
+Write-Host "`n[4/4] Writing credentials to .env file..." -ForegroundColor Yellow
 $envPath = Join-Path $PSScriptRoot "..\.env"
 if (-not (Test-Path $envPath)) {
     $envPath = ".env"
@@ -72,7 +89,6 @@ if (-not (Test-Path $envPath)) {
 
 $envContent = Get-Content $envPath -Raw
 
-# Helper to update or append key
 function Set-EnvVar($content, $key, $value) {
     $pattern = "(?m)^" + [regex]::Escape($key) + "=.*$"
     if ($content -match $pattern) {
@@ -88,13 +104,15 @@ $envContent = Set-EnvVar $envContent "MICROSOFT_TENANT_ID" "common"
 $envContent = Set-EnvVar $envContent "MICROSOFT_REDIRECT_URI" $redirectUri
 
 Set-Content -Path $envPath -Value $envContent -Encoding UTF8
-Write-Host "✓ Credentials successfully written to .env!" -ForegroundColor Green
+Write-Host "[OK] Updated MICROSOFT_CLIENT_ID in .env" -ForegroundColor Green
+Write-Host "[OK] Updated MICROSOFT_CLIENT_SECRET in .env" -ForegroundColor Green
+Write-Host "[OK] Updated MICROSOFT_TENANT_ID=common in .env" -ForegroundColor Green
+Write-Host "[OK] Updated MICROSOFT_REDIRECT_URI in .env" -ForegroundColor Green
 
 Write-Host "`n==========================================================" -ForegroundColor Cyan
-Write-Host "  PROVISIONING COMPLETE!                                  " -ForegroundColor Green
+Write-Host "  SETUP COMPLETE!                                         " -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "Client ID:     $clientId" -ForegroundColor White
-Write-Host "Tenant ID:     common" -ForegroundColor White
 Write-Host "Redirect URI:  $redirectUri" -ForegroundColor White
-Write-Host "`nNext Step: Go to http://localhost:8000/admin?tab=inboxes" -ForegroundColor Yellow
-Write-Host "and click 'Connect Microsoft Outlook via OAuth2' to authorize omnileadfeeder@outlook.com!`n" -ForegroundColor Yellow
+Write-Host "`nYou can now click 'Connect Microsoft Outlook via OAuth2' in your dashboard:" -ForegroundColor Yellow
+Write-Host "http://localhost:8000/admin?tab=inboxes`n" -ForegroundColor Yellow

@@ -9,6 +9,9 @@ from typing import Any, Protocol
 
 from .domain import Lead, State
 from .progress import ProgressFeed, ProgressStatus
+from .logging_config import get_logger
+
+logger = get_logger("storage")
 
 
 class StorageBackend(Protocol):
@@ -831,8 +834,8 @@ class SqliteStorageBackend:
             ]:
                 try:
                     cursor.execute(f"ALTER TABLE inbox_accounts ADD COLUMN {col} {col_def}")
-                except Exception:
-                    pass
+                except Exception as ex:
+                    logger.debug("Column %s might already exist in inbox_accounts: %s", col, ex)
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS chat_messages (
@@ -1627,8 +1630,8 @@ class PostgresStorageBackend:
             ]:
                 try:
                     conn.execute(text(f"ALTER TABLE inbox_accounts ADD COLUMN IF NOT EXISTS {col} {col_def}"))
-                except Exception:
-                    pass
+                except Exception as ex:
+                    logger.debug("Column %s might already exist in postgres inbox_accounts: %s", col, ex)
 
     def save_lead(self, lead: Lead) -> None:
         from sqlalchemy import text
@@ -2293,8 +2296,8 @@ class PostgresStorageBackend:
                     cnt = conn.execute(text(f"SELECT count(*) FROM {table}")).scalar()
                     counts[table] = int(cnt or 0)
                     conn.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
-                except Exception:
-                    pass
+                except Exception as ex:
+                    logger.debug("Table %s truncate note: %s", table, ex)
         return counts
 
     def delete_lead(self, lead_id: str) -> bool:

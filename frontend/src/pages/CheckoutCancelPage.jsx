@@ -25,10 +25,10 @@ export default function CheckoutCancelPage() {
 
         <div className="card" style={{ textAlign: 'left', background: 'var(--card-alt)', border: '1px solid var(--border)', marginBottom: '28px' }}>
           <h3 style={{ fontSize: '15px', fontWeight: 700, color: '#fff', marginBottom: '10px' }}>
-            🛡️ Remember Our 100% Escrow Protection:
+            🛡️ Remember Our 100% Refundable Deposit Guarantee:
           </h3>
           <ul style={{ fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.6, paddingLeft: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <li><b>Zero Financial Risk:</b> The $99.00 setup sprint deposit remains locked in third-party escrow (100% credited to Month 1).</li>
+            <li><b>Zero Financial Risk:</b> The $99.00 setup down payment is 100% refundable and 100% credited to Month 1.</li>
             <li><b>QA Gatekeeper Standard:</b> If our 7-agent dev swarm doesn't deliver &gt;=95.0% live verified rows, your deposit is automatically refunded in full.</li>
             <li><b>Final Balance Due Only on Pass:</b> The net balance of $151 is payable only after you verify the stream meets your expectations.</li>
           </ul>
@@ -39,7 +39,7 @@ export default function CheckoutCancelPage() {
             className="btn btn-primary btn-lg"
             onClick={() => navigate(`/p/${slug}`)}
           >
-            Resume Sandbox &amp; Authorize Escrow ➔
+            Resume Sandbox &amp; Authorize Deposit ➔
           </button>
           <button
             className="btn btn-outline btn-lg"

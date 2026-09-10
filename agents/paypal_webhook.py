@@ -23,13 +23,13 @@ class PayPalWebhookRouter:
         leads: dict[str, Lead],
     ) -> bool:
         event = json.loads(raw_body)
-        lead_id = self._lead_id(event)
+        lead_id = self._lead_id(event, leads)
         if not lead_id or lead_id not in leads:
             raise ValueError("PayPal webhook does not identify a known lead")
         return self.adapter.verify_and_apply(raw_body, headers, leads[lead_id])
 
     @staticmethod
-    def _lead_id(event: dict[str, Any]) -> str:
+    def _lead_id(event: dict[str, Any], leads: dict[str, Lead] | None = None) -> str:
         resource = event.get("resource") or {}
         invoice_id = resource.get("invoice_id", "")
         if isinstance(invoice_id, str):
@@ -37,6 +37,21 @@ class PayPalWebhookRouter:
                 if invoice_id.startswith(prefix):
                     return invoice_id[len(prefix):]
         custom_id = resource.get("custom_id", "")
-        if isinstance(custom_id, str) and custom_id.startswith("lead:"):
-            return custom_id[5:]
+        if isinstance(custom_id, str):
+            if custom_id.startswith("lead:"):
+                return custom_id[5:]
+            if leads and custom_id in leads:
+                return custom_id
+        for unit in resource.get("purchase_units", []):
+            inv = unit.get("invoice_id", "")
+            if isinstance(inv, str):
+                for prefix in ("setup-", "final-"):
+                    if inv.startswith(prefix):
+                        return inv[len(prefix):]
+            cid = unit.get("custom_id", "")
+            if isinstance(cid, str):
+                if cid.startswith("lead:"):
+                    return cid[5:]
+                if leads and cid in leads:
+                    return cid
         return ""

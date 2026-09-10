@@ -289,8 +289,8 @@ def discover_verified_email(
         try:
             parsed = urllib.parse.urlparse(website_url if "://" in website_url else f"https://{website_url}")
             domain = parsed.netloc.lower().lstrip("www.")
-        except Exception:
-            pass
+        except Exception as ex:
+            logger.debug("URL parsing fallback for %s: %s", website_url, ex)
 
     all_candidates: list[dict[str, Any]] = []
     smtp_probe_count = 0

@@ -971,12 +971,16 @@ export default function AdminPage() {
   };
 
   // Financial calculations
-  const escrowTotal = useMemo(() => {
-    return pipeline.filter((l) => l.deposit_paid).length * 250.0;
+  const depositTotal = useMemo(() => {
+    return pipeline
+      .filter((l) => l.deposit_paid)
+      .reduce((sum, l) => sum + (l.deposit_amount_usd || 99.0), 0);
   }, [pipeline]);
 
   const releasedTotal = useMemo(() => {
-    return pipeline.filter((l) => l.final_paid).length * 250.0;
+    return pipeline
+      .filter((l) => l.final_paid)
+      .reduce((sum, l) => sum + (l.next_payment_amount || 151.0), 0);
   }, [pipeline]);
 
   const activeMrr = useMemo(() => {
@@ -1205,12 +1209,12 @@ export default function AdminPage() {
         {/* Top Summary Stats Bar */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '28px' }}>
           <div className="stat-card">
-            <div className="stat-label">🏦 Escrow Deposits Held</div>
+            <div className="stat-label">🏦 Down Payments Held</div>
             <div className="stat-value" style={{ color: 'var(--green)' }}>
-              ${escrowTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              ${depositTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}
             </div>
             <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-              Milestone #1 ($250 held in escrow)
+              Milestone #1 ($99 refundable deposits)
             </div>
           </div>
 
@@ -1468,7 +1472,7 @@ export default function AdminPage() {
             className={`admin-tab-btn ${activeTab === 'accounting' ? 'active' : ''}`}
             onClick={() => setActiveTab('accounting')}
           >
-            💰 Accounting &amp; Escrow Vault
+            💰 Accounting &amp; Revenue Vault
           </button>
           <button
             className={`admin-tab-btn ${activeTab === 'scrapers' ? 'active' : ''}`}
@@ -1532,9 +1536,9 @@ export default function AdminPage() {
                 <option value="OUTREACH_SENT">Outreach Sent</option>
                 <option value="CONVERSATIONAL_INTAKE">Conversational Intake</option>
                 <option value="SOW_GENERATED">SOW Generated</option>
-                <option value="DEPOSIT_PAID">Deposit Paid (In Escrow)</option>
+                <option value="DEPOSIT_PAID">Down Payment Paid ($99)</option>
                 <option value="DEV_BUILDING">Dev Building (Swarm)</option>
-                <option value="ESCROW_PREVIEW">Escrow Preview (QA Passed)</option>
+                <option value="ESCROW_PREVIEW">Customer QA Preview (QA Passed)</option>
                 <option value="FINAL_PAID">Final Paid</option>
                 <option value="DELIVERED">Delivered</option>
                 <option value="WARRANTY_ACTIVE">Warranty / Retainer Active</option>
@@ -1743,21 +1747,21 @@ export default function AdminPage() {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                               {lead.deposit_paid ? (
                                 <span style={{ fontSize: '11px', color: 'var(--green)', fontWeight: 600 }}>
-                                  ✓ M1 Deposit ($250 Escrow)
+                                  ✓ M1 Down Payment ($99 Paid)
                                 </span>
                               ) : (
                                 <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
-                                  ○ M1 Pending ($250)
+                                  ○ M1 Pending ($99)
                                 </span>
                               )}
 
                               {lead.final_paid ? (
                                 <span style={{ fontSize: '11px', color: 'var(--green)', fontWeight: 600 }}>
-                                  ✓ M2 Final ($250 Paid)
+                                  ✓ M2 Final ($151 Paid)
                                 </span>
                               ) : (
                                 <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
-                                  ○ M2 Pending ($250)
+                                  ○ M2 Pending ($151)
                                 </span>
                               )}
 
@@ -1937,7 +1941,7 @@ export default function AdminPage() {
               { key: 'REVIEW', label: '2. Enriched / Review' },
               { key: 'PITCH_PENDING_APPROVAL', label: '3. Pitch Pending' },
               { key: 'OUTREACH_SENT', label: '4. Outreach Sent' },
-              { key: 'DEPOSIT_PAID', label: '5. Deposit in Escrow ($250)' },
+              { key: 'DEPOSIT_PAID', label: '5. Down Payment Paid ($99)' },
               { key: 'DEV_BUILDING', label: '6. Dev Swarm Building' },
               { key: 'ESCROW_PREVIEW', label: '7. QA Gate Pass (95%+)' },
               { key: 'DELIVERED', label: '8. Delivered / Active' },
@@ -1994,7 +1998,7 @@ export default function AdminPage() {
 
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', fontSize: '11px' }}>
                             <span style={{ color: lead.deposit_paid ? 'var(--green)' : 'var(--text-dim)' }}>
-                              {lead.deposit_paid ? '✓ Escrow Funded' : '○ Deposit Pending'}
+                              {lead.deposit_paid ? '✓ Down Payment Paid' : '○ Deposit Pending'}
                             </span>
                             {lead.qa_score !== null && lead.qa_score !== undefined && (
                               <span style={{ color: lead.qa_score >= 0.95 ? 'var(--green)' : 'var(--yellow)', fontWeight: 700 }}>
@@ -2460,19 +2464,19 @@ export default function AdminPage() {
         )}
 
         {/* =========================================================
-            TAB 4: ACCOUNTING & ESCROW VAULT
+            TAB 4: ACCOUNTING & REVENUE VAULT
            ========================================================= */}
         {activeTab === 'accounting' && (
           <div>
             {/* Accounting Breakdown Cards */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
               <div className="stat-card" style={{ borderLeft: '4px solid var(--green)' }}>
-                <div className="stat-label">🏦 Total Milestone #1 In Escrow</div>
+                <div className="stat-label">🏦 Total Milestone #1 Down Payments</div>
                 <div className="stat-value" style={{ color: 'var(--green)' }}>
-                  ${escrowTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  ${depositTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-                  {pipeline.filter((l) => l.deposit_paid).length} deposits held ($250 each)
+                  {pipeline.filter((l) => l.deposit_paid).length} deposits held ($99 each)
                 </div>
               </div>
 
@@ -2482,7 +2486,7 @@ export default function AdminPage() {
                   ${releasedTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-                  {pipeline.filter((l) => l.final_paid).length} completions unlocked ($250 each)
+                  {pipeline.filter((l) => l.final_paid).length} completions unlocked ($151 each)
                 </div>
               </div>
 
@@ -2499,7 +2503,7 @@ export default function AdminPage() {
               <div className="stat-card" style={{ borderLeft: '4px solid var(--yellow)' }}>
                 <div className="stat-label">💳 Gross Pipeline Value</div>
                 <div className="stat-value" style={{ color: '#fff' }}>
-                  ${(escrowTotal + releasedTotal + activeMrr).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  ${(depositTotal + releasedTotal + activeMrr).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
                   Total processed &amp; under contract
@@ -2514,8 +2518,8 @@ export default function AdminPage() {
                   <tr>
                     <th>Customer Organization</th>
                     <th>Plan Tier</th>
-                    <th>Milestone #1 ($250)</th>
-                    <th>Milestone #2 ($250)</th>
+                    <th>Milestone #1 ($99 Deposit)</th>
+                    <th>Milestone #2 ($151 Balance)</th>
                     <th>Recurring Retainer</th>
                     <th>PayPal Provider</th>
                     <th style={{ textAlign: 'right' }}>Official Invoice</th>
@@ -2540,12 +2544,12 @@ export default function AdminPage() {
                         </td>
                         <td>
                           <span style={{ color: lead.deposit_paid ? 'var(--green)' : 'var(--text-dim)', fontWeight: 600 }}>
-                            {lead.deposit_paid ? '✓ $250.00 PAID (ESCROW)' : 'Pending'}
+                            {lead.deposit_paid ? `✓ $${(lead.deposit_amount_usd || 99.0).toFixed(2)} PAID (DOWN PAYMENT)` : 'Pending'}
                           </span>
                         </td>
                         <td>
                           <span style={{ color: lead.final_paid ? 'var(--green)' : 'var(--text-dim)', fontWeight: 600 }}>
-                            {lead.final_paid ? '✓ $250.00 RELEASED' : 'Pre-authorized'}
+                            {lead.final_paid ? `✓ $${(lead.next_payment_amount || 151.0).toFixed(2)} RELEASED` : 'Pre-authorized'}
                           </span>
                         </td>
                         <td>

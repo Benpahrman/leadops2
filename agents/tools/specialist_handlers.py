@@ -9,6 +9,9 @@ from ..llm_client import LLMAgentEngine
 from .dom_pruner import prune_dom
 from .waf_prober import generate_browser_headers, probe_waf_signatures
 from .playwright_runner import ScraperTask, compile_extraction_script
+from ..logging_config import get_logger
+
+logger = get_logger("specialist_handlers")
 
 
 def build_specialist_handlers(lead: Lead | None = None, llm: LLMAgentEngine | None = None) -> dict[TeamRole, Any]:
@@ -56,8 +59,8 @@ def build_specialist_handlers(lead: Lead | None = None, llm: LLMAgentEngine | No
                 from .web_fetcher import fetch_page_content
                 page_res = fetch_page_content(target_url, timeout=5.0)
                 target_html = page_res.get("raw_html", "")
-            except Exception:
-                pass
+            except Exception as ex:
+                logger.debug(f"Live target fetch note for {target_url}: {ex}")
 
         if not target_html or len(target_html) < 100:
             row_cells = []

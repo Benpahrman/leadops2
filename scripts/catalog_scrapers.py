@@ -40,8 +40,8 @@ from agents.scraper_catalog import (
 if sys.platform == "win32":
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
+    except Exception as _ex:
+        _reconfig_err = str(_ex)
 
 
 def print_table(results):

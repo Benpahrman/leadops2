@@ -128,23 +128,17 @@ def _resolve_dataset_key_for_slug(slug: str) -> str:
     for key in AUTHENTIC_REGISTRY_DATASETS:
         if key in normalized or normalized in key:
             return key
-    if "permit" in normalized or "construct" in normalized or "roof" in normalized or "building" in normalized:
+    if any(k in normalized for k in ["permit", "construct", "roof", "building", "austin", "travis", "cofi", "avana", "apex", "contract"]):
         return "austin-commercial-permits"
-    elif "rfp" in normalized or "defense" in normalized or "contract" in normalized or "sam" in normalized:
-        return "sam-gov-defense-rfps"
-    elif "ucc" in normalized or "factor" in normalized or "debt" in normalized or "collateral" in normalized:
+    elif any(k in normalized for k in ["alamo", "lone-star", "texas", "houston", "harris", "dallas", "ucc", "title", "escrow", "settlement", "corp", "entity", "cheval", "drake"]):
+        return "texas-commercial-entities"
+    elif any(k in normalized for k in ["anywhere", "nyc", "suffolk", "ny-", "new-york", "construction-realty"]):
+        return "nyc-permits"
+    elif any(k in normalized for k in ["chicago", "cook", "illinois"]):
+        return "chicago-permits"
+    elif any(k in normalized for k in ["delaware", "capitol-recruit"]):
         return "state-ucc-filings"
-    elif "medic" in normalized or "doctor" in normalized or "physician" in normalized or "health" in normalized or "licens" in normalized:
-        return "medical-board-licensing"
-    elif "probate" in normalized or "estate" in normalized:
-        return "cook-county-probate"
-    elif "foreclosure" in normalized or "deed" in normalized or "mortgage" in normalized:
-        return "harris-foreclosure"
-    elif "tax" in normalized or "lien" in normalized or "parcel" in normalized:
-        return "maricopa-tax-liens"
-    elif "texas" in normalized or "open-data" in normalized or "entity" in normalized or "sos" in normalized:
-        return "texas-open-data"
-    return slug
+    return "austin-commercial-permits"
 
 
 def _pull_fresh_live_rows(slug: str) -> tuple[list[dict], str]:
@@ -187,18 +181,37 @@ def ensure_demo_sandbox(slug: str, portal_service, storage_backend) -> Any:
     except KeyError:
         pass
 
-    # If sandbox exists but has NO rows → refresh from live dataset pull
+    def _is_invalid_or_stub(rows: list, s_url: str = "") -> bool:
+        if not rows or len(rows) == 0:
+            return True
+        if len(rows) == 1 and all(not str(v).strip() for v in rows[0].values()):
+            return True
+        if "col_0" in str(rows[0]) or "col_1" in str(rows[0]):
+            return True
+        first_row_str = str(rows[0]).lower()
+        if "verified public record" in first_row_str or "verified record 1" in first_row_str:
+            return True
+        if "trim cactus" in first_row_str or "trim tree in median" in first_row_str or "8rrk-9juz" in first_row_str or "atx-sr-" in first_row_str:
+            return True
+        # If slug or source_url is Austin/Texas/NY but rows are from Chicago
+        if (any(k in slug.lower() for k in ["austin", "travis", "avana", "cofi", "alamo", "roof", "apex", "cheval", "drake", "settlement", "anywhere", "nyc", "construction-realty"]) or "austin" in (s_url or "").lower() or "texas" in (s_url or "").lower()) and "chicago" in first_row_str:
+            return True
+        if any(k in slug.lower() for k in ["nyc", "anywhere", "ny", "suffolk", "construction-realty"]) and "austin" in first_row_str:
+            return True
+        return False
+
+    # If sandbox exists but has NO rows or stub/mismatched rows → refresh from live dataset pull
     if existing_sb is not None:
-        if not existing_sb.rows or len(existing_sb.rows) == 0:
-            logger.info(f"[ENRICHER] Sandbox {slug} found in storage with 0 rows — refreshing live data pull")
+        if _is_invalid_or_stub(existing_sb.rows or [], getattr(existing_sb, "source_url", "")):
+            logger.info(f"[ENRICHER] Sandbox {slug} found with 0 or invalid/stub rows — refreshing authoritative live data pull")
             fresh_rows, source_url = _pull_fresh_live_rows(slug)
             if fresh_rows:
                 existing_sb.rows = fresh_rows
-                if not existing_sb.source_url:
+                if not existing_sb.source_url or "chicago" in existing_sb.source_url.lower() or "8rrk-9juz" in existing_sb.source_url.lower():
                     existing_sb.source_url = source_url
                 if storage_backend:
                     storage_backend.save_sandbox(existing_sb)
-                logger.info(f"[ENRICHER] Refreshed {len(fresh_rows)} live records into sandbox {slug}")
+                logger.info(f"[ENRICHER] Refreshed {len(fresh_rows)} authentic live records into sandbox {slug}")
         return existing_sb
 
     # --- Sandbox doesn't exist — create it with live data ---
@@ -318,27 +331,42 @@ def build_sandbox_payload(slug: str, portal_service, storage_backend) -> dict[st
     tier = lead.tier
     progress = portal_service.build_progress(slug)
 
-    sample_rows = []
+    live_verified_rows = []
     for r in (sandbox.rows or []):
         r_dict = dict(r)
         # Ensure every row has a verifiable source_url for 1-click proof
         if "source_url" not in r_dict or not r_dict["source_url"]:
             r_dict["source_url"] = sandbox.source_url or "https://data.gov"
-        sample_rows.append(r_dict)
+        live_verified_rows.append(r_dict)
 
-    # If sandbox has no rows (edge case: first visit after failed scout enrichment),
-    # attempt a live pull now so the customer sees real data
-    if not sample_rows:
-        logger.warning(f"[ENRICHER] build_sandbox_payload: sandbox {slug} has 0 rows — triggering live refresh")
+    # If sandbox has no rows or stub/mismatched rows,
+    # attempt an authoritative live pull now so the customer sees real data
+    is_stub = (
+        not live_verified_rows
+        or (len(live_verified_rows) == 1 and all(not str(v).strip() for v in live_verified_rows[0].values()))
+        or ("col_0" in live_verified_rows[0] and not live_verified_rows[0]["col_0"])
+        or ("verified public record" in str(live_verified_rows[0]).lower())
+        or ("verified record 1" in str(live_verified_rows[0]).lower())
+        or ("trim cactus" in str(live_verified_rows[0]).lower())
+        or ("trim tree in median" in str(live_verified_rows[0]).lower())
+        or ("8rrk-9juz" in str(live_verified_rows[0]).lower())
+        or ("atx-sr-" in str(live_verified_rows[0]).lower())
+        or ((any(k in slug.lower() for k in ["austin", "travis", "avana", "cofi", "alamo", "roof", "apex"]) or "austin" in (sandbox.source_url or "").lower()) and "chicago" in str(live_verified_rows[0]).lower())
+    )
+    if is_stub:
+        logger.warning(f"[ENRICHER] build_sandbox_payload: sandbox {slug} has 0, stub, or mismatched rows — triggering authoritative live refresh")
         try:
-            fresh_rows, _ = _pull_fresh_live_rows(slug)
+            fresh_rows, source_url = _pull_fresh_live_rows(slug)
+            live_verified_rows = []
             for r in fresh_rows:
                 r_dict = dict(r)
                 if "source_url" not in r_dict or not r_dict["source_url"]:
-                    r_dict["source_url"] = sandbox.source_url or "https://data.gov"
-                sample_rows.append(r_dict)
+                    r_dict["source_url"] = source_url or sandbox.source_url or "https://data.gov"
+                live_verified_rows.append(r_dict)
             if fresh_rows:
                 sandbox.rows = fresh_rows
+                if not sandbox.source_url or "chicago" in sandbox.source_url.lower():
+                    sandbox.source_url = source_url
                 if storage_backend:
                     storage_backend.save_sandbox(sandbox)
         except Exception as refresh_exc:
@@ -350,25 +378,30 @@ def build_sandbox_payload(slug: str, portal_service, storage_backend) -> dict[st
         "company_name": getattr(lead, "company_name", "") or lead.lead_id,
         "contact_email": getattr(lead, "contact_email", ""),
         "claimed_by_user": getattr(lead, "claimed_by", None) or getattr(lead, "contact_email", ""),
-        "jurisdiction": getattr(lead, "jurisdiction", ""),
+        "jurisdiction": getattr(lead, "jurisdiction", "") or (
+            "Austin, Travis County, TX" if any(k in slug.lower() for k in ["austin", "travis", "avana", "cofi", "apex"])
+            else "State of Texas (Statewide)" if any(k in slug.lower() for k in ["alamo", "cheval", "drake", "texas", "harris", "houston"])
+            else "New York City (All Boroughs), NY" if any(k in slug.lower() for k in ["nyc", "anywhere", "suffolk", "ny", "construction-realty"])
+            else "Municipal Public Records Registry"
+        ),
         "state": lead.state.value,
         "tier": tier.name,
         "tier_key": lead.tier_key,
         "source_url": sandbox.source_url,
         # Both keys for cross-version frontend compatibility
-        "sample": sample_rows,
-        "rows": sample_rows,
-        "row_count": len(sample_rows),
+        "sample": live_verified_rows,
+        "rows": live_verified_rows,
+        "row_count": len(live_verified_rows),
         "selected_fields": lead.selected_fields,
         "progress": progress,
 
         # Payment & Milestone Tracking
         "deposit_paid": lead.deposit_paid,
-        "deposit_amount": 250.00,
-        "deposit_status": "PAID" if lead.deposit_paid else "PENDING_DEPOSIT",
+        "deposit_amount": getattr(lead, "deposit_amount_usd", 99.00) or 99.00,
+        "deposit_status": "PAID" if lead.deposit_paid else "PENDING_SPRINT_DEPOSIT",
         "next_payment_due": lead.state.value == "ESCROW_PREVIEW",
-        "next_payment_amount": 250.00,
-        "next_payment_purpose": f"Milestone #2 Final Payment ($250.00) & Monthly Subscription Activation (${int(tier.price_cents / 100)}/mo)",
+        "next_payment_amount": max(0.0, (tier.price_cents / 100.0) - (getattr(lead, "deposit_amount_usd", 99.00) or 99.00)),
+        "next_payment_purpose": f"Monthly Subscription Activation (${int(tier.price_cents / 100)}/mo, $99 sprint deposit credited)",
         "final_paid": lead.final_paid,
         "subscription_active": getattr(lead, "subscription_active", False),
         "subscription_plan": f"{tier.name} (${int(tier.price_cents / 100)}/mo)",
@@ -717,8 +750,8 @@ async def validate_target_source(
     try:
         body = await request.json()
         custom_url = (body.get("target_url") or "").strip()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional request json parsing in validate_target_url: {e}")
 
     source_url = custom_url or sandbox.source_url or f"https://publicrecords.{slug}.gov"
 
@@ -778,8 +811,8 @@ async def unlock_30d_backlog(
         body = {}
         try:
             body = await request.json()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional request json parsing in unlock_30d_backlog: {e}")
 
         email = body.get("email") or lead.contact_email or (user.email if user else "") or "customer@client.com"
         paypal_order_id = body.get("paypal_order_id") or f"PAYID-BACKLOG-{int(datetime.now().timestamp()*1000)}"
@@ -847,8 +880,8 @@ async def pay_deposit(
         body = {}
         try:
             body = await request.json()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional request json parsing in pay_deposit: {e}")
 
         deposit_amount_usd = float(body.get("deposit_amount") or 99.00)
         lead.deposit_amount_usd = deposit_amount_usd
@@ -878,8 +911,8 @@ async def pay_deposit(
                 parsed_netloc = urllib.parse.urlparse(confirmed_target_url).netloc
                 if parsed_netloc:
                     lead.target_portal_name = f"{parsed_netloc} Official Records"
-            except Exception:
-                pass
+            except Exception as url_err:
+                logger.debug(f"Portal netloc parsing note: {url_err}")
             logger.info(f"🎯 [CUSTOMER TARGET URL CONFIRMED] Lead: {lead.lead_id} | URL: {confirmed_target_url}")
 
         # Attach claimed user if logged in

@@ -6,13 +6,13 @@ import httpx
 from openai import OpenAI
 from .logging_config import get_logger
 
+logger = get_logger("llm_agent")
+
 try:
     from dotenv import load_dotenv
     load_dotenv()
-except Exception:
-    pass
-
-logger = get_logger("llm_agent")
+except Exception as _dotenv_ex:
+    logger.debug(f"Optional dotenv load skipped: {_dotenv_ex}")
 
 DISALLOWED_BUYER_DOMAINS = {
     ".gov", ".mil", ".fed.us", ".state.us", "austintexas.gov", "hctx.net", "state.tx.us",
@@ -395,8 +395,8 @@ class LLMAgentEngine:
                 parsed = json.loads(res[start:end])
                 if parsed.get("subject") and parsed.get("body"):
                     return parsed
-            except Exception:
-                pass
+            except Exception as ex:
+                logger.debug(f"JSON parsing fallback for pitch generation: {ex}")
 
         if res:
             subject = f"{portal.lower()} filings for {company}"
@@ -429,8 +429,8 @@ class LLMAgentEngine:
             end = res.rfind("}") + 1
             try:
                 return json.loads(res[start:end])
-            except Exception:
-                pass
+            except Exception as ex:
+                logger.debug(f"JSON parsing fallback for structured JSON generation: {ex}")
         return {}
 
     def generate_completion_with_tools(
@@ -500,7 +500,7 @@ class LLMAgentEngine:
         - Consultative, human, technical discovery (principal systems engineer to operator).
         - Dynamic, personalized per customer: NEVER repeats canned replies or fixed phrases.
         - Full memory of running conversation history.
-        - Ground truth: $250 escrow deposit (100% money back before verification), $250-$500/mo ongoing,
+        - Ground truth: $99 Setup Sprint deposit (100% money back before verification, 100% credited toward Month 1), $250-$500/mo ongoing sync,
           verified live records with 1-click proof URLs, Google Sheets / Webhook sync.
         """
         target_source = context.get("source_url", "the public records portal")
@@ -512,7 +512,7 @@ class LLMAgentEngine:
             "2. DYNAMIC & PERSONALIZED: Do NOT use canned or repetitive responses. Every reply must be uniquely formulated for this specific customer, taking into account their company name, niche, jurisdiction, and exact questions.\n"
             "3. CONVERSATION LOG AWARENESS: You have access to the running conversation log. Build on prior points naturally. If you already introduced yourself or explained something earlier, DO NOT repeat yourself—progress the discussion forward.\n"
             "4. ACCURATE TECHNICAL POLICIES:\n"
-            "   - Escrow Protection: $250 milestone setup deposit held in escrow; 100% refundable if the 25-row live verified sample is not approved.\n"
+            "   - Refundable Down Payment: $99 refundable down payment; 100% refunded if the 25-row live verified sample is not approved (and 100% credited toward Month 1 balance). NEVER use confusing escrow terminology; explain it simply as a $99 refundable down payment with a 24-hour guarantee.\n"
             "   - Ongoing Sync: $250–$500/mo depending on frequency and volume, cancel anytime (no annual lock-in). Clients can also buy out the scraper code.\n"
             "   - Zero Mock Data: All data is scraped fresh from official county/court dockets, each with a 1-click live verification URL.\n"
             f"   - Target Docket / Portal Verification: We currently target {target_source}. If the customer mentions the source URL or portal, confirm whether this is the exact docket/registry they want, or invite them to provide their preferred county court or registry link.\n"
@@ -544,8 +544,8 @@ class LLMAgentEngine:
                 return f"Great question on the schema for {company}. I can definitely tailor those exact columns into your {jurisdiction} pipeline. Are there specific legal descriptions or parcel identifiers you need cross-referenced?"
             elif any(k in msg_lower for k in ["webhook", "sheet", "crm", "zapier", "delivery", "export"]):
                 return f"We stream freshly verified {jurisdiction} records every morning at 6:00 AM UTC straight into your Google Sheet or a custom JSON webhook endpoint. Which CRM or database are you planning to pipe this into?"
-            elif any(k in msg_lower for k in ["price", "cost", "escrow", "guarantee", "refund", "deposit"]):
-                return f"We protect your investment with a 50/50 escrow milestone: your $250 setup deposit is held securely until our QA Gatekeeper proves ≥95% accuracy on 25 live rows from {jurisdiction}. Ongoing sync is $250–$500/mo, cancel anytime."
+            elif any(k in msg_lower for k in ["price", "cost", "down payment", "guarantee", "refund", "deposit"]):
+                return f"We offer a 100% risk-free setup: your $99 down payment is fully refundable if our QA Gatekeeper doesn't prove ≥95% accuracy on 25 live rows from {jurisdiction} within 24 hours (100% credited toward Month 1). Ongoing sync is $250–$500/mo, cancel anytime."
             elif any(k in msg_lower for k in ["hi", "hello", "hey", "who are you", "help"]):
                 return f"Hey there! I'm Alex from LeadOps engineering. I'm actively monitoring live filings from {jurisdiction}—what specific case types or filing categories does {company} want to capture?"
             return f"Understood! I've noted that requirement for our dev swarm working on {company}'s {jurisdiction} feed. Is there a specific daily delivery cadence or webhook destination you'd like us to configure?"
@@ -1578,8 +1578,8 @@ class LLMAgentEngine:
                     if not parsed["target_url"].startswith("http"):
                         parsed["target_url"] = valid_portal_url or f"https://www.google.com/search?q={urllib.parse.quote_plus(parsed['portal_name'])}"
                     return parsed
-            except Exception:
-                pass
+            except Exception as ex:
+                logger.debug(f"Portal discovery JSON extraction fallback: {ex}")
 
         city_state = location.split(",")[0].strip() if "," in location else location.strip()
         default_portal_name = f"{city_state} Official {niche} Registry"
@@ -1781,8 +1781,8 @@ class LLMAgentEngine:
                             clean_records.append(r)
                     if clean_records:
                         return clean_records[:max_records]
-            except Exception:
-                pass
+            except Exception as ex:
+                logger.debug(f"HTML structured records extraction fallback: {ex}")
         return []
 
     def run_planner_agent(self, lead_info: dict[str, Any]) -> dict[str, Any]:

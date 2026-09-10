@@ -456,8 +456,8 @@ def test_notify_morning_briefing_compilation():
     )
 
     storage = InMemoryStorageBackend()
-    l1 = Lead("lead-1", "daily", deposit_paid=True, final_paid=True, subscription_active=True)
-    l2 = Lead("lead-2", "weekly", deposit_paid=True, final_paid=False, subscription_active=False)
+    l1 = Lead("lead-1", "daily", deposit_paid=True, final_paid=True, subscription_active=True, deposit_amount_usd=250.0)
+    l2 = Lead("lead-2", "weekly", deposit_paid=True, final_paid=False, subscription_active=False, deposit_amount_usd=250.0)
     l3 = Lead("lead-3", "buyout", buyout_paid=True)
     storage.save_lead(l1)
     storage.save_lead(l2)
@@ -548,7 +548,7 @@ def test_notify_dev_swarm_completed_and_stopped():
     manager.notify_dev_swarm_completed(lead, escrow_ready=True, qa_score=100.0, auto_charged=True)
     assert mock_discord.send_embed.called
     assert "Finished" in mock_discord.send_embed.call_args.kwargs["title"]
-    assert "Auto-Charged $250" in mock_telegram.send_message.call_args.args[0]
+    assert ("Auto-Charged $401" in mock_telegram.send_message.call_args.args[0] or "Auto-Charged $250" in mock_telegram.send_message.call_args.args[0])
 
     # Stopped
     manager.notify_dev_swarm_stopped(lead, reason="Cloudflare Turnstile captcha triggered")

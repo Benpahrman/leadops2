@@ -27,6 +27,7 @@ def dummy_graph_client(tmp_path):
         tenant_id="common",
         redirect_uri="http://localhost:8000/api/admin/oauth/microsoft/callback",
         account_email="omnileadfeeder@outlook.com",
+        refresh_token="",
         env_file_path=env_file,
     )
     return client

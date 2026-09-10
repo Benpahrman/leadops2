@@ -237,7 +237,8 @@ class CustomerDashboardService:
             "buyout_paid": bool(lead.buyout_paid),
             "qa_score": lead.qa_score,
             "escrow_locked": bool(lead.deposit_paid),
-            "escrow_amount_usd": 250.00 if lead.deposit_paid else 0.0,
+            "escrow_amount_usd": float(getattr(lead, "deposit_amount_usd", 99.00) or 99.00) if lead.deposit_paid else 0.0,
+            "deposit_amount_usd": float(getattr(lead, "deposit_amount_usd", 99.00) or 99.00) if lead.deposit_paid else 0.0,
             "destination": {
                 "type": dest_config.destination_type,
                 "google_sheet_url": dest_config.google_sheet_url,
@@ -263,8 +264,8 @@ class CustomerDashboardService:
                 "plan": lead.tier.name,
                 "amount_monthly": f"${lead.tier.price_cents // 100} / month",
                 "deposit_verified": bool(lead.deposit_paid),
-                "deposit_amount": "$250.00 USD" if lead.deposit_paid else "$0.00",
-                "escrow_status": "Deposit Verified & Locked in Escrow" if lead.deposit_paid else "Awaiting Initial Milestone Deposit",
+                "deposit_amount": f"${float(getattr(lead, 'deposit_amount_usd', 99.00) or 99.00):.2f} USD" if lead.deposit_paid else "$0.00",
+                "escrow_status": f"Down Payment Verified (${float(getattr(lead, 'deposit_amount_usd', 99.00) or 99.00):.2f})" if lead.deposit_paid else "Awaiting Initial Down Payment",
                 "subscription_active": lead.subscription_active and not getattr(lead, "is_paused", False),
                 "paypal_plan_id": os.environ.get(f"PAYPAL_PLAN_ID_{lead.tier_key.upper()}", ""),
                 "buyout_eligible": lead.tier_key != "buyout",
@@ -272,7 +273,7 @@ class CustomerDashboardService:
             },
             "credits": {
                 "balance_usd": total_earned_credits,
-                "trial_status": "Converted (Active Subscription)" if lead.subscription_active or lead.final_paid else ("In Escrow Build" if lead.deposit_paid else "Active Trial (25 Complimentary Rows)"),
+                "trial_status": "Converted (Active Subscription)" if lead.subscription_active or lead.final_paid else ("In Setup Sprint Build" if lead.deposit_paid else "Active Trial (25 Complimentary Rows)"),
                 "referral_count": len(real_referrals),
                 "referral_link": f"/p/{slug_str or lead.lead_id}?ref={lead.lead_id}",
             },
@@ -644,6 +645,12 @@ class CustomerDashboardService:
         """Generate structured corporate invoice and billing statement data."""
         lead = self.storage.get_lead(lead_id)
         if not lead:
+            # Try resolving by slug or prefix
+            for l in self.storage.list_leads():
+                if l.slug == lead_id or l.lead_id == lead_id or l.lead_id.startswith(lead_id):
+                    lead = l
+                    break
+        if not lead:
             raise KeyError(f"Lead not found: {lead_id}")
 
         now = datetime.now(timezone.utc)
@@ -651,6 +658,9 @@ class CustomerDashboardService:
         company = lead.company_name or "Client Organization"
         contact_email = lead.contact_email or "operations@client.com"
         tier_price = lead.tier.price_cents / 100.0
+        deposit_amount = float(getattr(lead, "deposit_amount_usd", 99.00) or 99.00)
+        tier_price = 1500.00 if (getattr(lead, "buyout_paid", False) or lead.tier_key == "buyout") else ((lead.tier.price_cents / 100.0) if getattr(lead, "tier", None) else 250.00)
+        final_balance = max(0.0, tier_price - deposit_amount)
 
         items = []
         if getattr(lead, "buyout_paid", False):
@@ -659,32 +669,50 @@ class CustomerDashboardService:
                 "status": "PAID (CLIENT OWNED)",
                 "amount": 1500.00,
             })
-        if lead.deposit_paid:
-            items.append({
-                "description": f"Milestone #1 Setup Deposit — 7-Agent Dev Swarm Pipeline & QA Gate ({lead.jurisdiction or lead.tier.name})",
-                "status": "PAID (ESCROW VERIFIED)",
-                "amount": 250.00,
-            })
-        if lead.final_paid:
-            items.append({
-                "description": f"Milestone #2 Final Balance & Production Activation — {lead.tier.name} Stream",
-                "status": "PAID",
-                "amount": 250.00,
-            })
-        elif lead.subscription_active:
+        elif lead.subscription_active and not lead.deposit_paid and not lead.final_paid:
             items.append({
                 "description": f"Monthly Data Stream Retainer ({lead.tier.name}) — Continuous Feed Delivery",
                 "status": "ACTIVE RECURRING",
                 "amount": tier_price,
             })
-        elif not items:
-            items.append({
-                "description": f"Initial Setup Deposit & Custom Crawler Synthesis ({lead.tier.name})",
-                "status": "PENDING ESCROW DEPOSIT",
-                "amount": 250.00,
-            })
+        else:
+            # Milestone #1: Down Payment
+            if lead.deposit_paid:
+                items.append({
+                    "description": f"Milestone #1 Refundable Down Payment — 7-Agent Dev Swarm Pipeline & QA Gate ({lead.jurisdiction or lead.tier.name}) [100% Credited to Month 1]",
+                    "status": "PAID & SECURED",
+                    "amount": deposit_amount,
+                })
+            else:
+                items.append({
+                    "description": f"Milestone #1 Refundable Down Payment & Custom Crawler Synthesis ({lead.tier.name}) [100% Credited to Month 1]",
+                    "status": "PENDING DOWN PAYMENT",
+                    "amount": deposit_amount,
+                })
+
+            # Milestone #2: Final Balance
+            if lead.final_paid:
+                items.append({
+                    "description": f"Milestone #2 Final Remaining Balance & Production Activation — {lead.tier.name} Stream",
+                    "status": "PAID",
+                    "amount": final_balance,
+                })
+            elif lead.subscription_active:
+                items.append({
+                    "description": f"Monthly Data Stream Retainer ({lead.tier.name}) — Continuous Feed Delivery",
+                    "status": "ACTIVE RECURRING",
+                    "amount": final_balance,
+                })
+            else:
+                items.append({
+                    "description": f"Milestone #2 Final Remaining Balance & Production Activation — {lead.tier.name} Stream (Due Upon ≥95% QA Gate Approval)",
+                    "status": "DUE UPON DELIVERY",
+                    "amount": final_balance,
+                })
 
         total_paid = sum(item["amount"] for item in items if "PAID" in item["status"])
+        contract_total = 1500.00 if (getattr(lead, "buyout_paid", False) or lead.tier_key == "buyout") else tier_price
+        balance_due = max(0.0, contract_total - total_paid)
 
         return {
             "invoice_number": inv_num,
@@ -695,10 +723,17 @@ class CustomerDashboardService:
             "lead_id": lead.lead_id,
             "jurisdiction": lead.jurisdiction or "Public Records Portal",
             "tier_name": lead.tier.name,
+            "tier_price_usd": tier_price,
+            "deposit_amount_usd": deposit_amount,
+            "deposit_paid": bool(lead.deposit_paid),
+            "final_paid": bool(lead.final_paid),
+            "final_balance_usd": final_balance,
+            "contract_total_usd": contract_total,
+            "balance_due_usd": balance_due,
             "items": items,
             "total_paid_usd": total_paid,
             "tax_id": "XX-XXX8921",
-            "escrow_agent": "OmniLeadFeeder Escrow Protection Protocol (PayPal Verified)",
+            "payment_guarantee": "100% Refundable Deposit Guarantee (PayPal Verified)",
             "qa_cert_hash": getattr(lead, "qa_certificate_hash", "QA-CERT-VERIFIED-100"),
         }
 
@@ -711,7 +746,7 @@ class CustomerDashboardService:
                 <td style="padding: 14px 16px; border-bottom: 1px solid #e2e8f0; font-size: 13px; color: #1e293b;">
                     <b>{item['description']}</b>
                 </td>
-                <td style="padding: 14px 16px; border-bottom: 1px solid #e2e8f0; font-size: 12px; color: #059669; font-weight: 700; font-family: monospace;">
+                <td style="padding: 14px 16px; border-bottom: 1px solid #e2e8f0; font-size: 12px; color: {'#059669' if 'PAID' in item['status'] else ('#d97706' if ('DUE' in item['status'] or 'PENDING' in item['status']) else '#475569')}; font-weight: 700; font-family: monospace;">
                     {item['status']}
                 </td>
                 <td style="padding: 14px 16px; border-bottom: 1px solid #e2e8f0; font-size: 14px; font-weight: 700; color: #0f172a; text-align: right; font-family: monospace;">
@@ -719,6 +754,13 @@ class CustomerDashboardService:
                 </td>
             </tr>
         """ for item in data["items"])
+
+        if data["final_paid"]:
+            inv_status_badge = '<span style="color:#059669; font-weight:700;">PAID IN FULL &amp; PRODUCTION ACTIVE</span>'
+        elif data["deposit_paid"]:
+            inv_status_badge = f'<span style="color:#0284c7; font-weight:700;">DOWN PAYMENT CONFIRMED (${data["deposit_amount_usd"]:.2f} CREDITED)</span>'
+        else:
+            inv_status_badge = f'<span style="color:#d97706; font-weight:700;">PENDING DOWN PAYMENT (${data["deposit_amount_usd"]:.2f})</span>'
 
         return f"""<!doctype html>
 <html lang="en">
@@ -792,7 +834,7 @@ class CustomerDashboardService:
       justify-content: flex-end;
       margin-bottom: 36px;
     }}
-    .totals-table {{ width: 280px; font-size: 14px; }}
+    .totals-table {{ width: 340px; font-size: 14px; }}
     .totals-row {{ display: flex; justify-content: space-between; padding: 6px 0; }}
     .totals-total {{ border-top: 2px solid #0f172a; padding-top: 10px; font-size: 16px; font-weight: 800; color: #059669; }}
     .footer-note {{
@@ -838,7 +880,7 @@ class CustomerDashboardService:
           <div class="inv-title">OFFICIAL RECEIPT / INVOICE</div>
           <div class="inv-meta">Invoice: <b>{data['invoice_number']}</b></div>
           <div class="inv-meta">Date: {data['date']}</div>
-          <div class="inv-meta">Status: <span style="color:#059669; font-weight:700;">PAID &amp; VERIFIED</span></div>
+          <div class="inv-meta">Status: {inv_status_badge}</div>
         </div>
       </div>
 
@@ -850,8 +892,8 @@ class CustomerDashboardService:
           <div style="font-size:11px; color:#64748b; margin-top:4px; font-family:monospace;">Feed ID: {data['lead_id']}</div>
         </div>
         <div>
-          <div class="col-title">Service &amp; Escrow Verification</div>
-          <div class="col-val">{data['tier_name']} Feed</div>
+          <div class="col-title">Service &amp; Quality Assurance</div>
+          <div class="col-val">{data['tier_name']} Feed (${data['tier_price_usd']:.2f} / mo)</div>
           <div style="font-size:12px; color:#64748b; margin-top:2px;">Source: {data['jurisdiction']}</div>
           <div style="font-size:11px; color:#059669; margin-top:4px; font-family:monospace;">QA Hash: {data['qa_cert_hash']}</div>
         </div>
@@ -873,22 +915,30 @@ class CustomerDashboardService:
       <div class="totals-box">
         <div class="totals-table">
           <div class="totals-row">
-            <span style="color:#64748b;">Subtotal:</span>
-            <span style="font-family:monospace; font-weight:600;">${data['total_paid_usd']:.2f} USD</span>
+            <span style="color:#64748b;">Monthly Plan Tier ({data['tier_name']}):</span>
+            <span style="font-family:monospace; font-weight:600;">${data['contract_total_usd']:.2f} USD</span>
           </div>
           <div class="totals-row">
-            <span style="color:#64748b;">Tax / Fees:</span>
+            <span style="color:#64748b;">Milestone Down Payment Credited:</span>
+            <span style="font-family:monospace; font-weight:600; color:#059669;">{"-" if data['deposit_paid'] else ""}${data['deposit_amount_usd']:.2f} USD</span>
+          </div>
+          <div class="totals-row">
+            <span style="color:#64748b;">Tax / State Fees:</span>
             <span style="font-family:monospace; font-weight:600;">$0.00 USD</span>
           </div>
+          <div class="totals-row" style="border-top: 1px solid #e2e8f0; padding-top: 8px; margin-top: 4px;">
+            <span style="color:#0f172a; font-weight: 700;">Total Paid to Date:</span>
+            <span style="font-family:monospace; font-weight:700; color:#059669;">${data['total_paid_usd']:.2f} USD</span>
+          </div>
           <div class="totals-row totals-total">
-            <span>Total Paid:</span>
-            <span style="font-family:monospace;">${data['total_paid_usd']:.2f} USD</span>
+            <span>Remaining Balance Due:</span>
+            <span style="font-family:monospace; color:{'#059669' if data['balance_due_usd'] == 0 else '#d97706'};">${data['balance_due_usd']:.2f} USD</span>
           </div>
         </div>
       </div>
 
       <div class="footer-note">
-        <p><b>Tax &amp; Compliance Information:</b> OmniLeadFeeder Technologies (W-9 on file). All milestone setup deposits are protected under the OmniLeadFeeder Escrow Protocol with guaranteed ≥95% schema accuracy floor.</p>
+        <p><b>Tax &amp; Compliance Information:</b> OmniLeadFeeder Technologies (W-9 on file). All milestone down payments are backed by our 100% Refundable Deposit Guarantee with a guaranteed ≥95% schema accuracy floor (auto-refunded if unfulfilled within 24 hours). 100% credited toward your Month 1 service balance.</p>
         <p style="margin-top:6px;">For accounting questions or custom purchase orders, contact <code>billing@omnileadfeeder.tech</code> or <code>operations@omnileadfeeder.tech</code>.</p>
       </div>
     </div>

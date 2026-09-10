@@ -385,7 +385,7 @@ export default function PipelineIntakePage() {
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
               </svg>
               <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                <b style={{ color: '#fff' }}>Triple-Layer Escrow Guarantee:</b> Your setup sprint requires only a <b>$99 deposit</b> held securely in third-party escrow and 100% credited toward your first month. The net balance ($151 on Production) activates only after you inspect 25 live government filings passing &ge;95% schema accuracy.
+                <b style={{ color: '#fff' }}>100% Refundable Deposit Guarantee:</b> Your setup sprint requires only a <b>$99 down payment</b>, 100% credited toward your first month. The net balance ($151 on Production) activates only after you inspect 25 live government filings passing &ge;95% schema accuracy.
               </div>
             </div>
 

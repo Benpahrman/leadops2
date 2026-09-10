@@ -222,10 +222,12 @@ class InboundEmailWatcher:
             # Check if this ignored system message is a bounce / delivery failure notification
             bounced_recipient = self.extract_bounced_email(f"{subject} {body}")
             archived_lead_id = None
+            company_name_for_bounce = ""
             if bounced_recipient and self.storage and hasattr(self.storage, "list_leads"):
                 for l in self.storage.list_leads():
                     if l.contact_email and l.contact_email.lower().strip() == bounced_recipient.lower().strip():
                         archived_lead_id = l.lead_id
+                        company_name_for_bounce = getattr(l, "company_name", "") or ""
                         l.transition(State.ARCHIVED, f"Delivery bounce received: {subject}")
                         if hasattr(self.storage, "save_lead"):
                             self.storage.save_lead(l)
@@ -233,6 +235,17 @@ class InboundEmailWatcher:
                             f"⚠️ [BOUNCE REGISTERED] Lead {l.lead_id} ({bounced_recipient}) marked ARCHIVED due to delivery failure notice."
                         )
                         break
+
+            if bounced_recipient and hasattr(self.notifier, "notify_delivery_bounce_archived"):
+                try:
+                    self.notifier.notify_delivery_bounce_archived(
+                        bounced_email=bounced_recipient,
+                        company_name=company_name_for_bounce,
+                        lead_id=archived_lead_id or "",
+                        reason=f"Delivery failure notice for {bounced_recipient} ({subject})",
+                    )
+                except Exception as bounce_err:
+                    logger.warning(f"Failed to dispatch delivery bounce notification: {bounce_err}")
 
             logger.info(
                 f"🚫 [INBOUND IGNORED] Skipping automated response for system/ignored sender '{sender}' "
@@ -290,10 +303,20 @@ class InboundEmailWatcher:
             else:
                 company_name = full_name or "your team"
 
+        lead_state_val = getattr(lead.state, "value", str(lead.state)) if lead and hasattr(lead, "state") else "CONVERSATIONAL_INTAKE"
+
         lead_context = {
             "company_name": company_name,
             "contact_name": first_name,
             "target_portal_name": getattr(lead, "target_portal_name", "") or detected_portal,
+            "jurisdiction": getattr(lead, "jurisdiction", "") or (detected_portal.split()[0] + " County" if "County" in detected_portal else detected_portal),
+            "niche": getattr(lead, "niche", "") or "Public Records & Commercial Data",
+            "state": lead_state_val,
+            "tier_key": getattr(lead, "tier_key", "weekly") if lead else "weekly",
+            "deposit_paid": getattr(lead, "deposit_paid", False) if lead else False,
+            "preferred_destination": getattr(lead, "preferred_destination", "Google Sheets / Webhook") if lead else "Google Sheets / Webhook",
+            "lead_id": getattr(lead, "lead_id", "") if lead else "",
+            "slug": getattr(lead, "slug", "") if lead else detected_slug,
         }
 
         base_url = "https://omnileadfeeder.tech"
@@ -409,13 +432,19 @@ class InboundEmailWatcher:
         try:
             self.notifier.notify_inbound_reply_received(
                 sender_email=sender,
-                sender_name=msg.get("sender_name") or "there",
-                company_name=getattr(lead, "company_name", "") or msg.get("sender_name") or sender,
+                sender_name=msg.get("sender_name") or first_name or "there",
+                company_name=company_name,
                 subject=subject,
-                reply_snippet=body[:300],
+                reply_snippet=body[:400],
                 ai_intent=intent,
                 ai_sentiment=ai_eval.get("sentiment", "NEUTRAL"),
                 ai_draft_reply=draft_reply,
+                lead_id=getattr(lead, "lead_id", ""),
+                jurisdiction=lead_context.get("jurisdiction", "") or detected_portal,
+                target_portal=lead_context.get("target_portal_name", "") or detected_portal,
+                sandbox_url=sandbox_url,
+                stage=lead_context.get("state", "CONVERSATIONAL_INTAKE"),
+                niche=lead_context.get("niche", ""),
             )
         except Exception as notify_err:
             logger.warning(f"Failed to send inbound reply notification: {notify_err}")

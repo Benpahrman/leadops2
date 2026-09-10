@@ -106,8 +106,8 @@ class AutoOutreachScheduler:
             if lead_id in self._scheduled and self._scheduled[lead_id].get("timer"):
                 try:
                     self._scheduled[lead_id]["timer"].cancel()
-                except Exception:
-                    pass
+                except Exception as ex:
+                    logger.debug(f"Failed to cancel prior timer for {lead_id}: {ex}")
 
             timer = threading.Timer(
                 self.grace_period_seconds,
@@ -154,8 +154,8 @@ class AutoOutreachScheduler:
             if entry.get("timer"):
                 try:
                     entry["timer"].cancel()
-                except Exception:
-                    pass
+                except Exception as ex:
+                    logger.debug(f"Failed to cancel timer for {lead_id}: {ex}")
 
             logger.info(f"🛑 [AUTO-OUTREACH CANCELLED] Lead {lead_id} cancelled. Reason: {reason}")
             return True
@@ -381,8 +381,8 @@ class AutoOutreachScheduler:
                         message=f"Outreach could not be dispatched for {company} ({recipient_email}):\n\n`{str(err)}`",
                         severity="WARNING",
                     )
-                except Exception:
-                    pass
+                except Exception as ex:
+                    logger.warning(f"Failed to send system alert notification: {ex}")
 
     def flush_pending_office_hours_queue(self, storage_backend: Any, notifier: Any = None) -> list[str]:
         """Flush any pending approved pitches when office hours open (8:00 AM - 5:00 PM CST)."""

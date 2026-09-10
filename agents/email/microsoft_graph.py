@@ -64,41 +64,38 @@ class MicrosoftGraphClient:
     ) -> None:
         self.client_id = (
             client_id
-            or os.environ.get("MICROSOFT_CLIENT_ID")
-            or os.environ.get("AZURE_CLIENT_ID")
-            or ""
+            if client_id is not None
+            else (os.environ.get("MICROSOFT_CLIENT_ID") or os.environ.get("AZURE_CLIENT_ID") or "")
         ).strip().strip('"\'')
 
         self.client_secret = (
             client_secret
-            or os.environ.get("MICROSOFT_CLIENT_SECRET")
-            or os.environ.get("AZURE_CLIENT_SECRET")
-            or ""
+            if client_secret is not None
+            else (os.environ.get("MICROSOFT_CLIENT_SECRET") or os.environ.get("AZURE_CLIENT_SECRET") or "")
         ).strip().strip('"\'')
 
         self.tenant_id = (
             tenant_id
-            or os.environ.get("MICROSOFT_TENANT_ID")
-            or "common"
+            if tenant_id is not None
+            else (os.environ.get("MICROSOFT_TENANT_ID") or "common")
         ).strip().strip('"\'')
 
         self.redirect_uri = (
             redirect_uri
-            or os.environ.get("MICROSOFT_REDIRECT_URI")
-            or "http://localhost:8000/api/admin/oauth/microsoft/callback"
+            if redirect_uri is not None
+            else (os.environ.get("MICROSOFT_REDIRECT_URI") or "http://localhost:8000/api/admin/oauth/microsoft/callback")
         ).strip().strip('"\'')
 
         self.account_email = (
             account_email
-            or os.environ.get("INBOX_WATCHER_EMAIL")
-            or os.environ.get("OUTLOOK_USER")
-            or "omnileadfeeder@outlook.com"
+            if account_email is not None
+            else (os.environ.get("INBOX_WATCHER_EMAIL") or os.environ.get("OUTLOOK_USER") or "omnileadfeeder@outlook.com")
         ).strip().strip('"\'')
 
         raw_refresh = (
             refresh_token
-            or os.environ.get("MICROSOFT_REFRESH_TOKEN")
-            or ""
+            if refresh_token is not None
+            else (os.environ.get("MICROSOFT_REFRESH_TOKEN") or "")
         ).strip().strip('"\'')
 
         self.env_file_path = env_file_path or (Path(__file__).parent.parent.parent / ".env")

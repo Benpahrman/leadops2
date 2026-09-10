@@ -2,6 +2,7 @@
 
 import json as json_module
 from typing import Any, Callable
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -40,9 +41,16 @@ class PayPalHttpClient:
             else json_module.dumps(json or {}).encode()
         )
         request = Request(url, data=body, headers=headers, method="POST")
-        with self.opener(request, timeout=self.timeout_seconds) as response:
-            payload = json_module_load(response)
-            return PayPalHttpResponse(response.status, payload)
+        try:
+            with self.opener(request, timeout=self.timeout_seconds) as response:
+                payload = json_module_load(response)
+                return PayPalHttpResponse(response.status, payload)
+        except HTTPError as err:
+            try:
+                payload = json_module.loads(err.read().decode("utf-8"))
+            except Exception:
+                payload = {"error": str(err), "status": err.code}
+            return PayPalHttpResponse(err.code, payload)
 
 
 class AsyncPayPalHttpClient:

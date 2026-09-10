@@ -72,8 +72,8 @@ def fetch_page_content(url: str, timeout: float = 6.0) -> dict[str, Any]:
                                     schema_meta["business_name"] = str(item["name"])
                                 if item.get("address") and isinstance(item["address"], dict):
                                     schema_meta["address"] = f"{item['address'].get('addressLocality', '')}, {item['address'].get('addressRegion', '')}".strip(", ")
-                except Exception:
-                    pass
+                except Exception as ex:
+                    logger.debug("Schema JSON-LD parsing note for %s: %s", url, ex)
 
             # Clean body text
             body_clean = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)

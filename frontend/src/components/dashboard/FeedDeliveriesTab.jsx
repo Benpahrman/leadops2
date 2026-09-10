@@ -291,11 +291,11 @@ export default function FeedDeliveriesTab({ leadId, dashState, onRefresh, token 
         <table className="data-table">
           <thead>
             <tr>
-              <th>Docket / Case ID</th>
-              <th>Primary Party / Entity</th>
-              <th>Date</th>
-              <th>Valuation / Amount</th>
-              <th>Secondary / Jurisdiction</th>
+              <th>Record / Filing ID</th>
+              <th>Primary Entity / Contractor</th>
+              <th>Date Filed / Issued</th>
+              <th>Filing Type / Scope</th>
+              <th>Address / Location</th>
               <th>Status</th>
             </tr>
           </thead>
@@ -308,11 +308,12 @@ export default function FeedDeliveriesTab({ leadId, dashState, onRefresh, token 
               </tr>
             ) : (
               filteredRecords.map((row, idx) => {
-                const idVal = row.id || row.case_number || row.permit_number || row.filing_number || Object.values(row)[0] || `REC-${idx + 1001}`;
-                const entityVal = row.primary_party || row.debtor_name || row.owner_name || row.applicant_name || Object.values(row)[1] || 'Verified Entity';
-                const dateVal = row.filing_date || row.issue_date || row.file_date || '2026-08-28';
-                const amtVal = row.amount || row.est_value || row.valuation || '$150,000';
-                const secVal = row.secondary_party || row.property_address || 'Public Registry';
+                const idVal = row.record_id || row.permit_number || row.taxpayer_number || row.job_number || row.case_number || row.filing_number || row.license_number || row.id || Object.values(row)[0] || `REC-${idx + 1001}`;
+                const entityVal = row.primary_entity || row.contractor || row.contractor_name || row.business_name || row.taxpayer_name || row.legal_name || row.primary_party || row.debtor_name || row.owner_name || row.applicant_name || Object.values(row)[1] || 'Verified Entity';
+                const rawDate = row.filing_date || row.issue_date || row.date_issued || row.valid_from_date || row.file_date || '';
+                const dateVal = rawDate ? String(rawDate).split('T')[0] : 'Recent';
+                const descVal = row.description_or_type || row.work_description || row.permit_type || row.category || row.business_activity || row.details || (row.valuation_amount || row.amount || row.est_value ? (String(row.valuation_amount || row.amount || row.est_value).startsWith('$') ? String(row.valuation_amount || row.amount || row.est_value) : `$${row.valuation_amount || row.amount || row.est_value}`) : (row.status || 'Active'));
+                const addrVal = row.property_address || row.location_address || row.address || (row.city && row.state ? `${row.city}, ${row.state}` : '') || 'Official Jurisdiction';
 
                 return (
                   <tr key={idx}>
@@ -321,10 +322,10 @@ export default function FeedDeliveriesTab({ leadId, dashState, onRefresh, token 
                     </td>
                     <td><b>{entityVal}</b></td>
                     <td><span style={{ fontFamily: 'var(--mono)' }}>{dateVal}</span></td>
-                    <td style={{ color: 'var(--green)', fontFamily: 'var(--mono)', fontWeight: 700 }}>{amtVal}</td>
-                    <td style={{ color: 'var(--text-muted)' }}>{secVal}</td>
+                    <td style={{ color: 'var(--text-dim)', fontSize: '12px' }}>{descVal}</td>
+                    <td style={{ color: 'var(--text-muted)', fontSize: '12px' }}>{addrVal}</td>
                     <td>
-                      <span className="badge-tag badge-green">DELIVERED</span>
+                      <span className="badge-tag badge-green">{row.status || 'DELIVERED'}</span>
                     </td>
                   </tr>
                 );

@@ -123,6 +123,14 @@ class PayPalWebhookAdapter:
             return PaymentEvent.FINAL_PAID
         if payment_kind == "buyout":
             return PaymentEvent.BUYOUT_PAID
+
+        # Fallback to invoice_id prefix inspection if custom_id was used for lead identification
+        invoice_id = str(resource.get("invoice_id", ""))
+        if invoice_id.startswith("setup-"):
+            return PaymentEvent.DEPOSIT_PAID
+        if invoice_id.startswith("final-"):
+            return PaymentEvent.FINAL_PAID
+
         raise ValueError("PayPal capture custom_id must be deposit, final, or buyout")
 
     @staticmethod

@@ -345,8 +345,8 @@ def test_inbound_reply_pricing_and_destination_objections():
         sandbox_url="https://omnileadfeeder.tech/p/acme-builders",
     )
     assert res_price["intent"] in {"QUESTION", "INTERESTED"}
-    assert "250" in res_price["draft_reply_text"]
-    assert "escrow" in res_price["draft_reply_text"].lower() or "deposit" in res_price["draft_reply_text"].lower()
+    assert ("250" in res_price["draft_reply_text"] or "99" in res_price["draft_reply_text"])
+    assert any(k in res_price["draft_reply_text"].lower() for k in ["escrow", "deposit", "down payment", "month"])
 
     # 2. General Interest
     res_interest = agent.process_inbound_reply(

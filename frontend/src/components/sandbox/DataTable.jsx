@@ -80,18 +80,20 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
       let valB = '';
 
       if (sortField === 'id') {
-        valA = a.id || a.case_number || a.permit_number || a.filing_number || '';
-        valB = b.id || b.case_number || b.permit_number || b.filing_number || '';
+        valA = a.record_id || a.permit_number || a.taxpayer_number || a.job_number || a.case_number || a.filing_number || a.id || '';
+        valB = b.record_id || b.permit_number || b.taxpayer_number || b.job_number || b.case_number || b.filing_number || b.id || '';
       } else if (sortField === 'entity') {
-        valA = a.primary_party || a.debtor_name || a.owner_name || a.contractor_name || a.applicant_name || '';
-        valB = b.primary_party || b.debtor_name || b.owner_name || b.contractor_name || b.applicant_name || '';
+        valA = a.primary_entity || a.contractor || a.contractor_name || a.business_name || a.taxpayer_name || a.legal_name || a.primary_party || '';
+        valB = b.primary_entity || b.contractor || b.contractor_name || b.business_name || b.taxpayer_name || b.legal_name || b.primary_party || '';
       } else if (sortField === 'date') {
-        valA = a.filing_date || a.issue_date || a.file_date || a.posted_date || '';
-        valB = b.filing_date || b.issue_date || b.file_date || b.posted_date || '';
-      } else if (sortField === 'amount') {
-        valA = parseAmt(a.amount || a.est_value || a.valuation || a.opening_bid);
-        valB = parseAmt(b.amount || b.est_value || b.valuation || b.opening_bid);
-        return sortAsc ? valA - valB : valB - valA;
+        valA = a.filing_date || a.issue_date || a.date_issued || a.valid_from_date || a.file_date || '';
+        valB = b.filing_date || b.issue_date || b.date_issued || b.valid_from_date || b.file_date || '';
+      } else if (sortField === 'details') {
+        valA = a.description_or_type || a.work_description || a.permit_type || a.category || a.business_activity || '';
+        valB = b.description_or_type || b.work_description || b.permit_type || b.category || b.business_activity || '';
+      } else if (sortField === 'address') {
+        valA = a.property_address || a.location_address || a.address || '';
+        valB = b.property_address || b.location_address || b.address || '';
       }
 
       valA = String(valA).toLowerCase();
@@ -183,8 +185,8 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
   };
 
   const hostDisplay = sourceUrl ? (() => {
-    try { return new URL(sourceUrl).hostname; } catch { return 'data.cityofchicago.org'; }
-  })() : 'data.cityofchicago.org';
+    try { return new URL(sourceUrl).hostname; } catch { return 'records.official.gov'; }
+  })() : 'records.official.gov';
 
   return (
     <div style={{ marginTop: '24px' }}>
@@ -333,20 +335,22 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
         <table className={`data-table table-interactive ${density === 'comfortable' ? 'table-comfortable' : 'table-compact'}`}>
           <thead>
             <tr>
-              <th className="sortable-th" onClick={() => handleSort('id')} style={{ width: '20%' }}>
-                Record / Docket ID {sortField === 'id' ? (sortAsc ? '▲' : '▼') : ''}
+              <th className="sortable-th" onClick={() => handleSort('id')} style={{ width: '18%' }}>
+                Record / Filing ID {sortField === 'id' ? (sortAsc ? '▲' : '▼') : ''}
               </th>
-              <th className="sortable-th" onClick={() => handleSort('entity')} style={{ width: '28%' }}>
-                Primary Party / Entity {sortField === 'entity' ? (sortAsc ? '▲' : '▼') : ''}
+              <th className="sortable-th" onClick={() => handleSort('entity')} style={{ width: '26%' }}>
+                Primary Entity / Contractor {sortField === 'entity' ? (sortAsc ? '▲' : '▼') : ''}
               </th>
-              <th className="sortable-th" onClick={() => handleSort('date')} style={{ width: '14%' }}>
-                Filing Date {sortField === 'date' ? (sortAsc ? '▲' : '▼') : ''}
+              <th className="sortable-th" onClick={() => handleSort('date')} style={{ width: '13%' }}>
+                Date Filed / Issued {sortField === 'date' ? (sortAsc ? '▲' : '▼') : ''}
               </th>
-              <th className="sortable-th" onClick={() => handleSort('amount')} style={{ width: '14%' }}>
-                Valuation / Amount {sortField === 'amount' ? (sortAsc ? '▲' : '▼') : ''}
+              <th className="sortable-th" onClick={() => handleSort('details')} style={{ width: '18%' }}>
+                Filing Type / Scope {sortField === 'details' ? (sortAsc ? '▲' : '▼') : ''}
               </th>
-              <th style={{ width: '12%' }}>Jurisdiction</th>
-              <th style={{ width: '12%', textAlign: 'right' }}>Action</th>
+              <th className="sortable-th" onClick={() => handleSort('address')} style={{ width: '16%' }}>
+                Address / Location {sortField === 'address' ? (sortAsc ? '▲' : '▼') : ''}
+              </th>
+              <th style={{ width: '9%', textAlign: 'right' }}>Official Proof</th>
             </tr>
           </thead>
           <tbody>
@@ -362,14 +366,15 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
               </tr>
             ) : (
               paginatedRows.map((row, idx) => {
-                const idVal = row.id || row.case_number || row.permit_number || row.filing_number || row.rfp_solicitation_id || Object.values(row)[0] || `REC-${1000 + idx}`;
-                const entityVal = row.primary_party || row.debtor_name || row.owner_name || row.contractor_name || row.applicant_name || Object.values(row)[1] || 'Verified Public Filing';
-                const dateVal = row.filing_date || row.issue_date || row.file_date || row.posted_date || '2026-08-28';
-                const amtVal = row.amount || row.est_value || row.valuation || row.opening_bid || '$150,000';
-                const secVal = row.secondary_party || row.property_address || row.jurisdiction || jurisdiction || 'Public Records';
-                const proofUrl = row.source_url || sourceUrl || 'https://data.cityofchicago.org';
+                const idVal = row.record_id || row.permit_number || row.taxpayer_number || row.job_number || row.case_number || row.filing_number || row.license_number || row.request_id || row.id || Object.values(row)[0] || `REC-${1000 + idx}`;
+                const entityVal = row.primary_entity || row.contractor || row.contractor_name || row.business_name || row.taxpayer_name || row.legal_name || row.primary_party || row.debtor_name || row.owner_name || row.applicant_name || Object.values(row)[1] || 'Public Entity';
+                const rawDate = row.filing_date || row.issue_date || row.date_issued || row.valid_from_date || row.file_date || row.created_date || row.posted_date || '';
+                const dateVal = rawDate ? String(rawDate).split('T')[0] : 'Recent';
+                const descVal = row.description_or_type || row.work_description || row.permit_type || row.category || row.business_activity || row.details || (row.valuation_amount || row.amount || row.est_value ? (String(row.valuation_amount || row.amount || row.est_value).startsWith('$') ? String(row.valuation_amount || row.amount || row.est_value) : `$${row.valuation_amount || row.amount || row.est_value}`) : (row.status || 'Active'));
+                const addrVal = row.property_address || row.location_address || row.address || (row.city && row.state ? `${row.city}, ${row.state}` : '') || row.jurisdiction || jurisdiction || 'Public Records';
+                const proofUrl = row.source_url || sourceUrl || 'https://data.gov';
 
-                const isCorp = /inc|llc|corp|co\.|ltd|company|contractor|roofing/i.test(String(entityVal));
+                const isCorp = /inc|llc|corp|co\.|ltd|company|contractor|roofing|plumbing|electric/i.test(String(entityVal));
 
                 return (
                   <tr
@@ -423,11 +428,13 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
                       <span style={{ fontFamily: 'var(--mono)', color: 'var(--text-muted)', fontSize: '12px' }}>{dateVal}</span>
                     </td>
                     <td>
-                      <span className="valuation-pill">{amtVal}</span>
+                      <span className="valuation-pill" style={{ maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={descVal}>
+                        {descVal}
+                      </span>
                     </td>
                     <td>
-                      <span style={{ color: 'var(--text-muted)', fontSize: '11px', display: 'inline-block', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={secVal}>
-                        {secVal}
+                      <span style={{ color: 'var(--text-muted)', fontSize: '11px', display: 'inline-block', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={addrVal}>
+                        {addrVal}
                       </span>
                     </td>
                     <td style={{ textAlign: 'right' }}>
@@ -521,7 +528,7 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
             {/* Quick Action Links */}
             <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
               <a
-                href={selectedRecord.source_url || sourceUrl || 'https://data.cityofchicago.org'}
+                href={selectedRecord.source_url || sourceUrl || 'https://data.gov'}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn btn-primary"

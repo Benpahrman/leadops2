@@ -52,8 +52,8 @@ export default function SandboxPage() {
     return () => { isMounted = false; };
   }, [slug, showToast]);
 
-  const companyName = sandboxData?.lead?.company_name || slug?.replace('lead-', '').replace(/-/g, ' ').toUpperCase() || 'YOUR COMPANY';
-  const jurisdiction = sandboxData?.lead?.jurisdiction || 'Public Records Registry';
+  const companyName = sandboxData?.company_name || sandboxData?.lead?.company_name || slug?.replace('lead-', '').replace(/-/g, ' ').toUpperCase() || 'YOUR COMPANY';
+  const jurisdiction = sandboxData?.jurisdiction || sandboxData?.lead?.jurisdiction || 'Public Records Registry';
   const sourceUrl = sandboxData?.source_url || 'https://data.gov';
   // Support both "sample" (current API) and "rows" (legacy key)
   const rows = sandboxData?.sample || sandboxData?.rows || [];
@@ -166,7 +166,7 @@ export default function SandboxPage() {
                 Start $99 Setup Sprint ➔
               </button>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-muted)' }}>
-                <span style={{ color: 'var(--green)', fontWeight: 700 }}>✓ 100% Escrow Protected</span>
+                <span style={{ color: 'var(--green)', fontWeight: 700 }}>✓ 100% Refundable Deposit Guarantee</span>
                 <span>•</span>
                 <span>$151 Balance Due on QA Pass</span>
               </div>
@@ -238,16 +238,16 @@ export default function SandboxPage() {
           </div>
         </div>
 
-        {/* Modern Escrow Milestone Pipeline Ribbon */}
+        {/* Modern Refundable Down Payment Pipeline Ribbon */}
         <div className="escrow-pipeline-bar">
           <div className="escrow-step-item">
             <div className="escrow-step-circle" style={{ background: 'rgba(56, 189, 248, 0.15)', border: '1px solid var(--cyan)', color: 'var(--cyan)' }}>
               1
             </div>
             <div>
-              <div style={{ fontSize: '13px', fontWeight: 800, color: '#fff' }}>Stage 1: $99 Setup Sprint Deposit</div>
+              <div style={{ fontSize: '13px', fontWeight: 800, color: '#fff' }}>Stage 1: $99 Refundable Down Payment</div>
               <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                100% credited toward Month 1 • Held safely in escrow
+                100% credited toward Month 1 • Fully refundable if unfulfilled
               </div>
             </div>
           </div>
@@ -345,14 +345,14 @@ export default function SandboxPage() {
             Ready to Stream These Verified Dockets Daily?
           </h3>
           <p style={{ color: 'var(--text-muted)', fontSize: '14px', margin: '8px auto 20px', maxWidth: '620px', lineHeight: 1.6 }}>
-            Lock your $99 setup sprint deposit in third-party escrow. 100% credited toward your first month ($151 balance due only after live QA passes with &gt;=95% accuracy). Auto-refunded if unfulfilled within 24 hours.
+            Authorize your $99 refundable down payment. 100% credited toward your first month ($151 balance due only after live QA passes with &gt;=95% accuracy). 100% refunded if unfulfilled within 24 hours.
           </p>
           <button
             className="btn btn-primary btn-lg"
             onClick={() => setIsCheckoutOpen(true)}
             style={{ fontWeight: 800, padding: '14px 28px' }}
           >
-            Start $99 Setup Sprint (100% Credited to Month 1) ➔
+            Start $99 Setup Sprint (Refundable Deposit) ➔
           </button>
         </div>
       </div>

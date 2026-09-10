@@ -405,6 +405,12 @@ class NotificationManager:
         ai_intent: str,
         ai_sentiment: str,
         ai_draft_reply: str,
+        lead_id: str = "",
+        jurisdiction: str = "",
+        target_portal: str = "",
+        sandbox_url: str = "",
+        stage: str = "",
+        niche: str = "",
     ) -> None:
         """Alert operator when a prospect replies to an outreach email."""
         def _send():
@@ -412,7 +418,7 @@ class NotificationManager:
             if self.discord:
                 color_map = {
                     "INTERESTED": 0x10B981,  # Emerald
-                    "QUESTION": 0x3B82F6,    # Blue
+                    "QUESTION": 0x3B82F6,    # Sky Blue
                     "OBJECTION": 0xF59E0B,   # Amber
                     "OPT_OUT": 0xEF4444,     # Crimson
                     "OUT_OF_OFFICE": 0x6B7280, # Gray
@@ -421,32 +427,68 @@ class NotificationManager:
 
                 fields = [
                     {
-                        "name": "🏢 Verified Company & Lead",
-                        "value": f"▸ **Company:** **{company_name}**\n▸ **From:** **{sender_name}** (`{sender_email}`)",
+                        "name": "🏢 Verified Company & Prospect",
+                        "value": (
+                            f"▸ **Company:** **{company_name}**\n"
+                            f"▸ **From:** **{sender_name}** (`{sender_email}`)\n"
+                            f"▸ **Stage:** `{stage or 'CONVERSATIONAL_INTAKE'}`"
+                        ),
                         "inline": True,
                     },
                     {
-                        "name": "🧠 AI Triage & Sentiment",
-                        "value": f"▸ **Intent:** `{ai_intent}`\n▸ **Sentiment:** `{ai_sentiment}`",
+                        "name": "🧠 AI Intent & Sentiment",
+                        "value": (
+                            f"▸ **Intent:** `{ai_intent}`\n"
+                            f"▸ **Sentiment:** `{ai_sentiment}`\n"
+                            f"▸ **Niche:** `{niche or 'Public Records'}`"
+                        ),
                         "inline": True,
-                    },
-                    {
-                        "name": f"💬 Prospect Message (Re: {subject})",
-                        "value": "\n".join(f"> {line}" for line in reply_snippet.strip().splitlines()[:10]) or "> (Empty message)",
-                        "inline": False,
-                    },
-                    {
-                        "name": "🤖 Alex's Autonomous AI Response",
-                        "value": f"```\n{ai_draft_reply[:600]}\n```",
-                        "inline": False,
                     },
                 ]
 
+                if jurisdiction or target_portal:
+                    fields.append({
+                        "name": "📍 Target Jurisdiction & Records",
+                        "value": (
+                            f"▸ **Region:** **{jurisdiction or 'County Records'}**\n"
+                            f"▸ **Source Portal:** {target_portal or 'Official County Court'}"
+                        ),
+                        "inline": False,
+                    })
+
+                fields.append({
+                    "name": f"💬 Prospect Message (Re: {subject})",
+                    "value": "\n".join(f"> {line}" for line in reply_snippet.strip().splitlines()[:10]) or "> (Empty message)",
+                    "inline": False,
+                })
+
+                if ai_draft_reply:
+                    fields.append({
+                        "name": "🤖 Alex's Context-Aware AI Response",
+                        "value": f"```\n{ai_draft_reply[:600]}\n```",
+                        "inline": False,
+                    })
+
+                links = []
+                if sandbox_url:
+                    links.append(f"[📊 View Live Data Sandbox]({sandbox_url})")
+                if lead_id:
+                    links.append(f"[⚡ Open in Mission Control]({self.base_url}/admin?search={lead_id})")
+                else:
+                    links.append(f"[⚡ Open Mission Control]({self.base_url}/admin?tab=inboxes)")
+
+                if links:
+                    fields.append({
+                        "name": "⚡ Operator Quick Actions",
+                        "value": " • ".join(links),
+                        "inline": False,
+                    })
+
                 self.discord.send_embed(
-                    title=f"📬 Inbound Reply: {company_name}",
+                    title=f"📬 Inbound Reply: {company_name} [{ai_intent}]",
                     description=(
                         f"### 📬 Prospect Message Received\n"
-                        f"Cloudflare routed prospect reply from `{sender_email}` for subject *{subject}*.\n"
+                        f"Inbound prospect reply from `{sender_email}` regarding *{subject}*.\n"
                         f"────────────────────────────────────────"
                     ),
                     fields=fields,
@@ -472,6 +514,68 @@ class NotificationManager:
                     f"🧠 <b>AI Intent:</b> <code>{ai_intent}</code> ({ai_sentiment})\n\n"
                     f"💬 <b>Prospect Said:</b>\n<i>\"{reply_snippet[:250]}\"</i>\n\n"
                     f"🤖 <b>Alex's Response:</b>\n<pre>{ai_draft_reply[:300]}</pre>"
+                )
+                self.telegram.send_message(msg)
+
+        self._dispatch(_send)
+
+    def notify_delivery_bounce_archived(
+        self,
+        bounced_email: str,
+        company_name: str = "",
+        lead_id: str = "",
+        reason: str = "Mailbox unavailable or invalid email address",
+    ) -> None:
+        """Alert operator when an outbound email bounces and lead is automatically quarantined to Archived Vault."""
+        def _send():
+            if self.discord:
+                fields = [
+                    {
+                        "name": "🚫 Bounced Recipient",
+                        "value": f"**Email:** `{bounced_email}`\n**Company:** **{company_name or 'Unknown'}**",
+                        "inline": True,
+                    },
+                    {
+                        "name": "📦 Reputation Shield Action",
+                        "value": "▸ **Status:** Auto-Quarantined\n▸ **Destination:** **Archived Vault**\n▸ **Deliverability:** Protected",
+                        "inline": True,
+                    },
+                    {
+                        "name": "📝 Bounce Diagnostics",
+                        "value": f"```\n{reason[:350]}\n```",
+                        "inline": False,
+                    },
+                ]
+                if lead_id:
+                    fields.append({
+                        "name": "⚡ Mission Control",
+                        "value": f"[📦 Inspect Lead in Archived Vault]({self.base_url}/admin?tab=archived&search={lead_id})",
+                        "inline": False,
+                    })
+
+                self.discord.send_embed(
+                    title=f"⚠️ Delivery Bounce Quarantined: {bounced_email}",
+                    description=(
+                        f"### 🛡️ Outbound Deliverability Shield\n"
+                        f"A delivery failure notice was received for `{bounced_email}`.\n"
+                        f"The associated prospect record was automatically archived to protect sender reputation."
+                    ),
+                    fields=fields,
+                    color=0xEF4444,  # Crimson
+                    author={
+                        "name": "LEADOPS DELIVERABILITY SHIELD",
+                        "icon_url": "https://cdn-icons-png.flaticon.com/512/564/564619.png",
+                    },
+                    footer="LeadOps • Sender Reputation Shield",
+                    channel="alerts",
+                )
+
+            if self.telegram:
+                msg = (
+                    f"⚠️ <b>Delivery Bounce Quarantined</b>\n\n"
+                    f"Recipient <code>{bounced_email}</code> bounced.\n"
+                    f"Company: {company_name or 'Unknown'}\n"
+                    f"Lead moved to Archived Vault to protect domain reputation."
                 )
                 self.telegram.send_message(msg)
 
@@ -832,7 +936,10 @@ class NotificationManager:
             company = getattr(lead, "company_name", "") or getattr(lead, "lead_id", "Client")
             portal = getattr(lead, "target_portal_name", "") or "Target Registry"
             tier = getattr(getattr(lead, "tier", None), "name", getattr(lead, "tier_key", "Standard"))
-            auto_str = "✅ Captured ($250 via PayPal Vault)" if auto_charged else "⏳ Pending Escrow Approval"
+            tier_price = (lead.tier.price_cents / 100.0) if getattr(lead, "tier", None) else 250.0
+            deposit_usd = float(getattr(lead, "deposit_amount_usd", 99.0) or 99.0)
+            final_bal = max(0.0, tier_price - deposit_usd) if getattr(lead, "tier_key", "") != "buyout" else 1500.0
+            auto_str = f"✅ Captured (${final_bal:.0f} via PayPal Vault)" if auto_charged else "⏳ Pending Final Approval"
 
             if self.discord:
                 fields = [
@@ -847,7 +954,7 @@ class NotificationManager:
                 if not auto_charged:
                     fields.append({
                         "name": "📱 Mobile 1-Tap Control",
-                        "value": f"> 🚀 **[ ➔ FORCE RELEASE & CHARGE $250 ]({delivery_url})**",
+                        "value": f"> 🚀 **[ ➔ FORCE RELEASE & CHARGE ${final_bal:.0f} ]({delivery_url})**",
                         "inline": False,
                     })
 
@@ -885,10 +992,10 @@ class NotificationManager:
                 )
                 reply_markup = None
                 if not auto_charged:
-                    msg += f"\n\n📱 <b>Mobile Action:</b> <a href=\"{delivery_url}\">Approve & Release $250</a>"
+                    msg += f"\n\n📱 <b>Mobile Action:</b> <a href=\"{delivery_url}\">Approve & Release ${final_bal:.0f}</a>"
                     reply_markup = {
                         "inline_keyboard": [
-                            [{"text": "🚀 Release Escrow & Charge $250", "url": delivery_url}]
+                            [{"text": f"🚀 Release & Charge ${final_bal:.0f}", "url": delivery_url}]
                         ]
                     }
                 self.telegram.send_message(msg, reply_markup=reply_markup)
@@ -1050,12 +1157,15 @@ class NotificationManager:
             color = 0x059669 if escrow_ready else 0xDC2626
 
             if self.discord:
+                tier_price = (lead.tier.price_cents / 100.0) if getattr(lead, "tier", None) else 250.0
+                deposit_usd = float(getattr(lead, "deposit_amount_usd", 99.0) or 99.0)
+                final_bal = max(0.0, tier_price - deposit_usd) if getattr(lead, "tier_key", "") != "buyout" else 1500.0
                 fields = [
                     {"name": "🏢 Company", "value": f"**{company}**", "inline": True},
                     {"name": "🛡️ Certified Score", "value": f"**{qa_score:.1f}%**", "inline": True},
                     {
                         "name": "💳 Milestone Auto-Charge",
-                        "value": "✅ $250 Captured (Vaulted)" if auto_charged else "⏳ Pending Review",
+                        "value": f"✅ ${final_bal:.0f} Captured (Vaulted)" if auto_charged else "⏳ Pending Review",
                         "inline": True,
                     },
                     {
@@ -1091,12 +1201,15 @@ class NotificationManager:
                 )
 
             if self.telegram:
+                tier_price = (lead.tier.price_cents / 100.0) if getattr(lead, "tier", None) else 250.0
+                deposit_usd = float(getattr(lead, "deposit_amount_usd", 99.0) or 99.0)
+                final_bal = max(0.0, tier_price - deposit_usd) if getattr(lead, "tier_key", "") != "buyout" else 1500.0
                 msg = (
                     f"🚀 <b>DEV SWARM FINISHED!</b>\n\n"
                     f"🏢 <b>Company:</b> {company}\n"
                     f"🎯 <b>Status:</b> {status_text}\n"
                     f"🛡️ <b>QA Score:</b> {qa_score:.1f}%\n"
-                    f"💳 <b>Milestone 2:</b> {'✅ Auto-Charged $250' if auto_charged else '⏳ Pending'}\n\n"
+                    f"💳 <b>Milestone 2:</b> {'✅ Auto-Charged $' + f'{final_bal:.0f}' if auto_charged else '⏳ Pending'}\n\n"
                     f"📁 <i>Scraper repository compiled & CI/CD workflow ready.</i>"
                 )
                 self.telegram.send_message(msg)
@@ -1173,8 +1286,11 @@ class NotificationManager:
         final_paid = sum(1 for l in leads if getattr(l, "final_paid", False))
         buyouts_paid = sum(1 for l in leads if getattr(l, "buyout_paid", False))
 
-        deposit_revenue = deposits_paid * 250.0
-        final_revenue = final_paid * 250.0
+        deposit_revenue = sum(float(getattr(l, "deposit_amount_usd", 99.0) or 99.0) for l in leads if getattr(l, "deposit_paid", False))
+        final_revenue = sum(
+            max(0.0, (((getattr(l.tier, "price_cents", 25000) / 100.0) if getattr(l, "tier", None) else 250.0) - float(getattr(l, "deposit_amount_usd", 99.0) or 99.0)))
+            for l in leads if getattr(l, "final_paid", False)
+        )
         buyout_revenue = buyouts_paid * 1500.0
         total_cash_collected = deposit_revenue + final_revenue + buyout_revenue
 

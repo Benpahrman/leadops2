@@ -1,6 +1,7 @@
 """AI Agent hooks for prospect website verification, outbound voice humanization, and autonomous inbound replies."""
 
 import logging
+import re
 from typing import Any
 
 from agents.llm_client import LLMAgentEngine
@@ -195,26 +196,31 @@ class InboundReplyAgent:
         conversation_history: list[dict[str, Any]] | None = None,
         initial_outreach: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Classify incoming reply and draft tailored response in Alex's voice with conversation memory."""
+        """Classify incoming reply and draft tailored response in Alex's voice with deep context awareness and conversation memory."""
         company_name = lead_context.get("company_name", "your company")
         contact_name = lead_context.get("contact_name", "there")
         portal_name = lead_context.get("target_portal_name", "public records")
+        jurisdiction = lead_context.get("jurisdiction", "")
+        niche = lead_context.get("niche", "")
+        preferred_destination = lead_context.get("preferred_destination", "Google Sheets / Webhook")
+        lead_stage = lead_context.get("state", "CONVERSATIONAL_INTAKE")
+        deposit_paid = lead_context.get("deposit_paid", False)
 
         system_prompt = (
             "You are Alex, Technical Solutions Specialist & Automation Architect at LeadOps / OmniLeadFeeder.\n"
             "A prospective commercial customer just replied to our communication regarding automated public records data feeds.\n\n"
-            "BRAND & COMMUNICATION GUIDELINES:\n"
-            "1. DYNAMIC & PERSONALIZED: NEVER use generic canned email templates or repeat the same email over and over. "
-            "Formulate a fresh, individualized response tailored specifically to the customer's exact words, questions, company, and niche.\n"
+            "BRAND & CONTEXTUAL COMMUNICATION GUIDELINES:\n"
+            "1. DEEPLY CONTEXT-AWARE & INDIVIDUALIZED: NEVER use generic canned email templates or repeat the same email over and over. "
+            "Formulate a fresh, individualized response tailored specifically to the customer's exact words, questions, company, jurisdiction, and target court/portal.\n"
             "2. CONVERSATION LOG AWARENESS: You have access to the running log of past messages in this thread (initial outreach and prior replies). "
             "Build upon the conversation naturally. If you already explained pricing or introduced yourself earlier, DO NOT repeat yourself—progress the discussion forward.\n"
-            "3. TONE & STYLE: Peer-to-peer, pragmatic engineer tone (Alex). Direct, concise, highly competent, no corporate fluff, no aggressive sales push.\n"
-            "4. CORE KNOWLEDGE BASE & FACTS:\n"
-            "   - Escrow Deposit: $250 milestone deposit held in third-party escrow while they inspect and approve the live feed (100% money back if not satisfied).\n"
-            "   - Ongoing Sync: $250–$500/mo depending on frequency and volume (cancel anytime, no annual contracts). Code buyout also available.\n"
-            "   - Data Proof: Scraped fresh from official government dockets (zero synthetic/bought lists), with a 1-click verification URL on each record.\n"
-            "   - Delivery: Streams directly to Google Sheets, CRM webhooks, or CSV exports every morning at 6:00 AM UTC.\n"
-            "   - No sign-in or sales demo required to test their sandbox.\n"
+            "3. SPECIFIC TOPIC PLAYBOOK:\n"
+            "   - Data Accuracy & Verification: Records are extracted directly from official county/court dockets (zero bought/stale lists). Each record includes a 1-click verification URL linking directly to the county filing.\n"
+            "   - Integrations & Delivery: Feeds stream daily at 6:00 AM UTC directly to Google Sheets, CRM webhooks, Zapier, Make, or CSV format.\n"
+            "   - Filtering & Columns: We customize extraction to their exact target criteria (filing types, minimum valuations, zoning, dates) and format columns to their exact CRM schema.\n"
+            "   - Pricing & Risk-Free Setup: Setup is just a $99 refundable down payment (100% credited toward your Month 1 balance). If our autonomous dev swarm doesn't deliver verified live data with >=95% accuracy within 24 hours, the deposit is refunded in full. Ongoing sync is $250–$500/mo depending on cadence (cancel anytime, zero contracts). NEVER use confusing escrow terminology—explain it simply as a $99 refundable down payment with a 24-hour guarantee.\n"
+            "   - Live Sandbox: Direct them to inspect their company's live interactive sandbox preview (no login or sales call required).\n"
+            "4. TONE & STYLE: Peer-to-peer, pragmatic engineer tone (Alex). Direct, concise, highly competent, zero corporate fluff, zero high-pressure sales tactics.\n"
             "5. LENGTH: Under 85 words. End with a natural, low-friction question.\n"
             "6. BANNED VOCABULARY: NEVER use the word 'quick' (e.g. do not say 'quick question', 'quick call', 'quick note', 'take a quick look'). Be direct and natural.\n"
             "7. Output STRICT JSON ONLY."
@@ -233,8 +239,25 @@ class InboundReplyAgent:
                 if draft:
                     history_lines.append(f"Alex (Prior Reply): {draft[:300]}")
 
+        dossier_items = [
+            f"- Company: {company_name}",
+            f"- Contact: {contact_name}",
+            f"- Primary Data Source / Portal: {portal_name}",
+        ]
+        if jurisdiction:
+            dossier_items.append(f"- Target Jurisdiction: {jurisdiction}")
+        if niche:
+            dossier_items.append(f"- Industry / Niche: {niche}")
+        if preferred_destination:
+            dossier_items.append(f"- Preferred Delivery Destination: {preferred_destination}")
+        if lead_stage:
+            dossier_items.append(f"- Pipeline Stage: {lead_stage}")
+        dossier_items.append(f"- Down Payment Status: {'Paid' if deposit_paid else 'Unpaid ($99 refundable down payment upon setup)'}")
+        if sandbox_url:
+            dossier_items.append(f"- Live Interactive Sandbox URL: {sandbox_url}")
+
         prompt_sections = [
-            f"Lead Context:\n- Company: {company_name}\n- Contact: {contact_name}\n- Portal / Data Source: {portal_name}\n- Live Sandbox URL: {sandbox_url}"
+            "Prospect Dossier & Context:\n" + "\n".join(dossier_items)
         ]
         if history_lines:
             prompt_sections.append("Running Conversation Log:\n" + "\n".join(history_lines))
@@ -262,7 +285,7 @@ class InboundReplyAgent:
         if not res or not isinstance(res, dict):
             # Fallback
             inbound_lower = inbound_text.lower()
-            p_clean = (portal_name or "Public Records").strip()
+            p_clean = (portal_name or jurisdiction or "Public Records").strip()
             if p_clean.lower().endswith(("records", "filings", "permits", "dockets")):
                 portal_phrase = p_clean
             else:
@@ -283,11 +306,12 @@ class InboundReplyAgent:
 
             # Delivery & integration inquiry fallback
             if any(w in inbound_lower for w in ["webhook", "zapier", "make", "sheet", "crm", "destination", "format"]):
+                dest_label = preferred_destination if preferred_destination else "Google Sheets or webhook"
                 return {
                     "intent": "QUESTION",
                     "sentiment": "POSITIVE",
                     "draft_subject": f"Re: {inbound_subject}",
-                    "draft_reply_text": f"Hi {contact_name},\n\nYes, absolutely. We can stream records directly via webhook (JSON POST payload) or sync daily to Google Sheets at 6:00 AM UTC. We can easily map the payload to your Zapier or CRM endpoint.\n\nHere is your live sandbox to inspect the field structure:\n{active_url}\n\nBest,\nAlex | LeadOps",
+                    "draft_reply_text": f"Hi {contact_name},\n\nYes, absolutely. We stream records directly to {dest_label} every morning at 6:00 AM UTC. We can easily format the JSON or sheet columns to match your exact endpoint schema.\n\nHere is your live sandbox to inspect the field structure:\n{active_url}\n\nBest,\nAlex | LeadOps",
                     "should_auto_send": False,
                     "summary": "Prospect inquired about webhook and data delivery integrations",
                 }
@@ -304,12 +328,12 @@ class InboundReplyAgent:
                 }
 
             # Pricing inquiry fallback
-            if any(w in inbound_lower for w in ["cost", "price", "pricing", "how much", "deposit", "escrow"]):
+            if any(w in inbound_lower for w in ["cost", "price", "pricing", "how much", "deposit", "down payment"]):
                 return {
                     "intent": "QUESTION",
                     "sentiment": "NEUTRAL",
                     "draft_subject": f"Re: {inbound_subject}",
-                    "draft_reply_text": f"Hi {contact_name},\n\nSetup is a 50% milestone deposit of $250, held in third-party escrow while you inspect and approve your live feed. Ongoing sync is $250-$500/mo depending on frequency, cancel anytime.\n\nYou can review your company's live preview here:\n{active_url}\n\nBest,\nAlex | LeadOps",
+                    "draft_reply_text": f"Hi {contact_name},\n\nSetup is just a $99 refundable down payment, 100% credited toward Month 1 (and 100% refunded if you don't approve the live feed for {company_name}). Ongoing sync is $250-$500/mo depending on frequency, cancel anytime.\n\nYou can review your company's live preview here:\n{active_url}\n\nBest,\nAlex | LeadOps",
                     "should_auto_send": False,
                     "summary": "Prospect inquired about pricing",
                 }

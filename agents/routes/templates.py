@@ -1,7 +1,7 @@
 import os
 import re
 
-DEFAULT_DEV_PAYPAL_ID = "BAAG2_UJT4CA2NwILo-DEMXNRsmwUQxfE8JDUOTMIynLP5Zg4bbOSefutaIQ_Zkd7aBP2yXC7fhYgbR6J0"
+DEFAULT_DEV_PAYPAL_ID = "BAAa18mhTonKniN6UJij6PasfiTBu0_sQgMKP9XwyMeXtBurHvoUD4YkDD09KTmC8RHwVTpOW_qbqalGkY"
 DEFAULT_DEV_CLERK_PK = "pk_live_Y2xlcmsub21uaWxlYWRmZWVkZXIudGVjaCQ"
 
 SPA_INDEX_PATH = os.path.join(
@@ -13,10 +13,10 @@ SPA_INDEX_PATH = os.path.join(
 
 def render_react_spa(lead_data: dict | None = None, slug: str | None = None) -> str:
     """Returns compiled React Single Page App index.html with environment keys injected."""
-    paypal_mode = os.environ.get("PAYPAL_MODE", "sandbox").lower()
     paypal_client_id = (
-        (os.environ.get("PAYPAL_LIVE_CLIENT_ID") if paypal_mode == "live" else None)
+        os.environ.get("PAYPAL_LIVE_CLIENT_ID")
         or os.environ.get("PAYPAL_CLIENT_ID")
+        or os.environ.get("VITE_PAYPAL_CLIENT_ID")
         or DEFAULT_DEV_PAYPAL_ID
     )
     clerk_pk = (

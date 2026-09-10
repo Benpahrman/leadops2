@@ -283,8 +283,8 @@ async def extract_page_records(page: Page, primary_selector: str, field_mapping:
                     el = await row_el.query_selector(sel)
                     if el:
                         val = (await el.inner_text()).strip()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Selector lookup note for %s: %s", sel, e)
             if not val and idx < len(cell_texts):
                 val = cell_texts[idx]
             row_data[field_name] = val

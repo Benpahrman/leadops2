@@ -187,8 +187,8 @@ def test_webhook_connection(webhook_url: str, secret_token: str | None = None, s
             try:
                 body_bytes = resp.read(512)
                 body_preview = body_bytes.decode("utf-8", errors="ignore").strip()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Failed reading response preview bytes: %s", exc)
 
             is_success = (200 <= status_code < 300)
             return {
@@ -203,8 +203,8 @@ def test_webhook_connection(webhook_url: str, secret_token: str | None = None, s
         body_preview = ""
         try:
             body_preview = e.read(512).decode("utf-8", errors="ignore").strip()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed reading error response preview: %s", exc)
         return {
             "ok": False,
             "status_code": e.code,
@@ -366,8 +366,8 @@ def _extract_status_code(response: Any) -> int:
             val = response.getcode()
             if isinstance(val, int):
                 return val
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Failed calling response.getcode(): %s", exc)
     return 200
 
 

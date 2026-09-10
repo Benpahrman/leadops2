@@ -713,13 +713,13 @@ def trigger_admin_swarm_build(
     try:
         sandboxes = storage_backend.list_sandboxes()
         sandbox = next((s for s in sandboxes if getattr(s, "lead", None) and s.lead.lead_id == lead_id), None)
-    except Exception:
-        pass
+    except Exception as ex:
+        logger.debug(f"Storage backend list_sandboxes note: {ex}")
     if not sandbox and hasattr(portal_service, "get_sandbox") and (lead.slug or lead_id):
         try:
             sandbox = portal_service.get_sandbox(lead.slug or lead_id)
-        except Exception:
-            pass
+        except Exception as ex:
+            logger.debug(f"Portal service get_sandbox note: {ex}")
     slug = sandbox.slug if sandbox else (lead.slug or lead.lead_id)
 
     def _run_build():
@@ -911,13 +911,13 @@ def draft_lead_email(
     try:
         sandboxes = storage_backend.list_sandboxes()
         sandbox = next((s for s in sandboxes if getattr(s, "lead", None) and s.lead.lead_id == lead_id), None)
-    except Exception:
-        pass
+    except Exception as ex:
+        logger.debug(f"Storage backend list_sandboxes note: {ex}")
     if not sandbox and hasattr(portal_service, "get_sandbox") and (lead.slug or lead_id):
         try:
             sandbox = portal_service.get_sandbox(lead.slug or lead_id)
-        except Exception:
-            pass
+        except Exception as ex:
+            logger.debug(f"Portal service get_sandbox note: {ex}")
     slug = sandbox.slug if (sandbox and sandbox.slug) else (lead.slug or lead_id)
     base_url = os.environ.get("LEADOPS_PUBLIC_BASE_URL", "https://omnileadfeeder.tech").rstrip("/")
     sandbox_url = f"{base_url}/p/{slug}"
@@ -1206,9 +1206,9 @@ def trigger_test_notification_preview(
     elif preview_type == "revenue":
         notification_manager.notify_payment_received(
             sample_lead,
-            amount_usd=250.00,
-            payment_type="Deployment Deposit",
-            provider="Stripe",
+            amount_usd=99.00,
+            payment_type="Setup Sprint Refundable Down Payment",
+            provider="PayPal",
             transaction_id="ch_3N8vKjL2k9p0Xy",
         )
     elif preview_type == "dev":
@@ -1236,7 +1236,20 @@ def trigger_test_notification_preview(
             reply_snippet="Sounds interesting. Can you send over the sample data and pricing details?",
             ai_intent="INTERESTED",
             ai_sentiment="POSITIVE",
-            ai_draft_reply="Hi Michael, Absolutely! I've prepared a sandbox with 25 live verified records for Harris County. You can view the live feed here...",
+            ai_draft_reply="Hi Michael, absolutely — I've prepared a sandbox with 25 live verified records from Harris County Probate Court. Every row has a 1-click link to verify against the official registry.\n\nHere is your live sandbox to inspect:\nhttps://omnileadfeeder.tech/p/harris-civil-court-filings\n\nSetup is just a $99 Setup Sprint deposit held in third-party escrow while you inspect and approve your live feed (100% credited toward your Month 1 subscription). Does this structure match what your team needs?\n\nBest,\nAlex | LeadOps",
+            lead_id="lead-apex-title-tx",
+            jurisdiction="Harris County, TX",
+            target_portal="Harris County Probate Court",
+            sandbox_url="https://omnileadfeeder.tech/p/harris-civil-court-filings",
+            stage="CONVERSATIONAL_INTAKE",
+            niche="Probate & Title Research",
+        )
+    elif preview_type == "bounce":
+        notification_manager.notify_delivery_bounce_archived(
+            bounced_email="invalid.contact@nonexistent-domain.com",
+            company_name="Vanguard Escrow Partners",
+            lead_id="lead-vanguard-escrow",
+            reason="550 5.1.1 The email account that you tried to reach does not exist. Please try double-checking the recipient's email address for typos.",
         )
     else:
         notification_manager.notify_system_alert(
@@ -1421,7 +1434,10 @@ def handle_mobile_quick_action(
         lead.record_payment(PaymentEvent.SUBSCRIPTION_ACTIVE)
         storage_backend.save_lead(lead)
         title = "Live Feed Delivery & Milestone Approved"
-        description = f"Delivery confirmed for <b>{lead.company_name}</b>. Final $250 captured and ongoing subscription activated."
+        tier_price = (lead.tier.price_cents / 100.0) if getattr(lead, "tier", None) else 250.0
+        deposit_usd = float(getattr(lead, "deposit_amount_usd", 99.0) or 99.0)
+        final_bal = max(0.0, tier_price - deposit_usd) if getattr(lead, "tier_key", "") != "buyout" else 1500.0
+        description = f"Delivery confirmed for <b>{lead.company_name}</b>. Final ${final_bal:.2f} captured and ongoing subscription activated."
         status_icon = "🎉"
         badge_color = "#10B981"
 
@@ -1597,7 +1613,7 @@ def list_admin_inboxes(
 
     settings = EmailSettings.from_environment()
     warmup = WarmupManager(settings=settings, storage_backend=storage_backend)
-    all_accounts = warmup.get_all_configured_accounts()
+    all_accounts = warmup.get_all_configured_accounts(outbound_only=True)
 
     inbox_list = []
     for acc in all_accounts:

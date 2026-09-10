@@ -27,14 +27,14 @@ export default function TermsPage() {
 
           <section>
             <h2 style={{ fontSize: '18px', fontWeight: 800, color: '#fff', marginBottom: '8px' }}>
-              2. 100% Escrow Milestone Guarantee
+              2. 100% Refundable Deposit &amp; Milestone Guarantee
             </h2>
             <p>
-              All custom extractor builds adhere to an escrow-protected two-milestone schedule:
+              All custom extractor builds adhere to a risk-free two-milestone schedule:
             </p>
             <ul style={{ paddingLeft: '20px', marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <li>
-                <b>Milestone #1 ($99.00 USD):</b> Setup sprint deposit locked in escrow upon order initiation. 100% credited toward Month 1. Authorizes initial DOM AST analysis, residential proxy provisioning, and crawler synthesis.
+                <b>Milestone #1 ($99.00 USD):</b> Refundable setup sprint down payment upon order initiation. 100% credited toward Month 1. Authorizes initial DOM AST analysis, residential proxy provisioning, and crawler synthesis.
               </li>
               <li>
                 <b>Milestone #2 ($151.00 USD):</b> Final balance payable <i>only after</i> the Independent QA Gatekeeper and Client verify live, accurate records against the authentic public registry (&gt;=95.0% QA Score). Total Month 1: $250.00 USD.

@@ -229,8 +229,8 @@ class WarmupManager:
         if inbox_cfg and not warmup_start and inbox_cfg.warmup_start_date:
             try:
                 warmup_start = datetime.fromisoformat(inbox_cfg.warmup_start_date.replace("Z", "+00:00"))
-            except Exception:
-                pass
+            except Exception as ex:
+                logger.debug(f"Failed to parse warmup_start_date '{inbox_cfg.warmup_start_date}': {ex}")
 
         tier = self.get_warmup_tier(warmup_start)
         daily_quota = inbox_cfg.daily_limit if (inbox_cfg and inbox_cfg.daily_limit and inbox_cfg.daily_limit != 25) else tier.daily_quota

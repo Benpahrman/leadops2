@@ -474,7 +474,7 @@ def render_escrow_ready_email(
     qa_score: float = 98.5,
     sample_count: int = 25,
     tier_name: str = "Daily Sync",
-    final_balance_usd: float = 250.0,
+    final_balance_usd: float = 151.0,
     base_url: str = "http://127.0.0.1:8000",
     contact_name: str = "there",
 ) -> PitchMessage:
@@ -491,9 +491,9 @@ def render_escrow_ready_email(
         f"• Verified Sample Output: {sample_count} live records extracted and schema-validated\n"
         f"• Extraction Routine: Anti-bot verified Playwright crawler\n"
         f"• Tier: {tier_name}\n\n"
-        f"Review your live 25-row Escrow Preview here:\n{sandbox_url}\n\n"
+        f"Review your live 25-row Verified Preview here:\n{sandbox_url}\n\n"
         f"Next Step for Live Deployment & Subscription:\n"
-        f"Complete your final 50% milestone payment (${final_balance_usd:.2f}) to activate your live data feed "
+        f"Complete your final milestone payment (${final_balance_usd:.2f}) to activate your live data feed "
         f"and initiate your {tier_name} subscription with automated destination delivery (Google Sheets / Webhook).\n\n"
         f"Best,\nAlex | LeadOps Automation Engineering"
     )
@@ -507,10 +507,10 @@ def render_escrow_ready_email(
         f"<p style='margin: 0 0 6px;'><strong>QA Quality Score:</strong> <span style='color: #10b981; font-weight: bold;'>{qa_score:.1f}% PASSED</span></p>"
         f"<p style='margin: 0 0 6px;'><strong>Verified Records:</strong> {sample_count} live records mapped to schema</p>"
         f"<p style='margin: 0 0 6px;'><strong>Pipeline Tier:</strong> {tier_name}</p>"
-        f"<p style='margin: 0;'><strong>Escrow Status:</strong> Milestone 1 Verified & Locked</p>"
+        f"<p style='margin: 0;'><strong>Status:</strong> Milestone 1 Verified &amp; Down Payment Credited</p>"
         f"</div>"
-        f"<p>You can review all {sample_count} extracted rows in your Escrow Sandbox:</p>"
-        f"<p style='margin: 24px 0;'><a href='{sandbox_url}' style='background: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; font-weight: bold; border-radius: 6px; display: inline-block;'>Review Escrow Sample & Unlock Feed</a></p>"
+        f"<p>You can review all {sample_count} extracted rows in your Live Sandbox:</p>"
+        f"<p style='margin: 24px 0;'><a href='{sandbox_url}' style='background: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; font-weight: bold; border-radius: 6px; display: inline-block;'>Review Verified Sample &amp; Unlock Feed</a></p>"
         f"<p>Once you verify the data, complete your final milestone payment (<strong>${final_balance_usd:.2f}</strong>) to activate live feed delivery and start your <strong>{tier_name}</strong> recurring subscription.</p>"
         f"<hr style='border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;' />"
         f"<p style='font-size: 13px; color: #6b7280;'>OmniLeadFeeder Automation Engineering • Support: support@omnileadfeeder.tech</p>"
@@ -532,7 +532,7 @@ def render_deposit_confirmation_email(
     company_name: str,
     lead_id: str,
     slug: str,
-    deposit_amount: float = 250.0,
+    deposit_amount: float = 99.0,
     tier_name: str = "Daily Sync",
     monthly_price: float = 495.0,
     base_url: str = "http://127.0.0.1:8000",
@@ -548,10 +548,10 @@ def render_deposit_confirmation_email(
     
     body_text = (
         f"Hi {contact_name},\n\n"
-        f"Thank you! We've confirmed your ${deposit_amount:.2f} milestone deposit for {company_name}.\n\n"
+        f"Thank you! We've confirmed your ${deposit_amount:.2f} Setup Sprint deposit for {company_name}.\n\n"
         f"📋 Build Receipt:\n"
-        f"• Deposit Amount: ${deposit_amount:.2f} (50% of build cost)\n"
-        f"• Tier: {tier_name} (${monthly_price:.2f}/mo after final payment)\n"
+        f"• Deposit Amount: ${deposit_amount:.2f} (100% credited toward Month 1 balance)\n"
+        f"• Tier: {tier_name} (${monthly_price:.2f}/mo after final verification)\n"
         f"• Build Status: Autonomous Dev Swarm initiated\n"
         f"• Estimated Completion: 4-6 hours\n\n"
         f"🤖 What's happening now:\n"
@@ -561,7 +561,7 @@ def render_deposit_confirmation_email(
         f"1. Live progress updates in your portal (terminal view)\n"
         f"2. QA Gatekeeper validation (25 sample rows against live public records)\n"
         f"3. Escrow Preview ready for your review\n"
-        f"4. Final milestone payment (${deposit_amount:.2f}) to activate live feed + subscription\n\n"
+        f"4. Remaining Month 1 balance payment ($151.00 net) to activate live feed + subscription\n\n"
         f"Questions? Reply to this email — I'm monitoring this build personally.\n\n"
         f"Best,\nAlex | LeadOps Automation Engineering"
     )
@@ -570,10 +570,10 @@ def render_deposit_confirmation_email(
         f"<div style='font-family: Arial, sans-serif; line-height: 1.6; color: #222; max-width: 600px;'>"
         f"<h2 style='color: #1a1a1a;'>🎉 Deposit Confirmed — Build Started for {company_name}</h2>"
         f"<p>Hi {contact_name},</p>"
-        f"<p>Thank you! We've confirmed your <strong>${deposit_amount:.2f} milestone deposit</strong> for <strong>{company_name}</strong>.</p>"
+        f"<p>Thank you! We've confirmed your <strong>${deposit_amount:.2f} Setup Sprint deposit</strong> for <strong>{company_name}</strong>.</p>"
         f"<div style='background: #f0fdf4; border-left: 4px solid #22c55e; padding: 15px; margin: 20px 0; border-radius: 4px;'>"
         f"<p style='margin: 0 0 6px;'><strong>📋 Build Receipt:</strong></p>"
-        f"<p style='margin: 0 0 6px;'><strong>Deposit Amount:</strong> ${deposit_amount:.2f} (50% of build cost)</p>"
+        f"<p style='margin: 0 0 6px;'><strong>Deposit Amount:</strong> ${deposit_amount:.2f} (100% credited toward Month 1)</p>"
         f"<p style='margin: 0 0 6px;'><strong>Tier:</strong> {tier_name} (${monthly_price:.2f}/mo after final payment)</p>"
         f"<p style='margin: 0 0 6px;'><strong>Build Status:</strong> <span style='color: #2563eb; font-weight: bold;'>Autonomous Dev Swarm Initiated</span></p>"
         f"<p style='margin: 0;'><strong>Estimated Completion:</strong> 4-6 hours</p>"
@@ -587,7 +587,7 @@ def render_deposit_confirmation_email(
         f"<li>Live progress updates in your portal (terminal view)</li>"
         f"<li>QA Gatekeeper validation (25 sample rows against live public records)</li>"
         f"<li>Escrow Preview ready for your review</li>"
-        f"<li>Final milestone payment (${deposit_amount:.2f}) to activate live feed + subscription</li>"
+        f"<li>Remaining Month 1 balance ($151.00 net) to activate live feed + subscription</li>"
         f"</ol>"
         f"<p>Questions? Reply to this email — I'm monitoring this build personally.</p>"
         f"<hr style='border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;' />"
@@ -615,7 +615,7 @@ def send_deposit_confirmation_email(
     company = lead.company_name or f"Lead {lead.lead_id}"
     tier_name = lead.tier.name
     monthly_price = lead.tier.price_cents / 100.0
-    deposit_amount = 250.0
+    deposit_amount = getattr(lead, "deposit_amount_usd", 99.0) or 99.0
 
     pitch = render_deposit_confirmation_email(
         company_name=company,
@@ -663,8 +663,8 @@ def send_deposit_confirmation_email(
                 status="DELIVERED",
                 metadata={"variant": variant, "deposit_amount": deposit_amount},
             )
-        except Exception:
-            pass
+        except Exception as ex:
+            log.debug(f"Audit vault record_communication note: {ex}")
         return {"status": "sent", "result": result, "email": recipient_email, "variant": variant}
     except Exception as e:
         log.warning(f"Native email deposit confirmation failed ({e}). Logged mock notification payload.")
@@ -706,7 +706,8 @@ def send_escrow_ready_notification(
     company = lead.company_name or f"Lead {lead.lead_id}"
     qa_score = lead.qa_score or 98.5
     preview_count = lead.preview_rows or 25
-    final_balance = (lead.tier.price_cents / 100.0) / 2.0 if lead.tier_key != "buyout" else 1500.0
+    deposit_usd = float(getattr(lead, "deposit_amount_usd", 99.0) or 99.0)
+    final_balance = max(0.0, (lead.tier.price_cents / 100.0) - deposit_usd) if lead.tier_key != "buyout" else 1500.0
 
     pitch = render_escrow_ready_email(
         company_name=company,
@@ -770,10 +771,10 @@ LIFECYCLE_EMAIL_TEMPLATES = [
     ),
     EmailTemplate(
         name="deposit_confirmation",
-        subject_template="Deposit confirmed & build underway for {company_name} [LeadOps]",
+        subject_template="Down payment confirmed & build underway for {company_name} [LeadOps]",
         prompt_template=(
             "Write a clear, friendly confirmation email from Alex at LeadOps to {contact_name} at {company_name}. "
-            "Confirm their $250.00 setup deposit is safely held in third-party escrow. "
+            "Confirm their $99.00 refundable setup down payment is safely received (100% credited toward Month 1). "
             "Let them know our engineering team is actively building and verifying their live extraction routine. "
             "Include sandbox tracking URL: {sandbox_url}. Tone: warm, reassuring, professional."
         ),
@@ -785,7 +786,7 @@ LIFECYCLE_EMAIL_TEMPLATES = [
         prompt_template=(
             "Write an authentic update email from Alex at LeadOps to {contact_name} at {company_name}. "
             "Share the good news that their custom extractor completed testing and passed QA verification with 100% schema accuracy. "
-            "Invite them to review their live escrow preview and approve delivery at {sandbox_url}. Keep it conversational and concise."
+            "Invite them to review their live customer preview and approve delivery at {sandbox_url}. Keep it conversational and concise."
         ),
         variables=["company_name", "contact_name", "sandbox_url"],
     ),
@@ -870,12 +871,12 @@ LIFECYCLE_EMAIL_TEMPLATES = [
     EmailTemplate(
         name="winback_2",
         trigger_condition="no_login_7_days",
-        subject_template="LeadOps Escrow & 95% QA Guarantee for {company_name}",
+        subject_template="LeadOps 100% Refundable Deposit & 95% QA Guarantee for {company_name}",
         prompt_template=(
             "Write a reassuring check-in email from Alex to {contact_name} at {company_name}. "
             "They set up their sandbox 7 days ago. Address objections: explain our 95% QA accuracy guarantee "
-            "and highlight that their $250 setup deposit is held securely in third-party escrow (fully refundable if QA fails). "
-            "Keep it under 100 words. Reassuring, professional tone. "
+            "and highlight that their $99 setup sprint down payment is 100% refundable if QA fails, and 100% credited to Month 1. "
+            "Never use confusing escrow terminology. Keep it under 100 words. Reassuring, professional tone. "
             "Include sandbox URL: {sandbox_url}."
         ),
         variables=["company_name", "contact_name", "sandbox_url"],
@@ -887,7 +888,7 @@ LIFECYCLE_EMAIL_TEMPLATES = [
         prompt_template=(
             "Write a final notice check-in email from Alex to {contact_name} at {company_name}. "
             "It has been 14 days of inactivity. Let them know their custom sandbox configuration "
-            "is scheduled to expire and be archived. Offer a final opportunity to secure their setup for a $250 deposit before deletion. "
+            "is scheduled to expire and be archived. Offer a final opportunity to secure their setup for a $99 deposit before deletion. "
             "Keep it under 100 words. Direct, respectful tone. "
             "Include sandbox URL: {sandbox_url}."
         ),
@@ -980,9 +981,9 @@ LIFECYCLE_EMAIL_TEMPLATES = [
         prompt_template=(
             "Write a reassuring follow-up email from Alex to {contact_name} at {company_name}. "
             "They started the checkout process for their {niche} data pipeline from {jurisdiction} "
-            "but didn't complete payment. Reassure them: the $250 deposit is held in third-party escrow, "
-            "fully refundable if our extractor doesn't meet 95% QA accuracy. Zero risk. "
-            "Keep it under 90 words. Reassuring, low-pressure tone. "
+            "but didn't complete payment. Reassure them: the $99 Setup Sprint down payment is 100% credited to Month 1, "
+            "and 100% refundable if our extractor doesn't meet 95% QA accuracy within 24 hours. Zero risk. "
+            "Never use confusing escrow terminology. Keep it under 90 words. Reassuring, low-pressure tone. "
             "Include sandbox URL: {sandbox_url}."
         ),
         variables=["company_name", "contact_name", "niche", "jurisdiction", "sandbox_url"],
@@ -1053,7 +1054,7 @@ class LifecycleEmailGenerator:
             ),
             "deposit_confirmation": (
                 f"Hi {variables.get('contact_name', 'there')},\n\n"
-                f"Your 50% milestone setup deposit of $250.00 has been verified and locked in escrow for {variables.get('company_name', 'your company')}.\n\n"
+                f"Your Setup Sprint refundable down payment of $99.00 has been confirmed for {variables.get('company_name', 'your company')} (100% credited toward your Month 1 subscription).\n\n"
                 f"The 7-agent dev swarm is now compiling your extractor.\n\n"
                 f"Track live: {variables.get('sandbox_url', '#')}\n\n"
                 f"Best,\nAlex | LeadOps"
@@ -1076,7 +1077,7 @@ class LifecycleEmailGenerator:
                 f"Niche: {variables.get('niche', 'N/A')}\n"
                 f"Portal: {variables.get('portal_name', 'N/A')}\n"
                 f"Tier: {variables.get('tier_name', 'N/A')}\n\n"
-                f"Next steps: approve scope → deposit → dev swarm build → QA → escrow preview → final payment → delivery.\n\n"
+                f"Next steps: approve scope → refundable down payment → dev swarm build → QA → verified preview → final payment → delivery.\n\n"
                 f"Track progress: {variables.get('sandbox_url', '#')}\n\n"
                 f"Best,\nAlex | LeadOps"
             ),
@@ -1253,8 +1254,8 @@ def send_lifecycle_email(
                 status="DELIVERED",
                 metadata={"template": template_name},
             )
-        except Exception:
-            pass
+        except Exception as ex:
+            log.debug(f"Audit vault lifecycle email record note: {ex}")
         return {"status": "sent", "result": result, "email": recipient_email, "template": template_name}
     except Exception as e:
         log.warning(f"Native lifecycle email failed ({e}). Logged mock notification payload.")

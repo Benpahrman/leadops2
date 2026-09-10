@@ -88,7 +88,7 @@ class PortalService:
                 f"Our autonomous crawler has already built a live sample feed for your pipeline.\n\n"
                 f"Review your interactive data sandbox and test custom schema fields here:\n"
                 f"http://127.0.0.1:8000/p/{slug}\n\n"
-                f"Once you approve the schema, lock in your 50% milestone deposit ($250) to deploy your production feed.\n\n"
+                f"Once you approve the schema, lock in your $99 refundable down payment (100% credited toward Month 1) to deploy your production feed.\n\n"
                 f"Best,\n"
                 f"Alex | LeadOps Automation Engineering"
             )

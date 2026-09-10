@@ -124,8 +124,8 @@ def _decode_yahoo_url(url: str) -> str:
     if match:
         try:
             return urllib.parse.unquote(match.group(1))
-        except Exception:
-            pass
+        except Exception as ex:
+            logger.debug("Yahoo redirect unquote note for %s: %s", url, ex)
     return url
 
 

@@ -277,53 +277,55 @@ class EmailClient:
         }
         start_time = time.time()
 
-        # 1. Test SMTP connection & auth
-        smtp_hosts_to_try = [inbox.smtp_host] if inbox.smtp_host else []
-        if inbox.provider == "zoho":
-            for h in ["smtp.zoho.com", "smtppro.zoho.com"]:
-                if h not in smtp_hosts_to_try:
-                    smtp_hosts_to_try.append(h)
-        elif inbox.provider in ("outlook", "office365", "microsoft") or any(inbox.email_address.lower().endswith(d) for d in ("@outlook.com", "@hotmail.com", "@live.com", "@office365.com")):
-            for h in ["smtp-mail.outlook.com", "smtp.office365.com"]:
-                if h not in smtp_hosts_to_try:
-                    smtp_hosts_to_try.append(h)
-        elif not smtp_hosts_to_try:
-            smtp_hosts_to_try = [self.settings.smtp_host]
-
-        last_smtp_err = ""
-        for host in smtp_hosts_to_try:
-            try:
-                if not host:
-                    continue
-                if inbox.smtp_use_ssl:
-                    context = ssl.create_default_context()
-                    with smtplib.SMTP_SSL(host, inbox.smtp_port, context=context, timeout=10) as s:
-                        s.login(inbox.email_address, inbox.password)
-                else:
-                    with smtplib.SMTP(host, inbox.smtp_port, timeout=10) as s:
-                        s.ehlo()
-                        if inbox.smtp_use_tls:
-                            context = ssl.create_default_context()
-                            s.starttls(context=context)
-                            s.ehlo()
-                        s.login(inbox.email_address, inbox.password)
-                results["smtp_ok"] = True
-                results["smtp_message"] = f"SMTP connected and authenticated successfully ({host}:{inbox.smtp_port})"
-                inbox.smtp_host = host
-                break
-            except Exception as e:
-                last_smtp_err = str(e)
-
-        if not results["smtp_ok"]:
-            results["smtp_message"] = f"SMTP auth failed: {last_smtp_err}"
-
-        # 2. Test IMAP connection & auth (or Microsoft Graph API if Outlook)
+        # Check if inbox is Outlook / Inbound Listener
         is_outlook_inbox = (
             inbox.provider in ("outlook", "office365", "microsoft")
             or any(inbox.email_address.lower().endswith(d) for d in ("@outlook.com", "@hotmail.com", "@live.com", "@office365.com"))
             or inbox.email_address.lower().strip() == "omnileadfeeder@outlook.com"
+            or inbox.id == "primary"
         )
 
+        # 1. Test SMTP connection & auth (Skip for Outlook inbound listener)
+        if is_outlook_inbox:
+            results["smtp_ok"] = True
+            results["smtp_message"] = "Outbound dispatch handled by Zoho multi-inbox pool. Outlook dedicated to inbound prospect replies."
+        else:
+            smtp_hosts_to_try = [inbox.smtp_host] if inbox.smtp_host else []
+            if inbox.provider == "zoho":
+                for h in ["smtp.zoho.com", "smtppro.zoho.com"]:
+                    if h not in smtp_hosts_to_try:
+                        smtp_hosts_to_try.append(h)
+            elif not smtp_hosts_to_try:
+                smtp_hosts_to_try = [self.settings.smtp_host]
+
+            last_smtp_err = ""
+            for host in smtp_hosts_to_try:
+                try:
+                    if not host:
+                        continue
+                    if inbox.smtp_use_ssl:
+                        context = ssl.create_default_context()
+                        with smtplib.SMTP_SSL(host, inbox.smtp_port, context=context, timeout=10) as s:
+                            s.login(inbox.email_address, inbox.password)
+                    else:
+                        with smtplib.SMTP(host, inbox.smtp_port, timeout=10) as s:
+                            s.ehlo()
+                            if inbox.smtp_use_tls:
+                                context = ssl.create_default_context()
+                                s.starttls(context=context)
+                                s.ehlo()
+                            s.login(inbox.email_address, inbox.password)
+                    results["smtp_ok"] = True
+                    results["smtp_message"] = f"SMTP connected and authenticated successfully ({host}:{inbox.smtp_port})"
+                    inbox.smtp_host = host
+                    break
+                except Exception as e:
+                    last_smtp_err = str(e)
+
+            if not results["smtp_ok"]:
+                results["smtp_message"] = f"SMTP auth failed: {last_smtp_err}"
+
+        # 2. Test IMAP connection & auth (or Microsoft Graph API if Outlook)
         if is_outlook_inbox:
             try:
                 from .microsoft_graph import get_microsoft_graph_client

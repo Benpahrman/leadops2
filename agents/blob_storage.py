@@ -144,8 +144,8 @@ class BlobStorageManager:
             try:
                 blob_client = self.client.get_blob_client(container=target_container, blob=normalized_path)
                 return bool(blob_client.exists())
-            except Exception:
-                pass
+            except Exception as ex:
+                logger.debug(f"Azure blob exists check fallback to local for {normalized_path}: {ex}")
 
         dest = self.local_dir / normalized_path
         return dest.exists()

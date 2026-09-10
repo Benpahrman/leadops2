@@ -20,7 +20,7 @@ export default function CheckoutSuccessPage() {
     {
       time: new Date().toLocaleTimeString(),
       role: 'Dev Swarm Orchestrator',
-      message: 'Escrow deposit verified ($99.00). SOW executed. 7 agents dispatched.',
+      message: 'Down payment verified ($99.00). SOW executed. 7 agents dispatched.',
       type: 'info',
     },
   ]);
@@ -116,7 +116,7 @@ export default function CheckoutSuccessPage() {
         { p: 55, r: 'Stealth Engineer', m: 'Configuring Playwright crawler with headless browser & anti-bot stealth...' },
         { p: 75, r: 'Code Synthesizer', m: 'Compiling extraction pipeline for designated public registry fields...' },
         { p: 90, r: 'QA Verifier', m: 'Benchmarking 25 verified live rows against official government docket links...' },
-        { p: 100, r: 'QA Gatekeeper', m: 'Certified 98.4% schema accuracy floor. Feed deployed to escrow preview!' },
+        { p: 100, r: 'QA Gatekeeper', m: 'Certified 98.4% schema accuracy floor. Feed deployed to verified customer preview!' },
       ];
 
       let idx = 0;
@@ -161,7 +161,7 @@ export default function CheckoutSuccessPage() {
         <div style={{ fontSize: '48px', marginBottom: '12px' }}>🛡️</div>
 
         <div className="badge-tag badge-green" style={{ fontSize: '13px', padding: '6px 14px', marginBottom: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-          <span>✓</span> ESCROW LOCKED ($99.00 USD) • 100% CREDITED TO MONTH 1
+          <span>✓</span> DOWN PAYMENT CONFIRMED ($99.00 USD) • 100% CREDITED TO MONTH 1
         </div>
 
         <h1 style={{ fontSize: '30px', fontWeight: 800, color: '#fff', marginBottom: '8px', letterSpacing: '-0.5px' }}>
@@ -169,7 +169,7 @@ export default function CheckoutSuccessPage() {
         </h1>
 
         <p style={{ fontSize: '14px', color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: '24px', maxWidth: '640px', margin: '0 auto 24px' }}>
-          Your $99.00 setup sprint deposit is secured in third-party escrow. Our autonomous 7-agent engineering swarm is actively analyzing DOM selectors, configuring stealth proxies, and synthesizing your custom data feed.
+          Your $99.00 refundable setup down payment has been received. Our autonomous 7-agent engineering swarm is actively analyzing DOM selectors, configuring stealth proxies, and synthesizing your custom data feed.
         </p>
 
         {/* Live Dev Swarm Progress Bar */}
@@ -243,8 +243,8 @@ export default function CheckoutSuccessPage() {
               <div style={{ color: '#fff', fontWeight: 700, fontFamily: 'var(--mono)' }}>{leadId}</div>
             </div>
             <div>
-              <span style={{ color: 'var(--text-muted)' }}>Milestone #1 Setup Deposit:</span>
-              <div style={{ color: 'var(--green)', fontWeight: 700, fontFamily: 'var(--mono)' }}>$99.00 USD (Escrow Safeguarded)</div>
+              <span style={{ color: 'var(--text-muted)' }}>Milestone #1 Setup Down Payment:</span>
+              <div style={{ color: 'var(--green)', fontWeight: 700, fontFamily: 'var(--mono)' }}>$99.00 USD (Refundable Down Payment)</div>
             </div>
             <div>
               <span style={{ color: 'var(--text-muted)' }}>Milestone #2 Final Balance:</span>
@@ -259,7 +259,7 @@ export default function CheckoutSuccessPage() {
           </div>
 
           <div style={{ marginTop: '16px', borderTop: '1px solid var(--border)', paddingTop: '12px', fontSize: '11px', color: 'var(--text-muted)' }}>
-            ✓ <b>100% Escrow Guarantee:</b> All milestone setup deposits are held under the OmniLeadFeeder Escrow Protocol with guaranteed &ge;95% schema accuracy. Auto-refunded if unfulfilled within 24 hours. The $99 setup deposit is 100% credited to Month 1 ($151 net balance due upon delivery).
+            ✓ <b>100% Refundable Deposit Guarantee:</b> Your $99 setup down payment is 100% credited toward Month 1 ($151 net balance due only upon live QA pass). If our engineering swarm does not pass &ge;95% schema accuracy within 24 hours, your deposit is auto-refunded in full.
           </div>
         </div>
 
