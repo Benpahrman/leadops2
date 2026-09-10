@@ -614,6 +614,52 @@ class LLMAgentEngine:
                 {"field_name": "statutory_deadline", "label": "Filing Deadline / Hearing Date", "description": "Scheduled docket appearance or expiration"},
             ]
 
+    def extract_records_from_web_content(
+        self,
+        text_content: str,
+        source_url: str = "",
+        data_goal: str = "",
+        jurisdiction: str = "",
+        max_records: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Scout Extractor Agent: Extract authentic structured records from live target portal text."""
+        if not text_content or not text_content.strip():
+            return []
+
+        system_prompt = (
+            "You are the Scout Extraction AI Agent for LeadOps. "
+            f"Your mission is to extract between 5 and {max_records} authentic, structured public data records from the provided web page text.\n\n"
+            "STRICT PRODUCTION REQUIREMENTS:\n"
+            "1. NO MOCK DATA. Extract ONLY actual entities, values, dates, case numbers, names, and information present in the text.\n"
+            "2. Normalize the extracted fields into consistent keys (e.g. record_id, filing_date, party_name, status, description, address, jurisdiction).\n"
+            "3. Return ONLY a JSON array of objects: [{\"field1\": \"val1\", ...}]. No explanation, no markdown formatting outside JSON."
+        )
+        user_prompt = (
+            f"Source URL: {source_url}\n"
+            f"Target Jurisdiction: {jurisdiction}\n"
+            f"Target Data Goal: {data_goal}\n\n"
+            f"Web Page Content:\n{text_content[:7500]}\n\n"
+            f"Extract between 5 and {max_records} real structured records:"
+        )
+
+        res = self.generate_completion(system_prompt, user_prompt, temperature=0.2, max_tokens=1500)
+        if res and "[" in res and "]" in res:
+            try:
+                start = res.find("[")
+                end = res.rfind("]") + 1
+                records = json.loads(res[start:end])
+                if isinstance(records, list) and len(records) > 0:
+                    clean_records = []
+                    for r in records[:max_records]:
+                        if isinstance(r, dict) and any(str(v).strip() for v in r.values()):
+                            clean_records.append({str(k).strip(): str(v).strip() for k, v in r.items()})
+                    if len(clean_records) >= 3:
+                        logger.info(f"✓ [LLM EXTRACTOR] Successfully extracted {len(clean_records)} records from {source_url}")
+                        return clean_records
+            except Exception as e:
+                logger.warning(f"Failed parsing LLM extraction output: {e}")
+        return []
+
     def run_pm_planner_agent(
         self,
         lead_spec: dict[str, Any],

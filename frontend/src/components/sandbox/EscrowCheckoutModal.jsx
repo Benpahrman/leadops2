@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { payDeposit } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 
-export default function EscrowCheckoutModal({ isOpen, onClose, slug, companyName, defaultEmail = '', defaultTargetUrl = '' }) {
+export default function EscrowCheckoutModal({ isOpen, onClose, slug, companyName, defaultEmail = '', defaultTargetUrl = '', redirectTo = null }) {
   const navigate = useNavigate();
   const { showToast } = useToast();
 
@@ -206,7 +206,11 @@ export default function EscrowCheckoutModal({ isOpen, onClose, slug, companyName
                 localStorage.setItem('leadops_active_lead_id', res.lead_id);
               }
               onClose();
-              navigate(`/checkout/success?lead_id=${res.lead_id || slug}&slug=${slug}`);
+              if (redirectTo) {
+                navigate(redirectTo);
+              } else {
+                navigate(`/checkout/success?lead_id=${res.lead_id || slug}&slug=${slug}`);
+              }
             } catch (err) {
               console.error('PayPal onApprove error:', err);
               showToast(`Error securing payment: ${err.message}`, 'error');
