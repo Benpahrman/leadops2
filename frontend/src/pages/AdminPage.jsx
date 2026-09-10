@@ -109,17 +109,20 @@ export default function AdminPage() {
   const [selectedScoutChannel, setSelectedScoutChannel] = useState('');
 
   const renderDiscoveryBadge = (channel, filingCaseNumber) => {
-    if (!channel || channel === 'CATALOG_SEARCH') return null;
+    const norm = (channel || '').toUpperCase().trim();
     const config = {
-      COUNTY_FILING_PARTY: { label: '🏛️ County Filing Party', bg: 'rgba(234, 179, 8, 0.15)', color: '#facc15', border: 'rgba(234, 179, 8, 0.35)' },
-      STATE_BAR_DIRECTORY: { label: '⚖️ State Bar Directory', bg: 'rgba(168, 85, 247, 0.15)', color: '#c084fc', border: 'rgba(168, 85, 247, 0.35)' },
-      SOS_NEW_BUSINESS: { label: '🏢 SOS Registration', bg: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', border: 'rgba(56, 189, 248, 0.35)' },
-      GOOGLE_MAPS_LOCAL: { label: '📍 Local / Maps', bg: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', border: 'rgba(34, 197, 94, 0.35)' },
-      JOB_BOARD_INTENT: { label: '📋 Job Requisition', bg: 'rgba(244, 63, 94, 0.15)', color: '#fb7185', border: 'rgba(244, 63, 94, 0.35)' },
-    }[channel] || { label: `🔍 ${channel}`, bg: 'rgba(148, 163, 184, 0.15)', color: '#94a3b8', border: 'rgba(148, 163, 184, 0.3)' };
+      COUNTY_FILING_PARTY: { label: '🏛️ County Court Docket', bg: 'rgba(234, 179, 8, 0.15)', color: '#facc15', border: 'rgba(234, 179, 8, 0.35)', tooltip: 'Scouted from same-day municipal court / county public filing docket' },
+      STATE_BAR_DIRECTORY: { label: '⚖️ State Bar Directory', bg: 'rgba(168, 85, 247, 0.15)', color: '#c084fc', border: 'rgba(168, 85, 247, 0.35)', tooltip: 'Identified via licensed state bar attorney directory' },
+      SOS_NEW_BUSINESS: { label: '🏢 Secretary of State', bg: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', border: 'rgba(56, 189, 248, 0.35)', tooltip: 'Discovered from state Secretary of State commercial registrations' },
+      GOOGLE_MAPS_LOCAL: { label: '📍 Google Maps / Local', bg: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', border: 'rgba(34, 197, 94, 0.35)', tooltip: 'Scouted via local business map & review intelligence' },
+      JOB_BOARD_INTENT: { label: '💼 Hiring / Job Signals', bg: 'rgba(244, 63, 94, 0.15)', color: '#fb7185', border: 'rgba(244, 63, 94, 0.35)', tooltip: 'Identified via active operations / coordinator hiring requisitions' },
+      B2B_WEB_SEARCH: { label: '🌐 Autonomous Web Scout', bg: 'rgba(99, 102, 241, 0.15)', color: '#818cf8', border: 'rgba(99, 102, 241, 0.35)', tooltip: 'Discovered via autonomous B2B web crawler' },
+      INBOUND_REFERRAL: { label: '🤝 Inbound Referral', bg: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: 'rgba(16, 185, 129, 0.35)', tooltip: 'Introduced via existing customer or partner referral' },
+      CATALOG_SEARCH: { label: '🏛️ Municipal Open Data', bg: 'rgba(14, 165, 233, 0.15)', color: '#38bdf8', border: 'rgba(14, 165, 233, 0.35)', tooltip: 'Identified from municipal open data registry & public portals' },
+    }[norm] || { label: `🔍 ${channel || 'Public Registry'}`, bg: 'rgba(148, 163, 184, 0.15)', color: '#94a3b8', border: 'rgba(148, 163, 184, 0.3)', tooltip: 'Discovered via municipal public registry' };
 
     return (
-      <div style={{ marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+      <div style={{ marginTop: '5px', display: 'flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }}>
         <span
           style={{
             fontSize: '10px',
@@ -130,8 +133,11 @@ export default function AdminPage() {
             color: config.color,
             border: `1px solid ${config.border}`,
             letterSpacing: '0.02em',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
           }}
-          title={`Acquisition Engine: ${config.label}`}
+          title={config.tooltip}
         >
           {config.label}
         </span>
@@ -146,7 +152,7 @@ export default function AdminPage() {
               color: 'var(--text-dim)',
               border: '1px solid rgba(255, 255, 255, 0.1)',
             }}
-            title={`Public Record Filing: Case #${filingCaseNumber}`}
+            title={`Public Record Filing: Docket #${filingCaseNumber}`}
           >
             #{filingCaseNumber}
           </span>
@@ -271,7 +277,9 @@ export default function AdminPage() {
     setMsOAuthConnecting(true);
     try {
       const token = await resolveToken();
-      const res = await fetchMicrosoftOAuthAuthorizeUrl(token);
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const redirectUri = origin ? `${origin}/api/admin/oauth/microsoft/callback` : '';
+      const res = await fetchMicrosoftOAuthAuthorizeUrl(token, redirectUri);
       if (res && res.auth_url) {
         window.location.href = res.auth_url;
       }
@@ -1613,7 +1621,7 @@ export default function AdminPage() {
                 <thead>
                   <tr>
                     <th>Organization / Lead ID</th>
-                    <th>Jurisdiction / Portal</th>
+                    <th>Origin &amp; Source Portal</th>
                     <th>Tier / Retainer</th>
                     <th>Lifecycle State</th>
                     <th>Payment Status</th>
@@ -1708,19 +1716,60 @@ export default function AdminPage() {
                             {renderDiscoveryBadge(lead.discovery_channel, lead.filing_case_number)}
                           </td>
                           <td>
-                            <div style={{ fontSize: '13px', color: 'var(--text)' }}>
-                              {lead.jurisdiction || lead.target_portal_name || 'Municipal Registry'}
+                            <div style={{ fontSize: '13px', color: 'var(--text)', fontWeight: 600 }}>
+                              {lead.target_portal_name || lead.jurisdiction || 'Municipal Registry'}
                             </div>
-                            {lead.source_url && (
-                              <a
-                                href={lead.source_url}
-                                target="_blank"
-                                rel="noreferrer"
-                                style={{ fontSize: '11px', color: 'var(--text-dim)', textDecoration: 'underline' }}
-                              >
-                                View Portal ↗
-                              </a>
+                            {lead.jurisdiction && lead.target_portal_name && (
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '1px' }}>
+                                📍 {lead.jurisdiction}
+                              </div>
                             )}
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '5px', flexWrap: 'wrap' }}>
+                              {lead.source_url && (
+                                <a
+                                  href={lead.source_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{
+                                    fontSize: '11px',
+                                    color: 'var(--cyan)',
+                                    textDecoration: 'none',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    background: 'rgba(56, 189, 248, 0.08)',
+                                    padding: '2px 6px',
+                                    borderRadius: '3px',
+                                    border: '1px solid rgba(56, 189, 248, 0.2)',
+                                  }}
+                                  title="Official municipal / county registry source where records were extracted"
+                                >
+                                  🏛️ Portal ↗
+                                </a>
+                              )}
+                              {lead.website && (
+                                <a
+                                  href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{
+                                    fontSize: '11px',
+                                    color: 'var(--purple)',
+                                    textDecoration: 'none',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    background: 'rgba(168, 85, 247, 0.08)',
+                                    padding: '2px 6px',
+                                    borderRadius: '3px',
+                                    border: '1px solid rgba(168, 85, 247, 0.2)',
+                                  }}
+                                  title="Lead company website"
+                                >
+                                  🌐 Website ↗
+                                </a>
+                              )}
+                            </div>
                           </td>
                           <td>
                             <div style={{ fontWeight: 600, color: 'var(--purple)' }}>
@@ -1992,13 +2041,43 @@ export default function AdminPage() {
                             </span>
                           </div>
 
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            {lead.jurisdiction || 'Public Records'}
+                          {renderDiscoveryBadge(lead.discovery_channel, lead.filing_case_number)}
+
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span style={{ maxWidth: '170px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={lead.target_portal_name || lead.jurisdiction}>
+                              📍 {lead.target_portal_name || lead.jurisdiction || 'Public Records'}
+                            </span>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              {lead.source_url && (
+                                <a
+                                  href={lead.source_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{ color: 'var(--cyan)', textDecoration: 'none', fontSize: '11px' }}
+                                  title="Open municipal data portal"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  🏛️ ↗
+                                </a>
+                              )}
+                              {lead.website && (
+                                <a
+                                  href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{ color: 'var(--purple)', textDecoration: 'none', fontSize: '11px' }}
+                                  title="Visit company website"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  🌐 ↗
+                                </a>
+                              )}
+                            </div>
                           </div>
 
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', fontSize: '11px' }}>
                             <span style={{ color: lead.deposit_paid ? 'var(--green)' : 'var(--text-dim)' }}>
-                              {lead.deposit_paid ? '✓ Down Payment Paid' : '○ Deposit Pending'}
+                              {lead.deposit_paid ? '✓ $99 Sprint Credited' : '○ $99 Sprint Pending'}
                             </span>
                             {lead.qa_score !== null && lead.qa_score !== undefined && (
                               <span style={{ color: lead.qa_score >= 0.95 ? 'var(--green)' : 'var(--yellow)', fontWeight: 700 }}>
@@ -3707,35 +3786,95 @@ export default function AdminPage() {
                 </div>
 
                 <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '16px' }}>
-                  <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#fff', marginBottom: '10px' }}>
-                    🌐 Target Portal &amp; Niche Profile
-                  </h4>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                    <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#fff', margin: 0 }}>
+                      📍 Lead Origin &amp; Discovery Provenance
+                    </h4>
+                    {renderDiscoveryBadge(lead.discovery_channel, lead.filing_case_number)}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     <div>
-                      <b style={{ color: '#fff' }}>Target Portal:</b> {lead.target_portal_name || lead.jurisdiction || 'Municipal Registry'}
+                      <b style={{ color: '#fff' }}>Acquisition Channel:</b>{' '}
+                      <span style={{ color: 'var(--text)' }}>
+                        {lead.discovery_channel ? lead.discovery_channel.replace(/_/g, ' ') : 'Municipal Public Registry'}
+                      </span>
                     </div>
-                    {lead.target_url && (
+                    <div>
+                      <b style={{ color: '#fff' }}>Target Portal / Registry:</b>{' '}
+                      <span style={{ color: 'var(--text)' }}>
+                        {lead.target_portal_name || lead.jurisdiction || 'Municipal Registry'}
+                      </span>
+                      {lead.jurisdiction && lead.target_portal_name && (
+                        <span style={{ color: 'var(--text-dim)', marginLeft: '6px' }}>
+                          ({lead.jurisdiction})
+                        </span>
+                      )}
+                    </div>
+                    {(lead.source_url || lead.target_url) && (
                       <div>
-                        <b style={{ color: '#fff' }}>Verified Portal URL:</b>{' '}
-                        <a href={lead.target_url} target="_blank" rel="noreferrer" style={{ color: 'var(--cyan)', textDecoration: 'underline', wordBreak: 'break-all' }}>
-                          {lead.target_url}
+                        <b style={{ color: '#fff' }}>Official Source Registry URL:</b>{' '}
+                        <a
+                          href={lead.source_url || lead.target_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ color: 'var(--cyan)', textDecoration: 'underline', wordBreak: 'break-all' }}
+                        >
+                          {lead.source_url || lead.target_url} ↗
                         </a>
                       </div>
                     )}
-                    {lead.source_url && !lead.target_url && (
+                    {lead.website && (
                       <div>
-                        <b style={{ color: '#fff' }}>Portal Source:</b>{' '}
-                        <a href={lead.source_url} target="_blank" rel="noreferrer" style={{ color: 'var(--cyan)', textDecoration: 'underline', wordBreak: 'break-all' }}>
-                          {lead.source_url}
+                        <b style={{ color: '#fff' }}>Company Website:</b>{' '}
+                        <a
+                          href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ color: 'var(--purple)', textDecoration: 'underline', wordBreak: 'break-all' }}
+                        >
+                          {lead.website} ↗
                         </a>
+                      </div>
+                    )}
+                    {lead.filing_case_number && (
+                      <div>
+                        <b style={{ color: '#fff' }}>Docket / Case Number:</b>{' '}
+                        <span style={{ fontFamily: 'var(--mono)', color: 'var(--yellow)' }}>
+                          #{lead.filing_case_number}
+                        </span>
+                        {lead.filing_date && (
+                          <span style={{ color: 'var(--text-dim)', marginLeft: '8px' }}>
+                            (Filed: {lead.filing_date})
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {lead.matter_description && (
+                      <div>
+                        <b style={{ color: '#fff' }}>Filing Classification:</b>{' '}
+                        <span style={{ color: 'var(--text)' }}>{lead.matter_description}</span>
                       </div>
                     )}
                     <div>
-                      <b style={{ color: '#fff' }}>Niche / Industry:</b> {lead.niche || 'B2B Professional Services'}
+                      <b style={{ color: '#fff' }}>Niche / Vertical:</b> {lead.niche || 'B2B Professional Services'}
                     </div>
                     {lead.contact_email && (
                       <div>
                         <b style={{ color: '#fff' }}>Contact:</b> {lead.contact_email}
+                        {lead.contact_role && <span style={{ color: 'var(--text-dim)' }}> ({lead.contact_role})</span>}
+                        {lead.email_source && (
+                          <span style={{ marginLeft: '6px', fontSize: '10px', background: 'rgba(56, 189, 248, 0.1)', color: 'var(--cyan)', padding: '1px 5px', borderRadius: '3px' }}>
+                            via {lead.email_source}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {lead.decision_maker_linkedin && (
+                      <div>
+                        <b style={{ color: '#fff' }}>LinkedIn:</b>{' '}
+                        <a href={lead.decision_maker_linkedin} target="_blank" rel="noreferrer" style={{ color: 'var(--cyan)', textDecoration: 'underline' }}>
+                          Profile ↗
+                        </a>
                       </div>
                     )}
                   </div>

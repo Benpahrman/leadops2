@@ -1852,6 +1852,7 @@ def get_microsoft_oauth_status(
 
 @router.get("/api/admin/oauth/microsoft/authorize", tags=["Admin OAuth"])
 def get_microsoft_oauth_authorize_url(
+    request: Request,
     redirect: bool = False,
     redirect_uri: Optional[str] = None,
     _: Optional[ClerkUser] = Depends(get_current_user_optional),
@@ -1862,19 +1863,26 @@ def get_microsoft_oauth_authorize_url(
     if not client.client_id:
         raise HTTPException(
             status_code=400,
-            detail="MICROSOFT_CLIENT_ID is not configured in .env. Please configure your Azure App Registration credentials first.",
+            detail="MICROSOFT_CLIENT_ID is not configured in .env or environment. Please configure your Azure App Registration credentials first.",
         )
     try:
-        auth_url = client.get_authorization_url(redirect_uri=redirect_uri)
+        effective_redirect = redirect_uri
+        if not effective_redirect:
+            base = str(request.base_url).rstrip("/")
+            if "omnileadfeeder.tech" in base and base.startswith("http://"):
+                base = base.replace("http://", "https://")
+            effective_redirect = f"{base}/api/admin/oauth/microsoft/callback"
+        auth_url = client.get_authorization_url(redirect_uri=effective_redirect)
         if redirect:
             return RedirectResponse(url=auth_url)
-        return {"ok": True, "auth_url": auth_url}
+        return {"ok": True, "auth_url": auth_url, "redirect_uri": effective_redirect}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/api/admin/oauth/microsoft/callback", tags=["Admin OAuth"])
 def handle_microsoft_oauth_callback(
+    request: Request,
     code: Optional[str] = None,
     state: Optional[str] = None,
     error: Optional[str] = None,
@@ -1894,7 +1902,10 @@ def handle_microsoft_oauth_callback(
 
     client = get_microsoft_graph_client()
     try:
-        tokens = client.exchange_code_for_tokens(code)
+        callback_url = str(request.url).split("?")[0]
+        if "omnileadfeeder.tech" in callback_url and callback_url.startswith("http://"):
+            callback_url = callback_url.replace("http://", "https://")
+        tokens = client.exchange_code_for_tokens(code, redirect_uri=callback_url)
         account_email = tokens.account_email or client.account_email
         logger.info(f"✅ Microsoft OAuth completed for '{account_email}'.")
         return RedirectResponse(

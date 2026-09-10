@@ -187,8 +187,30 @@ class AdminMissionControlService:
                     "negative_signals": [],
                 },
                 "research": getattr(lead, "research", {}) or {},
-                "discovery_channel": getattr(lead, "discovery_channel", "CATALOG_SEARCH") or "CATALOG_SEARCH",
-                "filing_case_number": getattr(lead, "filing_case_number", "") or "",
+                "discovery_channel": (
+                    getattr(lead, "discovery_channel", None)
+                    or getattr(lead, "research", {}).get("discovery_channel", "")
+                    or "CATALOG_SEARCH"
+                ),
+                "filing_case_number": (
+                    getattr(lead, "filing_case_number", None)
+                    or getattr(lead, "research", {}).get("filing_case_number", "")
+                    or ""
+                ),
+                "filing_date": getattr(lead, "research", {}).get("filing_date", ""),
+                "matter_description": getattr(lead, "research", {}).get("matter_description", ""),
+                "proof_hook": getattr(lead, "research", {}).get("proof_hook", ""),
+                "website": (
+                    getattr(lead, "website", None)
+                    or getattr(lead, "research", {}).get("website", "")
+                    or getattr(lead, "research", {}).get("domain", "")
+                    or ""
+                ),
+                "decision_maker_linkedin": (
+                    getattr(lead, "decision_maker_linkedin", "")
+                    or getattr(lead, "research", {}).get("linkedin_url", "")
+                ),
+                "email_source": getattr(lead, "research", {}).get("email_source", "") or ("Enriched" if getattr(lead, "contact_email", "") else ""),
                 "audit_events_count": len(lead.audit_log),
                 "action_label": action_info["label"],
                 "next_target_state": action_info["target"].value if action_info["target"] else None,

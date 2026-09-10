@@ -710,12 +710,13 @@ export async function fetchMicrosoftOAuthStatus(token = '') {
   return res.json();
 }
 
-export async function fetchMicrosoftOAuthAuthorizeUrl(token = '') {
+export async function fetchMicrosoftOAuthAuthorizeUrl(token = '', redirectUri = '') {
   const headers = {};
   const resolved = resolveAdminAuth(token);
   if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
 
-  const res = await fetch(`${API_BASE}/api/admin/oauth/microsoft/authorize`, { headers });
+  const query = redirectUri ? `?redirect_uri=${encodeURIComponent(redirectUri)}` : '';
+  const res = await fetch(`${API_BASE}/api/admin/oauth/microsoft/authorize${query}`, { headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || `HTTP ${res.status}`);

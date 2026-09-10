@@ -579,7 +579,12 @@ class SqliteStorageBackend:
                     getattr(lead, "purchase_probability", 60) or 60,
                     getattr(lead, "pain_severity", 6) or 6,
                     getattr(lead, "qualification_verdict", "QUALIFIED_HOT") or "QUALIFIED_HOT",
-                    json.dumps(getattr(lead, "research", {}) or {}),
+                    json.dumps({
+                        **(getattr(lead, "research", {}) or {}),
+                        **({"discovery_channel": lead.discovery_channel} if getattr(lead, "discovery_channel", None) else {}),
+                        **({"filing_case_number": lead.filing_case_number} if getattr(lead, "filing_case_number", None) else {}),
+                        **({"website": lead.website} if getattr(lead, "website", None) else {}),
+                    }),
                     float(getattr(lead, "deposit_amount_usd", 99.00) or 99.00),
                     1 if getattr(lead, "unlocked_30d_backlog", False) else 0,
                     datetime.now(timezone.utc).isoformat(),
@@ -1374,6 +1379,20 @@ class SqliteStorageBackend:
                 if isinstance(get_col("research", "{}"), str) and get_col("research", "{}").strip().startswith("{")
                 else (get_col("research", {}) if isinstance(get_col("research", {}), dict) else {})
             ),
+            website=(
+                get_col("website", "")
+                or (json.loads(get_col("research", "{}")).get("website", "") if isinstance(get_col("research", "{}"), str) and get_col("research", "{}").strip().startswith("{") else (get_col("research", {}).get("website", "") if isinstance(get_col("research", {}), dict) else ""))
+                or (json.loads(get_col("research", "{}")).get("domain", "") if isinstance(get_col("research", "{}"), str) and get_col("research", "{}").strip().startswith("{") else (get_col("research", {}).get("domain", "") if isinstance(get_col("research", {}), dict) else ""))
+            ),
+            discovery_channel=(
+                get_col("discovery_channel", "")
+                or (json.loads(get_col("research", "{}")).get("discovery_channel", "") if isinstance(get_col("research", "{}"), str) and get_col("research", "{}").strip().startswith("{") else (get_col("research", {}).get("discovery_channel", "") if isinstance(get_col("research", {}), dict) else ""))
+                or "CATALOG_SEARCH"
+            ),
+            filing_case_number=(
+                get_col("filing_case_number", "")
+                or (json.loads(get_col("research", "{}")).get("filing_case_number", "") if isinstance(get_col("research", "{}"), str) and get_col("research", "{}").strip().startswith("{") else (get_col("research", {}).get("filing_case_number", "") if isinstance(get_col("research", {}), dict) else ""))
+            ),
             deposit_amount_usd=float(get_col("deposit_amount_usd", 99.00) or 99.00),
             unlocked_30d_backlog=bool(get_col("unlocked_30d_backlog", 0)),
         )
@@ -1740,8 +1759,12 @@ class PostgresStorageBackend:
             "automation_opportunity_score": getattr(lead, "automation_opportunity_score", 75) or 75,
             "purchase_probability": getattr(lead, "purchase_probability", 60) or 60,
             "pain_severity": getattr(lead, "pain_severity", 6) or 6,
-            "qualification_verdict": getattr(lead, "qualification_verdict", "QUALIFIED_HOT") or "QUALIFIED_HOT",
-            "research": json.dumps(getattr(lead, "research", {}) or {}),
+            "research": json.dumps({
+                **(getattr(lead, "research", {}) or {}),
+                **({"discovery_channel": lead.discovery_channel} if getattr(lead, "discovery_channel", None) else {}),
+                **({"filing_case_number": lead.filing_case_number} if getattr(lead, "filing_case_number", None) else {}),
+                **({"website": lead.website} if getattr(lead, "website", None) else {}),
+            }),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         with self.engine.begin() as conn:

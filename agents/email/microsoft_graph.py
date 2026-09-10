@@ -80,10 +80,20 @@ class MicrosoftGraphClient:
             else (os.environ.get("MICROSOFT_TENANT_ID") or "common")
         ).strip().strip('"\'')
 
+        default_redirect = os.environ.get("MICROSOFT_REDIRECT_URI")
+        if not default_redirect:
+            pub = os.environ.get("LEADOPS_PUBLIC_BASE_URL", "").strip().rstrip("/")
+            if pub and "localhost" not in pub and "127.0.0.1" not in pub:
+                default_redirect = f"{pub}/api/admin/oauth/microsoft/callback"
+            elif os.environ.get("ENV") == "production" or os.environ.get("CONTAINER_APP_NAME"):
+                default_redirect = "https://omnileadfeeder.tech/api/admin/oauth/microsoft/callback"
+            else:
+                default_redirect = "http://localhost:8000/api/admin/oauth/microsoft/callback"
+
         self.redirect_uri = (
             redirect_uri
             if redirect_uri is not None
-            else (os.environ.get("MICROSOFT_REDIRECT_URI") or "http://localhost:8000/api/admin/oauth/microsoft/callback")
+            else default_redirect
         ).strip().strip('"\'')
 
         self.account_email = (
