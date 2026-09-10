@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { initializePipeline } from '../services/api';
 import { useToast } from '../context/ToastContext';
+import EscrowCheckoutModal from '../components/sandbox/EscrowCheckoutModal';
 
 const PACKAGES = [
   {
@@ -62,6 +63,13 @@ export default function PipelineIntakePage() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // PayPal modal state — populated after successful pipeline init
+  const [checkoutSlug, setCheckoutSlug] = useState(null);
+  const [checkoutCompanyName, setCheckoutCompanyName] = useState('');
+  const [checkoutEmail, setCheckoutEmail] = useState('');
+  const [checkoutTargetUrl, setCheckoutTargetUrl] = useState('');
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+
   useEffect(() => {
     const planParam = searchParams.get('plan');
     if (planParam && PACKAGES.some((p) => p.id === planParam)) {
@@ -101,16 +109,15 @@ export default function PipelineIntakePage() {
 
       if (result.ok && result.slug) {
         localStorage.setItem('leadops_active_lead_id', result.lead_id || result.slug);
-        showToast(
-          `✓ Sandbox ready for ${result.company_name}! Redirecting to secure PayPal checkout...`,
-          'success',
-          4000
-        );
-        // Navigate to sandbox with ?checkout=1 to auto-open the PayPal modal
-        setTimeout(() => {
-          const sandboxPath = result.sandbox_url || `/p/${result.slug}`;
-          navigate(`${sandboxPath}?checkout=1`);
-        }, 600);
+
+        // Populate checkout modal with returned lead data and open PayPal RIGHT HERE
+        setCheckoutSlug(result.slug);
+        setCheckoutCompanyName(result.company_name || formData.companyName.trim());
+        setCheckoutEmail(formData.contactEmail.trim().toLowerCase());
+        setCheckoutTargetUrl(formData.targetUrl.trim() || result.source_url || '');
+        setIsCheckoutOpen(true);
+
+        showToast('✓ Sandbox ready! Complete your $99 Setup Sprint payment below.', 'success', 5000);
       } else {
         showToast('Could not initialize pipeline. Please try again.', 'error');
       }
@@ -120,6 +127,17 @@ export default function PipelineIntakePage() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleCheckoutClose = () => {
+    setIsCheckoutOpen(false);
+  };
+
+  // After successful PayPal payment the modal navigates to /checkout/success
+  // but if the user just closes the modal, offer them the sandbox link
+  const handlePaymentSuccess = () => {
+    // EscrowCheckoutModal handles navigation to /checkout/success internally
+    setIsCheckoutOpen(false);
   };
 
   return (
@@ -162,7 +180,7 @@ export default function PipelineIntakePage() {
             Configure Your Autonomous Public Records Scraper
           </h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '15px', marginTop: '8px', lineHeight: 1.6 }}>
-            Fill in your target government registry or municipal court docket below. Our 7-agent dev swarm will synthesize your custom AST crawler, verify 25 live records, and generate your dedicated interactive sandbox.
+            Fill in your target government registry or municipal court docket below. After submitting, you'll authorize your $99 refundable deposit via PayPal — no navigation required.
           </p>
         </div>
 
@@ -377,7 +395,7 @@ export default function PipelineIntakePage() {
               </div>
             </div>
 
-            {/* Escrow Guarantee Callout */}
+            {/* Refundable Deposit Callout */}
             <div style={{
               background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(56, 189, 248, 0.08))',
               border: '1px solid #1e3a5f',
@@ -416,19 +434,68 @@ export default function PipelineIntakePage() {
                 {isSubmitting ? (
                   <>
                     <span style={{ width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite', display: 'inline-block' }}></span>
-                    <span>Preparing Your Sandbox &amp; PayPal Checkout...</span>
+                    <span>Preparing Sandbox &amp; Opening PayPal...</span>
                   </>
                 ) : (
-                  <span>See Live Data &amp; Authorize $99 Setup Sprint ➔</span>
+                  <span>Authorize $99 Setup Sprint via PayPal ➔</span>
                 )}
               </button>
               <div style={{ textAlign: 'center', marginTop: '10px', fontSize: '11px', color: 'var(--text-dim)' }}>
-                ✓ Zero Mock Data • 100% Authentic Government Endpoints • No Setup Fee Until QA Certified
+                🔒 256-Bit Encrypted • PayPal, Visa, Mastercard, AMEX &amp; Discover • 100% Refundable if Unfulfilled
               </div>
             </div>
           </div>
         </form>
+
+        {/* Inline sandbox link shown after modal is closed without paying */}
+        {checkoutSlug && !isCheckoutOpen && (
+          <div style={{
+            marginTop: '24px',
+            padding: '16px 20px',
+            background: 'rgba(56, 189, 248, 0.08)',
+            border: '1px solid rgba(56, 189, 248, 0.25)',
+            borderRadius: '10px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '16px',
+            flexWrap: 'wrap',
+          }}>
+            <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+              <b style={{ color: '#fff' }}>Your sandbox is ready.</b> Complete your $99 payment to activate your pipeline.
+            </div>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setIsCheckoutOpen(true)}
+                style={{ fontWeight: 800, padding: '8px 18px', fontSize: '13px' }}
+              >
+                🔒 Pay $99 via PayPal
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate(`/p/${checkoutSlug}`)}
+                style={{ background: 'none', border: '1px solid #1e3355', color: 'var(--cyan)', borderRadius: '8px', padding: '8px 14px', cursor: 'pointer', fontSize: '12px' }}
+              >
+                View Sandbox First
+              </button>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* PayPal Checkout Modal — opens inline after form submit */}
+      {checkoutSlug && (
+        <EscrowCheckoutModal
+          isOpen={isCheckoutOpen}
+          onClose={handleCheckoutClose}
+          slug={checkoutSlug}
+          companyName={checkoutCompanyName}
+          defaultEmail={checkoutEmail}
+          defaultTargetUrl={checkoutTargetUrl}
+        />
+      )}
     </main>
   );
 }
