@@ -40,6 +40,7 @@ class ContactEnricherResearcherAgent:
             probe_smtp=not bool(os.environ.get("PYTEST_CURRENT_TEST")),
             probe_web=True,
             timeout_seconds=4.0,
+            allow_business_roles=True,
         )
 
     def extract_domain_from_lead(self, lead: Lead) -> str:

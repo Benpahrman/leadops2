@@ -671,6 +671,8 @@ class ScoutBackgroundWorker:
                     contact_name=linkedin_name_hint,
                     contact_role=linkedin_role_hint,
                     max_smtp_probes=6,
+                    hunter_api_key=os.environ.get("HUNTER_API_KEY", ""),
+                    apollo_api_key=os.environ.get("APOLLO_API_KEY", ""),
                 )
                 if finder_result.get("ok") and finder_result.get("email"):
                     verified_email = finder_result["email"]
@@ -813,7 +815,11 @@ class ScoutBackgroundWorker:
 
         # Pre-flight Email Deliverability & Bounce Verification
         from .email.verifier import DeliverabilityVerifier, DeliverabilityStatus
-        verifier = DeliverabilityVerifier(probe_smtp=not bool(os.environ.get("PYTEST_CURRENT_TEST")))
+        verifier = DeliverabilityVerifier(
+            probe_smtp=not bool(os.environ.get("PYTEST_CURRENT_TEST")),
+            allow_business_roles=True,
+            probe_catchall=True,
+        )
         contact_email = (target.get("contact_email") or "").strip()
         if not contact_email or "@" not in contact_email or any(contact_email.lower().endswith(f"@{d}") for d in ("company.com", "example.com", "testcompany.com", "domain.com")):
             logger.warning(f"❌ [SCOUT REJECTED] Candidate '{discovered_name}' rejected: No genuine contact email discovered on website {company_website}.")
@@ -832,6 +838,8 @@ class ScoutBackgroundWorker:
                     "status": "REJECTED_UNDELIVERABLE_EMAIL",
                     "reason": f"Contact email {contact_email} failed deliverability check ({v_res.status.value}): {v_res.reason}",
                 }
+            target["is_role_account"] = v_res.is_role_account
+            target["is_catchall"] = v_res.is_catchall
 
         # 3. Real Network & WAF Probe against target data source
 
@@ -1648,10 +1656,29 @@ class B2BWebScoutWorker:
         contact_name = dossier.get("contact_name") or "Operations Director"
         contact_role = dossier.get("contact_role") or "Director of Operations"
         website = dossier.get("website") or contact_info.get("website") or company_domain
+        from .tools.email_finder import is_directory_or_portal
+        if is_directory_or_portal(website):
+            logger.warning(f"⚠️ [WEB SCOUT] Candidate website '{website}' is an aggregator/directory portal. Stripping directory domain.")
+            website = ""
         
-        # STRICT ZERO-HALLUCINATION: Require actual scraped email from website, not LLM dossier imagination
+        # Sourcing & Email Discovery Waterfall
         raw_web_emails = contact_info.get("emails") or []
         contact_email = contact_info.get("verified_email", "") or (raw_web_emails[0] if raw_web_emails else "")
+        if (not contact_email or "@" not in contact_email or any(contact_email.lower().endswith(f"@{d}") for d in ("company.com", "example.com", "testcompany.com", "domain.com"))) and not os.environ.get("PYTEST_CURRENT_TEST"):
+            from .tools.email_finder import discover_verified_email
+            logger.info(f"📧 [WEB SCOUT RESCUE] No raw web email for '{company_name}' — activating Email Finder waterfall")
+            finder_res = discover_verified_email(
+                company_name=company_name,
+                website_url=website,
+                contact_name=contact_name,
+                contact_role=contact_role,
+                hunter_api_key=os.environ.get("HUNTER_API_KEY", ""),
+                apollo_api_key=os.environ.get("APOLLO_API_KEY", ""),
+            )
+            if finder_res.get("ok") and finder_res.get("email"):
+                contact_email = finder_res["email"]
+                logger.info(f"✅ [WEB SCOUT RESCUE] Found deliverable email: {contact_email} (source: {finder_res.get('source')})")
+
         if not contact_email or "@" not in contact_email or any(contact_email.lower().endswith(f"@{d}") for d in ("company.com", "example.com", "testcompany.com", "domain.com")):
             logger.warning(f"❌ [WEB SCOUT] Rejected candidate '{company_name}': No genuine contact email discovered on website {website}.")
             return {
@@ -1677,7 +1704,13 @@ class B2BWebScoutWorker:
 
         # Deliverability pre-flight verification
         from .email.verifier import DeliverabilityVerifier, DeliverabilityStatus
-        verifier = DeliverabilityVerifier(probe_smtp=not bool(os.environ.get("PYTEST_CURRENT_TEST")))
+        verifier = DeliverabilityVerifier(
+            probe_smtp=not bool(os.environ.get("PYTEST_CURRENT_TEST")),
+            allow_business_roles=True,
+            probe_catchall=True,
+        )
+        is_role_account = False
+        is_catchall = False
         if not os.environ.get("PYTEST_CURRENT_TEST"):
             v_res = verifier.verify(contact_email)
             if not v_res.is_safe_to_send or v_res.status != DeliverabilityStatus.DELIVERABLE:
@@ -1687,6 +1720,8 @@ class B2BWebScoutWorker:
                     "status": "REJECTED_UNDELIVERABLE_EMAIL",
                     "reason": f"Contact email {contact_email} failed deliverability check ({v_res.status.value}): {v_res.reason}",
                 }
+            is_role_account = v_res.is_role_account
+            is_catchall = v_res.is_catchall
 
         contact_phone = dossier.get("contact_phone") or contact_info.get("verified_phone", "")
         pain_point = dossier.get("pain_point") or "Needs automated tracking of new records to eliminate manual entry."
@@ -1754,6 +1789,8 @@ class B2BWebScoutWorker:
             "sample_data": records[:25],
             "pitch_subject": pitch_subject,
             "pitch_body": pitch_body,
+            "is_role_account": is_role_account,
+            "is_catchall": is_catchall,
         }
 
         clean_company = re.sub(r"[^a-z0-9]+", "-", target["company_name"].lower()).strip("-")

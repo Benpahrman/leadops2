@@ -246,6 +246,14 @@ def ensure_demo_sandbox(slug: str, portal_service, storage_backend) -> Any:
     from ..datasets import AUTHENTIC_REGISTRY_DATASETS
     from ..portal import Sandbox
 
+    # Resolve real storage backend if Depends was passed as default argument
+    if storage_backend and not hasattr(storage_backend, "get_lead"):
+        try:
+            from ..storage import get_storage
+            storage_backend = get_storage()
+        except Exception:
+            storage_backend = None
+
     # Check if lead exists for this slug (with custom target URL)
     lead_id = f"lead-{slug}"
     lead = storage_backend.get_lead(lead_id) if storage_backend else None
@@ -549,7 +557,7 @@ def get_user_lead(
 
     for l in leads:
         if l.contact_email.lower().strip() == clean_email or getattr(l, "claimed_by", "").lower().strip() == clean_email:
-            return get_sandbox_payload(l.slug, portal_service)
+            return get_sandbox_payload(l.slug, portal_service, storage_backend)
 
     raise HTTPException(status_code=404, detail="No company feed found for this user")
 
@@ -560,13 +568,14 @@ def select_fields(
     user: ClerkUser = Depends(get_current_user),
     _csrf: bool = Depends(verify_csrf_token),
     portal_service=Depends(get_portal_service),
+    storage_backend=Depends(get_storage),
 ):
     logger.debug("SELECT_FIELDS: slug=%s, user=%s, req=%s", slug, user, req)
     logger.info(f"SELECT_FIELDS: slug={slug}, user={user.email if user else None}, req_fields={req.fields if req else None}")
     slug = validate_slug(slug)
     try:
         portal_service.select_fields(slug, req.fields)
-        return get_sandbox_payload(slug, portal_service)
+        return get_sandbox_payload(slug, portal_service, storage_backend)
     except (KeyError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -576,11 +585,12 @@ def approve_scope(
     user: ClerkUser = Depends(get_current_user),
     _csrf: bool = Depends(verify_csrf_token),
     portal_service=Depends(get_portal_service),
+    storage_backend=Depends(get_storage),
 ):
     slug = validate_slug(slug)
     try:
         portal_service.approve_scope(slug)
-        return get_sandbox_payload(slug, portal_service)
+        return get_sandbox_payload(slug, portal_service, storage_backend)
     except (KeyError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 

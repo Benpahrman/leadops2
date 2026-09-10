@@ -29,15 +29,22 @@ DUMMY_DOMAINS = {
     "mycompany.com", "somedomain.com", "test.com"
 }
 
-# Role-based addresses that typically yield low conversion, bounce, or spam complaints
-GENERIC_ROLE_PREFIXES = {
+# System/unmonitored addresses that must NEVER receive cold outreach
+SYSTEM_DISALLOWED_PREFIXES = {
     "noreply", "no-reply", "donotreply", "mailer-daemon", "postmaster",
-    "abuse", "spam", "admin", "root", "test", "webmaster", "hostmaster",
+    "abuse", "spam", "root", "test", "webmaster", "hostmaster", "security",
+    "privacy", "optout", "opt-out", "unsubscribe"
+}
+
+# Monitored business inquiry / operations roles common in small-to-mid commercial businesses
+BUSINESS_ROLE_PREFIXES = {
     "operations", "executive", "info", "support", "contact", "sales",
     "general", "inquiries", "service", "mail", "frontdesk", "office",
-    "billing", "team", "hello", "help", "jobs", "careers", "hr",
-    "marketing", "media", "press", "inquiry", "customerservice"
+    "billing", "team", "hello", "help", "admin", "inquiry", "customerservice"
 }
+
+# Combined set for legacy compatibility
+GENERIC_ROLE_PREFIXES = SYSTEM_DISALLOWED_PREFIXES | BUSINESS_ROLE_PREFIXES
 
 
 class DeliverabilityStatus(str, Enum):
@@ -58,6 +65,7 @@ class VerificationResult:
     mx_records: list[str] = field(default_factory=list)
     smtp_check_passed: bool = False
     is_domain_active: bool = True
+    is_catchall: bool = False
 
     @property
     def is_safe_to_send(self) -> bool:
@@ -73,10 +81,14 @@ class DeliverabilityVerifier:
         probe_smtp: bool = True,
         probe_web: bool = True,
         timeout_seconds: float = 4.0,
+        allow_business_roles: bool = False,
+        probe_catchall: bool = False,
     ):
         self.probe_smtp = probe_smtp
         self.probe_web = probe_web
         self.timeout_seconds = timeout_seconds
+        self.allow_business_roles = allow_business_roles
+        self.check_catchall = probe_catchall
 
     def check_syntax(self, email: str) -> tuple[bool, str, str]:
         """Validate RFC email syntax and parse localpart / domain."""
@@ -178,6 +190,23 @@ class DeliverabilityVerifier:
             logger.debug(f"SMTP probe exception for {target_email} on {mx_host}: {e}")
             return True, f"SMTP probe non-conclusive: {e}"
 
+    def probe_catchall(self, mx_host: str, domain: str) -> bool:
+        """Probe whether the domain MX has a catch-all configuration by testing a randomized fake address."""
+        if not self.probe_smtp or not mx_host:
+            return False
+        import random
+        import string
+        rand_token = "".join(random.choices(string.ascii_lowercase + string.digits, k=12))
+        test_email = f"_leadops_catchall_test_{rand_token}@{domain}"
+        try:
+            with smtplib.SMTP(mx_host, port=25, timeout=self.timeout_seconds) as server:
+                server.ehlo_or_helo_if_needed()
+                server.mail("alex@leadops.tech")
+                code, _ = server.rcpt(test_email)
+                return code in (250, 251)
+        except Exception:
+            return False
+
     def verify(self, email: str) -> VerificationResult:
         """Run comprehensive verification pipeline on an email address."""
         is_valid, local_part, domain = self.check_syntax(email)
@@ -248,13 +277,13 @@ class DeliverabilityVerifier:
                 is_domain_active=is_domain_live,
             )
 
-        # Check role-based accounts
-        is_role = local_part in GENERIC_ROLE_PREFIXES
-        if is_role:
+        # Check role-based accounts: Disallowed vs Monitored Business Roles
+        is_disallowed_role = local_part in SYSTEM_DISALLOWED_PREFIXES
+        if is_disallowed_role:
             return VerificationResult(
                 email=email,
                 status=DeliverabilityStatus.RISKY,
-                reason=f"Email local-part '{local_part}' is an unmonitored role account",
+                reason=f"Email local-part '{local_part}' is an unmonitored system/test role account",
                 is_valid_format=True,
                 is_disposable=False,
                 is_role_account=True,
@@ -263,11 +292,33 @@ class DeliverabilityVerifier:
                 is_domain_active=is_domain_live,
             )
 
+        is_business_role = local_part in BUSINESS_ROLE_PREFIXES
+        if is_business_role and not self.allow_business_roles:
+            return VerificationResult(
+                email=email,
+                status=DeliverabilityStatus.RISKY,
+                reason=f"Email local-part '{local_part}' is a general role account",
+                is_valid_format=True,
+                is_disposable=False,
+                is_role_account=True,
+                domain=domain,
+                mx_records=mx_records,
+                is_domain_active=is_domain_live,
+            )
+
+        # Check Catch-All status if requested
+        primary_mx = mx_records[0] if mx_records else ""
+        is_catchall = False
+        if self.check_catchall and primary_mx:
+            is_catchall = self.probe_catchall(primary_mx, domain)
+
         # Optional SMTP handshake probe on primary MX
         smtp_passed = True
         reason = "Valid syntax, active domain, and verified MX exchangers"
+        if is_business_role:
+            reason = f"Verified business role account '{local_part}' on active domain with MX"
+
         if self.probe_smtp and mx_records:
-            primary_mx = mx_records[0]
             passed, probe_msg = self.probe_mailbox_smtp(primary_mx, email)
             smtp_passed = passed
             if not passed:
@@ -277,13 +328,16 @@ class DeliverabilityVerifier:
                     reason=f"SMTP handshake failed: {probe_msg}",
                     is_valid_format=True,
                     is_disposable=False,
-                    is_role_account=False,
+                    is_role_account=is_business_role,
                     domain=domain,
                     mx_records=mx_records,
                     smtp_check_passed=False,
                     is_domain_active=is_domain_live,
+                    is_catchall=is_catchall,
                 )
             reason = f"Verified: {probe_msg}"
+            if is_catchall:
+                reason += " (Domain is catch-all)"
 
         return VerificationResult(
             email=email,
@@ -291,9 +345,64 @@ class DeliverabilityVerifier:
             reason=reason,
             is_valid_format=True,
             is_disposable=False,
-            is_role_account=False,
+            is_role_account=is_business_role,
             domain=domain,
             mx_records=mx_records,
             smtp_check_passed=smtp_passed,
             is_domain_active=is_domain_live,
+            is_catchall=is_catchall,
         )
+
+
+def check_domain_auth_records(domain: str, timeout_seconds: float = 4.0) -> dict[str, Any]:
+    """Inspect SPF and DMARC TXT records for outbound domain deliverability compliance."""
+    clean_domain = (domain or "").strip().lower()
+    result = {
+        "domain": clean_domain,
+        "has_spf": False,
+        "spf_record": "",
+        "has_dmarc": False,
+        "dmarc_record": "",
+        "dmarc_policy": "",
+        "is_ready_for_cold_outreach": False,
+    }
+    if not clean_domain:
+        return result
+
+    try:
+        import dns.resolver
+        # 1. Query root TXT records for SPF
+        try:
+            answers = dns.resolver.resolve(clean_domain, "TXT", lifetime=timeout_seconds)
+            for rdata in answers:
+                txt_str = "".join([s.decode("utf-8", errors="ignore") if isinstance(s, bytes) else str(s) for s in rdata.strings])
+                if txt_str.startswith("v=spf1"):
+                    result["has_spf"] = True
+                    result["spf_record"] = txt_str
+                    break
+        except Exception as spf_err:
+            logger.debug(f"SPF query note for {clean_domain}: {spf_err}")
+
+        # 2. Query _dmarc subdomain for DMARC record
+        try:
+            dmarc_host = f"_dmarc.{clean_domain}"
+            answers_dmarc = dns.resolver.resolve(dmarc_host, "TXT", lifetime=timeout_seconds)
+            for rdata in answers_dmarc:
+                txt_str = "".join([s.decode("utf-8", errors="ignore") if isinstance(s, bytes) else str(s) for s in rdata.strings])
+                if txt_str.startswith("v=DMARC1"):
+                    result["has_dmarc"] = True
+                    result["dmarc_record"] = txt_str
+                    # Extract p= policy
+                    import re
+                    match = re.search(r"\bp=([a-zA-Z]+)", txt_str)
+                    if match:
+                        result["dmarc_policy"] = match.group(1).lower()
+                    break
+        except Exception as dmarc_err:
+            logger.debug(f"DMARC query note for {clean_domain}: {dmarc_err}")
+
+        result["is_ready_for_cold_outreach"] = bool(result["has_spf"] and result["has_dmarc"])
+    except Exception as exc:
+        logger.debug(f"DNS auth query failed for {clean_domain}: {exc}")
+
+    return result

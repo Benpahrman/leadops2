@@ -129,6 +129,10 @@ class EmailSettings:
     microsoft_refresh_token: str = ""
     microsoft_redirect_uri: str = "http://localhost:8000/api/admin/oauth/microsoft/callback"
 
+    # External Email Discovery & Verification APIs (Free-tier Fallbacks)
+    hunter_api_key: str = ""
+    apollo_api_key: str = ""
+
     def is_microsoft_oauth_ready(self) -> bool:
         """Return True if Microsoft OAuth is configured and authorized with a refresh token."""
         return bool(self.microsoft_client_id and self.microsoft_client_secret and self.microsoft_refresh_token)
@@ -494,4 +498,6 @@ class EmailSettings:
             microsoft_tenant_id=microsoft_tenant_id,
             microsoft_refresh_token=microsoft_refresh_token,
             microsoft_redirect_uri=microsoft_redirect_uri,
+            hunter_api_key=os.environ.get("HUNTER_API_KEY", "").strip(),
+            apollo_api_key=os.environ.get("APOLLO_API_KEY", "").strip(),
         )
