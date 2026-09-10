@@ -1011,6 +1011,7 @@ def get_lead_artifacts(
 def get_lead_audit_trail(
     lead_id: str,
     _: ClerkUser = Depends(require_admin),
+    storage_backend=Depends(get_storage),
 ):
     """Fetch the full chronological audit trail and AI agent action history for a client."""
     from ..client_artifacts import artifact_store
@@ -1020,6 +1021,23 @@ def get_lead_audit_trail(
     comms = audit_vault.get_communications_log(lead_id)
     payments = audit_vault.get_payment_records(lead_id)
     deliveries = audit_vault.get_deliveries_ledger(lead_id)
+
+    # Fallback to database audit_log if disk artifact trail is empty
+    if not trail and storage_backend:
+        lead = storage_backend.get_lead(lead_id)
+        if lead and lead.audit_log:
+            trail = []
+            for ev in lead.audit_log:
+                if isinstance(ev, dict):
+                    frm = ev.get("from", "")
+                    to_st = ev.get("to", "")
+                    action = f"{frm} ➔ {to_st}" if frm and to_st else (ev.get("action") or ev.get("event") or "State Transition")
+                    trail.append({
+                        "action": action,
+                        "timestamp": ev.get("at") or ev.get("timestamp") or datetime.now(timezone.utc).isoformat(),
+                        "detail": ev.get("reason") or ev.get("detail") or "Automated lifecycle transition",
+                        "metadata": ev,
+                    })
 
     return {
         "ok": True,

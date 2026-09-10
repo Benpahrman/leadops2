@@ -879,14 +879,42 @@ export default function AdminPage() {
     },
   ], [metrics, autoOutreachStatus, loadAdminData, handleTriggerWebScout, handleToggleAutoOutreach, handleToggleEmergencyStop, handlePurgeAllData]);
 
-  const handleViewAudit = async (leadId, companyName) => {
+  const handleViewAudit = async (leadId, companyName, leadObj = null) => {
     try {
       const token = await resolveToken();
-      const res = await fetchAuditTrail(leadId, token);
+      let events = [];
+      try {
+        const res = await fetchAuditTrail(leadId, token);
+        events = res.trail || res.audit_trail || res.events || res.audit_log || [];
+      } catch (fetchErr) {
+        console.warn('Network fetchAuditTrail failed, falling back to local lead data:', fetchErr);
+      }
+
+      // If backend audit trail had 0 events, fallback to leadObj or search pipeline
+      if (!events || events.length === 0) {
+        const targetLead = leadObj || pipeline.find((l) => l.lead_id === leadId);
+        if (targetLead && Array.isArray(targetLead.audit_log) && targetLead.audit_log.length > 0) {
+          events = targetLead.audit_log.map((ev) => {
+            if (typeof ev === 'object' && ev !== null) {
+              const frm = ev.from || '';
+              const toSt = ev.to || '';
+              const action = frm && toSt ? `${frm} ➔ ${toSt}` : (ev.action || ev.event || 'Lifecycle Transition');
+              return {
+                action,
+                timestamp: ev.at || ev.timestamp || new Date().toISOString(),
+                detail: ev.reason || ev.detail || 'Automated lifecycle transition',
+                metadata: ev,
+              };
+            }
+            return { action: 'State Transition', detail: String(ev), timestamp: '' };
+          });
+        }
+      }
+
       setAuditModal({
         open: true,
         title: `Audit Trail: ${companyName || leadId}`,
-        events: res.events || res.audit_trail || res.audit_log || [],
+        events: events || [],
       });
     } catch (err) {
       showToast(`Failed to load audit trail: ${err.message}`, 'error');
@@ -1686,9 +1714,30 @@ export default function AdminPage() {
                       return (
                         <tr key={lead.lead_id}>
                           <td>
-                            <div style={{ fontWeight: 700, color: '#fff' }}>
-                              {lead.company_name || 'Organization Lead'}
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setScoreModal({ open: true, lead })}
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                padding: 0,
+                                margin: 0,
+                                cursor: 'pointer',
+                                textAlign: 'left',
+                                fontWeight: 700,
+                                color: '#fff',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                fontSize: '13px',
+                              }}
+                              title="Click to view detailed lead intelligence, origin, and scoring"
+                            >
+                              <span style={{ textDecoration: 'underline', textDecorationColor: 'rgba(56, 189, 248, 0.4)' }}>
+                                {lead.company_name || 'Organization Lead'}
+                              </span>
+                              <span style={{ fontSize: '11px', color: 'var(--cyan)' }}>ℹ️</span>
+                            </button>
                             <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontFamily: 'var(--mono)', marginTop: '2px', display: 'flex', alignItems: 'center' }}>
                               <span>{lead.lead_id}</span>
                               <button
@@ -1893,9 +1942,9 @@ export default function AdminPage() {
                                 className="btn btn-outline"
                                 style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--cyan)', borderColor: 'rgba(56, 189, 248, 0.4)' }}
                                 onClick={() => setScoreModal({ open: true, lead })}
-                                title="View 7-factor BDR scoring breakdown and market research"
+                                title="View 7-factor BDR scoring breakdown, buyer signals, and full lead dossier"
                               >
-                                ⚡ Score
+                                ℹ️ Details
                               </button>
                               <a
                                 href={`/p/${slug}`}
@@ -1954,7 +2003,7 @@ export default function AdminPage() {
                               <button
                                 className="btn btn-outline"
                                 style={{ padding: '4px 8px', fontSize: '11px' }}
-                                onClick={() => handleViewAudit(lead.lead_id, lead.company_name)}
+                                onClick={() => handleViewAudit(lead.lead_id, lead.company_name, lead)}
                                 title="View immutable event trail"
                               >
                                 📜 Audit
@@ -2033,8 +2082,23 @@ export default function AdminPage() {
                       colLeads.map((lead) => (
                         <div key={lead.lead_id} className="kanban-card">
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                            <div style={{ fontWeight: 700, fontSize: '13px', color: '#fff' }}>
-                              {lead.company_name || 'Lead'}
+                            <div
+                              style={{
+                                fontWeight: 700,
+                                fontSize: '13px',
+                                color: '#fff',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                              }}
+                              onClick={() => setScoreModal({ open: true, lead })}
+                              title="Click to view full lead intelligence, origin, and scoring"
+                            >
+                              <span style={{ textDecoration: 'underline', textDecorationColor: 'rgba(56, 189, 248, 0.4)' }}>
+                                {lead.company_name || 'Lead'}
+                              </span>
+                              <span style={{ fontSize: '11px', color: 'var(--cyan)' }}>ℹ️</span>
                             </div>
                             <span style={{ fontSize: '10px', color: 'var(--purple)', fontWeight: 600 }}>
                               {lead.tier_key || 'weekly'}
@@ -2135,20 +2199,43 @@ export default function AdminPage() {
                             </span>
                           </div>
 
-                          <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                          <div style={{ display: 'flex', gap: '5px', marginTop: '8px', flexWrap: 'wrap' }}>
                             <button
                               className="btn btn-primary"
                               style={{
                                 padding: '4px 8px',
                                 fontSize: '11px',
                                 flex: 1,
+                                minWidth: '80px',
                                 background: lead.state === 'PITCH_PENDING_APPROVAL' ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : undefined,
                                 borderColor: lead.state === 'PITCH_PENDING_APPROVAL' ? '#10b981' : undefined,
                               }}
                               onClick={() => handleAdvance(lead.lead_id)}
                               disabled={actionInProgress[lead.lead_id]}
                             >
-                              {lead.state === 'PITCH_PENDING_APPROVAL' ? '✓ Approve Pitch' : '⏩ Advance'}
+                              {lead.state === 'PITCH_PENDING_APPROVAL' ? '✓ Approve' : '⏩ Advance'}
+                            </button>
+                            <button
+                              className="btn btn-outline"
+                              style={{ padding: '4px 7px', fontSize: '11px', color: 'var(--cyan)', borderColor: 'rgba(56, 189, 248, 0.3)' }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setScoreModal({ open: true, lead });
+                              }}
+                              title="View full lead intelligence & BDR breakdown"
+                            >
+                              ℹ️ Info
+                            </button>
+                            <button
+                              className="btn btn-outline"
+                              style={{ padding: '4px 7px', fontSize: '11px' }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleViewAudit(lead.lead_id, lead.company_name, lead);
+                              }}
+                              title="View immutable audit trail"
+                            >
+                              📜 Audit
                             </button>
                             <a
                               href={`/p/${lead.slug || lead.lead_id}`}
@@ -2156,6 +2243,7 @@ export default function AdminPage() {
                               rel="noreferrer"
                               className="btn btn-outline"
                               style={{ padding: '4px 8px', fontSize: '11px' }}
+                              title="Open customer portal"
                             >
                               🌐
                             </a>
@@ -3492,9 +3580,12 @@ export default function AdminPage() {
       {/* Audit Trail Modal */}
       {auditModal.open && (
         <div className="admin-modal-overlay" onClick={() => setAuditModal({ open: false, title: '', events: [] })}>
-          <div className="admin-modal-content" onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#fff' }}>{auditModal.title}</h3>
+          <div className="admin-modal-content" style={{ maxWidth: '680px' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '14px' }}>
+              <div>
+                <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#fff', margin: 0 }}>📜 {auditModal.title}</h3>
+                <span style={{ fontSize: '12px', color: 'var(--text-dim)' }}>Immutable lifecycle events &amp; AI orchestration telemetry</span>
+              </div>
               <button
                 className="btn btn-outline"
                 style={{ padding: '4px 10px', fontSize: '12px' }}
@@ -3504,19 +3595,50 @@ export default function AdminPage() {
               </button>
             </div>
 
-            <div style={{ maxHeight: '420px', overflowY: 'auto' }}>
-              {auditModal.events.length === 0 ? (
-                <p style={{ color: 'var(--text-muted)' }}>No audit events recorded.</p>
+            <div style={{ maxHeight: '460px', overflowY: 'auto', marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {!auditModal.events || auditModal.events.length === 0 ? (
+                <div style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <p style={{ margin: 0, fontSize: '14px' }}>No audit events recorded for this lead.</p>
+                  <p style={{ fontSize: '12px', color: 'var(--text-dim)', marginTop: '4px' }}>State transitions and AI agent dispatches will appear here automatically.</p>
+                </div>
               ) : (
-                auditModal.events.map((ev, i) => (
-                  <div key={i} style={{ padding: '12px', borderBottom: '1px solid var(--border)', fontSize: '13px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--cyan)', fontWeight: 600 }}>
-                      <span>{ev.action || ev.event || 'Lifecycle Transition'}</span>
-                      <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>{ev.timestamp || ev.created_at}</span>
+                auditModal.events.map((ev, i) => {
+                  const actionStr = typeof ev.action === 'string' ? ev.action : (typeof ev.event === 'string' ? ev.event : 'Lifecycle Transition');
+                  const timeRaw = ev.timestamp || ev.created_at || ev.at || '';
+                  let timeStr = '';
+                  if (timeRaw) {
+                    try {
+                      timeStr = new Date(timeRaw).toLocaleString();
+                    } catch {
+                      timeStr = String(timeRaw);
+                    }
+                  }
+                  let detailStr = '';
+                  if (typeof ev.detail === 'string' && ev.detail) {
+                    detailStr = ev.detail;
+                  } else if (typeof ev.reason === 'string' && ev.reason) {
+                    detailStr = ev.reason;
+                  } else if (ev.detail && typeof ev.detail === 'object') {
+                    detailStr = JSON.stringify(ev.detail);
+                  } else if (ev.reason && typeof ev.reason === 'object') {
+                    detailStr = JSON.stringify(ev.reason);
+                  } else {
+                    detailStr = 'Automated lifecycle transition';
+                  }
+
+                  return (
+                    <div key={i} style={{ padding: '12px', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', fontSize: '13px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--cyan)', fontWeight: 600 }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ color: 'var(--green)' }}>●</span>
+                          {actionStr}
+                        </span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontFamily: 'var(--mono)' }}>{timeStr}</span>
+                      </div>
+                      <div style={{ marginTop: '6px', color: 'var(--text-muted)', fontSize: '12px', lineHeight: 1.4 }}>{detailStr}</div>
                     </div>
-                    <div style={{ marginTop: '4px', color: 'var(--text-muted)' }}>{ev.detail || ev.reason || JSON.stringify(ev)}</div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -3614,37 +3736,74 @@ export default function AdminPage() {
       {/* AI Lead Scoring & BDR Intelligence Modal */}
       {scoreModal.open && scoreModal.lead && (() => {
         const lead = scoreModal.lead;
-        const oppScore = lead.automation_opportunity_score ?? 75;
-        const purchaseProb = lead.purchase_probability ?? 60;
-        const painSev = lead.pain_severity ?? 6;
+        const oppScore = typeof lead.automation_opportunity_score === 'number'
+          ? lead.automation_opportunity_score
+          : (parseInt(lead.automation_opportunity_score, 10) || 75);
+        const purchaseProb = typeof lead.purchase_probability === 'number'
+          ? lead.purchase_probability
+          : (parseInt(lead.purchase_probability, 10) || 60);
+        const painSev = typeof lead.pain_severity === 'number'
+          ? lead.pain_severity
+          : (parseInt(lead.pain_severity, 10) || 6);
         const verdict = lead.qualification_verdict || (oppScore >= 65 ? 'QUALIFIED_HOT' : 'QUALIFIED_NURTURE');
-        const breakdown = lead.scoring_breakdown || {
-          labor_intensity: 20,
-          target_portal_scraping: 12,
-          manual_data_entry: 12,
-          compliance_regulatory: 11,
-          document_volume: 8,
-          smb_size_fit: 8,
-          market_growth: 7,
+
+        // Safely extract factor scores whether nested {score, max} objects or raw numbers
+        const rawBreakdown = (lead.scoring_breakdown && typeof lead.scoring_breakdown === 'object')
+          ? (lead.scoring_breakdown.breakdown || lead.scoring_breakdown)
+          : {};
+
+        const getFactor = (item, defaultScore, defaultMax) => {
+          if (item === null || item === undefined) {
+            return { score: defaultScore, max: defaultMax };
+          }
+          if (typeof item === 'number') {
+            return { score: item, max: defaultMax };
+          }
+          if (typeof item === 'object') {
+            const sc = typeof item.score === 'number' ? item.score : (parseInt(item.score, 10) || defaultScore);
+            const mx = typeof item.max === 'number' ? item.max : (parseInt(item.max, 10) || defaultMax);
+            return { score: sc, max: mx };
+          }
+          const parsed = parseInt(item, 10);
+          return { score: isNaN(parsed) ? defaultScore : parsed, max: defaultMax };
         };
-        const signals = Array.isArray(lead.buyer_signals) && lead.buyer_signals.length > 0
-          ? lead.buyer_signals
-          : [
-              'High manual data entry overhead identified in core workflow',
-              'Municipal/public docket dependencies detected',
-              'Sub-50 employee size matches automation deployment sweet-spot',
-            ];
-        const qa = lead.qa_score !== null && lead.qa_score !== undefined ? lead.qa_score : null;
+
+        const f1 = getFactor(rawBreakdown.labor_intensive_operations ?? rawBreakdown.labor_intensity, 20, 25);
+        const f2 = getFactor(rawBreakdown.portal_usage ?? rawBreakdown.target_portal_scraping, 12, 15);
+        const f3 = getFactor(rawBreakdown.manual_data_entry, 12, 15);
+        const f4 = getFactor(rawBreakdown.compliance_requirements ?? rawBreakdown.compliance_regulatory, 11, 15);
+        const f5 = getFactor(rawBreakdown.document_processing_volume ?? rawBreakdown.document_volume, 8, 10);
+        const f6 = getFactor(rawBreakdown.company_size_fit ?? rawBreakdown.smb_size_fit, 8, 10);
+        const f7 = getFactor(rawBreakdown.growth_signals ?? rawBreakdown.market_growth, 7, 10);
 
         const factorItems = [
-          { label: 'Labor-Intensive Operations', val: breakdown.labor_intensity ?? 20, max: 25, desc: 'High repetitive human touchpoints' },
-          { label: 'Target Portal Scraping Viability', val: breakdown.target_portal_scraping ?? 12, max: 15, desc: 'Public docket/portal data accessibility' },
-          { label: 'Manual Data Entry Elimination', val: breakdown.manual_data_entry ?? 12, max: 15, desc: 'Direct software bridge opportunity' },
-          { label: 'Compliance & Regulatory Overhead', val: breakdown.compliance_regulatory ?? 11, max: 15, desc: 'Statutory filing & auditing requirements' },
-          { label: 'Document & Record Volume', val: breakdown.document_volume ?? 8, max: 10, desc: 'Daily PDF/CSV/Record throughput' },
-          { label: 'SMB Company Size Fit', val: breakdown.smb_size_fit ?? 8, max: 10, desc: '5-50 staff sweet spot for agile adoption' },
-          { label: 'Market Growth & Hiring Signals', val: breakdown.market_growth ?? 7, max: 10, desc: 'Active hiring or market expansion signals' },
+          { label: 'Labor-Intensive Operations', val: f1.score, max: f1.max, desc: 'High repetitive human touchpoints' },
+          { label: 'Target Portal Scraping Viability', val: f2.score, max: f2.max, desc: 'Public docket/portal data accessibility' },
+          { label: 'Manual Data Entry Elimination', val: f3.score, max: f3.max, desc: 'Direct software bridge opportunity' },
+          { label: 'Compliance & Regulatory Overhead', val: f4.score, max: f4.max, desc: 'Statutory filing & auditing requirements' },
+          { label: 'Document & Record Volume', val: f5.score, max: f5.max, desc: 'Daily PDF/CSV/Record throughput' },
+          { label: 'SMB Company Size Fit', val: f6.score, max: f6.max, desc: '5-50 staff sweet spot for agile adoption' },
+          { label: 'Market Growth & Hiring Signals', val: f7.score, max: f7.max, desc: 'Active hiring or market expansion signals' },
         ];
+
+        let signals = [];
+        if (Array.isArray(lead.buyer_signals)) {
+          signals = lead.buyer_signals.map((s) => (typeof s === 'object' && s !== null ? (s.label || s.signal || JSON.stringify(s)) : String(s)));
+        } else if (lead.buyer_signals && typeof lead.buyer_signals === 'object') {
+          if (Array.isArray(lead.buyer_signals.positive_signals)) {
+            signals = lead.buyer_signals.positive_signals.map((s) => (typeof s === 'object' && s !== null ? (s.label || s.signal || JSON.stringify(s)) : String(s)));
+          } else {
+            signals = Object.values(lead.buyer_signals).filter((v) => typeof v === 'string');
+          }
+        }
+        if (signals.length === 0) {
+          signals = [
+            'High manual data entry overhead identified in core workflow',
+            'Municipal/public docket dependencies detected',
+            'Sub-50 employee size matches automation deployment sweet-spot',
+          ];
+        }
+        const qa = lead.qa_score !== null && lead.qa_score !== undefined ? lead.qa_score : null;
 
         return (
           <div className="admin-modal-overlay" onClick={() => setScoreModal({ open: false, lead: null })}>
@@ -3888,7 +4047,9 @@ export default function AdminPage() {
                     📝 Operational Friction &amp; Human Observations
                   </h4>
                   <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>
-                    {lead.pain_points || lead.notes || lead.human_observation}
+                    {typeof lead.pain_points === 'object' && lead.pain_points !== null
+                      ? JSON.stringify(lead.pain_points)
+                      : (lead.pain_points || lead.notes || lead.human_observation || 'No operational observations noted.')}
                   </p>
                 </div>
               )}
