@@ -199,3 +199,95 @@ class OutreachQualityGatekeeper:
             quota_info=quota_info,
             metrics=metrics,
         )
+
+
+def main() -> None:
+    """CLI runner for Quality Gate validation and copy compliance checks."""
+    import argparse
+    import sys
+    from agents.storage import SqliteStorageBackend
+
+    if sys.stdout.encoding.lower() != "utf-8":
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
+    parser = argparse.ArgumentParser(description="LeadOps Outreach Quality Gate & Copy Compliance CLI")
+    parser.add_argument("--validate-copy", action="store_true", help="Validate copy against 35-55 words zero-link rules")
+    parser.add_argument("--touch", type=int, default=1, help="Touch sequence index (default: 1)")
+    parser.add_argument("--lead-id", help="Specific lead ID to validate")
+    args = parser.parse_args()
+
+    print("=" * 70)
+    print(f"[QUALITY GATE] TOUCH {args.touch} COPY COMPLIANCE & DELIVERABILITY AUDITOR")
+    print("=" * 70)
+
+    backend = SqliteStorageBackend()
+    leads = backend.list_leads()
+
+    if args.lead_id:
+        leads = [l for l in leads if l.lead_id == args.lead_id]
+
+    if not leads:
+        print("No leads found in storage to validate.")
+        return
+
+    PROHIBITED_SPAM_WORDS = {
+        "revolutionary", "guaranteed", "discount", "affordable", "special offer",
+        "act now", "limited time", "urgent", "exclusive deal", "risk-free", "free trial"
+    }
+
+    total_audited = 0
+    passed_count = 0
+    failed_count = 0
+
+    for lead in leads:
+        body = getattr(lead, "outreach_body", "")
+        if not body:
+            continue
+
+        total_audited += 1
+        words = len(body.split())
+        has_links = "http://" in body or "https://" in body or "www." in body
+        found_spam = [w for w in PROHIBITED_SPAM_WORDS if w in body.lower()]
+        has_question = "?" in body
+
+        issues = []
+        if args.touch == 1:
+            if words < 35:
+                issues.append(f"Under word count limit: {words} words (Min: 35 words)")
+            elif words > 55:
+                issues.append(f"Exceeded word count limit: {words} words (Max: 55 words)")
+            if has_links:
+                issues.append("Contains hyperlinked URLs or web links (Touch 1 must be 100% 0 links)")
+            if not has_question:
+                issues.append("Missing permission-first closing question (must ask permission to send link/sheet)")
+
+        if found_spam:
+            issues.append(f"Contains prohibited spam words: {', '.join(found_spam)}")
+
+        status_tag = "[PASS]" if not issues else "[FAIL]"
+        if not issues:
+            passed_count += 1
+        else:
+            failed_count += 1
+
+        print(f"\n{status_tag} Lead: {lead.lead_id} ({getattr(lead, 'company_name', 'Unknown')})")
+        print(f"      Jurisdiction : {getattr(lead, 'jurisdiction', 'N/A')}")
+        print(f"      Subject      : {getattr(lead, 'outreach_subject', 'N/A')}")
+        print(f"      Metrics      : {words} words | Links: {has_links} | Has Question: {has_question}")
+        if issues:
+            for iss in issues:
+                print(f"      -> ISSUE: {iss}")
+        else:
+            print(f"      -> PASSED: 100% compliant with Touch 1 Zero-Link, 35-55 words SLA.")
+
+    print("\n" + "=" * 70)
+    print(f"Audit Complete: {total_audited} emails evaluated | {passed_count} Passed | {failed_count} Flagged")
+    print("=" * 70)
+
+
+if __name__ == "__main__":
+    main()
+

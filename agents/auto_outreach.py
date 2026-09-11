@@ -594,3 +594,80 @@ class AutoOutreachScheduler:
 
 # Global singleton instance
 auto_outreach_scheduler = AutoOutreachScheduler()
+
+
+def main() -> None:
+    """CLI runner for auto outreach inspection, status checks, and dry-run execution."""
+    import argparse
+    import sys
+    from .storage import SqliteStorageBackend
+
+    if sys.stdout.encoding.lower() != "utf-8":
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
+    parser = argparse.ArgumentParser(description="LeadOps Auto-Outreach Grace Period & Anti-Spam Queue CLI")
+    parser.add_argument("--status", action="store_true", help="Print scheduler status and queue telemetry")
+    parser.add_argument("--inspect-queue", action="store_true", help="Inspect all active pending items in the outreach queue")
+    parser.add_argument("--dry-run", action="store_true", help="Simulate outreach without dispatching real email")
+    parser.add_argument("--lead-id", help="Lead ID to dry-run or inspect")
+    parser.add_argument("--json", action="store_true", help="Emit raw JSON")
+    args = parser.parse_args()
+
+    status_data = auto_outreach_scheduler.get_status()
+
+    if args.json:
+        import json
+        print(json.dumps(status_data, indent=2))
+        return
+
+    print("=" * 70)
+    print("[AUTO-OUTREACH] GRACE PERIOD & JITTER QUEUE TELEMETRY")
+    print("=" * 70)
+    print(f"Engine Enabled       : {status_data['enabled']}")
+    print(f"Grace Period Window  : {status_data['grace_period_seconds']}s (3 mins mobile review)")
+    print(f"Anti-Spam Jitter     : {status_data['min_jitter_seconds']}s - {status_data['max_jitter_seconds']}s ({status_data['min_jitter_seconds']//60}-{status_data['max_jitter_seconds']//60} mins)")
+    print(f"Pending Queue Depth  : {status_data['pending_queue_count']}")
+    print(f"FIFO Queue Items     : {status_data['queue_depth']}")
+    print(f"Total Tracked Leads  : {status_data['total_tracked']}")
+
+    if args.inspect_queue or args.status:
+        print("\n--- Recent Scheduled Queue (Last 10) ---")
+        if not status_data["scheduled"]:
+            print("  (Queue is currently idle - no pending or scheduled dispatches)")
+        else:
+            for item in status_data["scheduled"]:
+                dispatched_tag = "[SENT]" if item["dispatched"] else ("[CANCELLED]" if item["cancelled"] else "[PENDING]")
+                print(f"  * {dispatched_tag} {item['lead_id']} | {item['company_name']} ({item['contact_email']}) | Dispatch: {item['dispatch_at']}")
+
+    if args.dry_run:
+        backend = SqliteStorageBackend()
+        lead = backend.get_lead(args.lead_id) if args.lead_id else None
+        if not lead:
+            leads = backend.list_leads()
+            lead = leads[0] if leads else None
+
+        if not lead:
+            print("\n[DRY-RUN] No leads available in database to dry-run.")
+        else:
+            print(f"\n[DRY-RUN SIMULATION] Evaluating Lead: {lead.lead_id} ({getattr(lead, 'company_name', '')})")
+            print(f"  * Jurisdiction: {getattr(lead, 'jurisdiction', '')}")
+            print(f"  * State       : {getattr(lead, 'state', '')}")
+            print(f"  * Email       : {getattr(lead, 'contact_email', '')}")
+            print(f"  * Subject     : {getattr(lead, 'outreach_subject', '')}")
+            body = getattr(lead, 'outreach_body', '')
+            words = len(body.split()) if body else 0
+            has_links = "http://" in body or "https://" in body
+            print(f"  * Word Count  : {words} words (Target: 35-55 words)")
+            print(f"  * Zero Links  : {'[PASS] 0 links' if not has_links else '[FAIL] Contains links'}")
+            print("\n[DRY-RUN DRAFT]:\n" + "-" * 40 + f"\n{body}\n" + "-" * 40)
+            print("Dry-run complete (0 emails sent).")
+
+    print("\n" + "=" * 70)
+
+
+if __name__ == "__main__":
+    main()
+

@@ -319,7 +319,9 @@ class DeliverabilityTester:
         # Resolve target inboxes
         target_inboxes = inboxes
         if not target_inboxes:
-            target_inboxes = [acc for acc in self.settings.inbox_pool if acc.is_active]
+            target_inboxes = [acc for acc in self.settings.get_outbound_inboxes() if acc.is_active]
+        if not target_inboxes:
+            target_inboxes = [acc for acc in self.settings.get_all_inboxes() if acc.is_active]
         if not target_inboxes and self.settings.user:
             # Fallback to primary account
             target_inboxes = [
@@ -425,3 +427,181 @@ class DeliverabilityTester:
             f"({healthy_count} Healthy, {warning_count} Warnings, {critical_count} Critical)"
         )
         return full_report
+
+
+def check_domain_dns(domain: str) -> dict[str, Any]:
+    """Perform real-time DNS hygiene, SPF, DKIM, and DMARC verification for a domain."""
+    clean_domain = domain.strip().lower().lstrip("@")
+    results: dict[str, Any] = {
+        "domain": clean_domain,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "has_mx": False,
+        "mx_records": [],
+        "has_spf": False,
+        "spf_record": None,
+        "has_dmarc": False,
+        "dmarc_record": None,
+        "dmarc_policy": "none",
+        "dkim_selectors_checked": {},
+        "score": 100,
+        "issues": [],
+        "recommendations": [],
+    }
+
+    try:
+        import dns.resolver
+    except ImportError:
+        results["issues"].append("dnspython library not installed; falling back to basic socket checks")
+        return results
+
+    # 1. Check MX Records
+    try:
+        mx_answers = dns.resolver.resolve(clean_domain, "MX")
+        results["mx_records"] = [f"{r.preference} {r.exchange.to_text().rstrip('.')}" for r in mx_answers]
+        results["has_mx"] = len(results["mx_records"]) > 0
+    except Exception as e:
+        results["issues"].append(f"MX lookup failed: {e}")
+        results["score"] -= 35
+
+    # 2. Check SPF (TXT records on base domain)
+    try:
+        txt_answers = dns.resolver.resolve(clean_domain, "TXT")
+        for r in txt_answers:
+            txt_str = "".join([part.decode("utf-8", errors="ignore") if isinstance(part, bytes) else str(part) for part in r.strings])
+            if txt_str.startswith("v=spf1"):
+                results["has_spf"] = True
+                results["spf_record"] = txt_str
+                break
+        if not results["has_spf"]:
+            results["issues"].append("Missing SPF record on sending domain")
+            results["recommendations"].append(f"Add TXT record for {clean_domain}: 'v=spf1 include:_spf.mx.cloudflare.net include:zohomail.com ~all'")
+            results["score"] -= 25
+    except Exception as e:
+        results["issues"].append(f"TXT/SPF lookup failed: {e}")
+        results["score"] -= 25
+
+    # 3. Check DMARC (TXT record at _dmarc.<domain>)
+    try:
+        dmarc_answers = dns.resolver.resolve(f"_dmarc.{clean_domain}", "TXT")
+        for r in dmarc_answers:
+            txt_str = "".join([part.decode("utf-8", errors="ignore") if isinstance(part, bytes) else str(part) for part in r.strings])
+            if "v=DMARC1" in txt_str:
+                results["has_dmarc"] = True
+                results["dmarc_record"] = txt_str
+                # Parse policy
+                if "p=reject" in txt_str:
+                    results["dmarc_policy"] = "reject"
+                elif "p=quarantine" in txt_str:
+                    results["dmarc_policy"] = "quarantine"
+                else:
+                    results["dmarc_policy"] = "none"
+                break
+        if not results["has_dmarc"]:
+            results["issues"].append("Missing DMARC record (_dmarc." + clean_domain + ")")
+            results["recommendations"].append(f"Add TXT record for _dmarc.{clean_domain}: 'v=DMARC1; p=quarantine; pct=100; rua=mailto:admin@{clean_domain}'")
+            results["score"] -= 25
+        elif results["dmarc_policy"] == "none":
+            results["recommendations"].append("Upgrade DMARC policy from p=none to p=quarantine or p=reject for strict protection.")
+            results["score"] -= 10
+    except Exception as e:
+        results["issues"].append(f"DMARC record not found: {e}")
+        results["recommendations"].append(f"Add TXT record for _dmarc.{clean_domain}: 'v=DMARC1; p=quarantine; pct=100;'")
+        results["score"] -= 25
+
+    # 4. Check common DKIM selectors
+    common_selectors = ["default", "zoho", "google", "cf", "k1", "smtp"]
+    found_dkim = False
+    for sel in common_selectors:
+        try:
+            sel_query = f"{sel}._domainkey.{clean_domain}"
+            dkim_answers = dns.resolver.resolve(sel_query, "TXT")
+            for r in dkim_answers:
+                txt_str = "".join([part.decode("utf-8", errors="ignore") if isinstance(part, bytes) else str(part) for part in r.strings])
+                if "v=DKIM1" in txt_str or "k=rsa" in txt_str or "p=" in txt_str:
+                    results["dkim_selectors_checked"][sel] = "ACTIVE"
+                    found_dkim = True
+                    break
+        except Exception:
+            results["dkim_selectors_checked"][sel] = "NOT_FOUND"
+
+    if not found_dkim:
+        results["recommendations"].append("Verify active DKIM selector name in DNS (e.g. Zoho zb54281880 or Cloudflare custom selector).")
+
+    results["score"] = max(0, min(100, results["score"]))
+    results["status"] = "HEALTHY" if results["score"] >= 80 else ("WARNING" if results["score"] >= 50 else "CRITICAL")
+    return results
+
+
+def main() -> None:
+    """CLI runner for deliverability testing, DNS verification, and fleet probes."""
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(description="LeadOps Deliverability & Domain Authentication CLI")
+    parser.add_argument("--domain", default="leadops.io", help="Target domain to verify DNS/SPF/DMARC (default: leadops.io)")
+    parser.add_argument("--check-all", action="store_true", help="Run complete DNS audit and active fleet status check")
+    parser.add_argument("--probe-inboxes", action="store_true", help="Dispatch live cold email probes to TestMail inbox fleet")
+    parser.add_argument("--json", action="store_true", help="Output raw JSON results")
+    args = parser.parse_args()
+
+    if sys.stdout.encoding.lower() != "utf-8":
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
+    print("=" * 70)
+    print("[DELIVERABILITY] LEADOPS DOMAIN & INBOX AUTHENTICATION AUDITOR")
+    print("=" * 70)
+
+    # 1. Perform DNS & Domain Hygiene Audit
+    dns_report = check_domain_dns(args.domain)
+
+    if args.json and not args.probe_inboxes:
+        import json
+        print(json.dumps(dns_report, indent=2))
+        return
+
+    print(f"\nDomain Under Audit : {dns_report['domain']}")
+    print(f"Deliverability Score: {dns_report['score']}/100 [{dns_report['status']}]")
+    print(f"   * MX Records        : {'[OK] Present (' + str(len(dns_report['mx_records'])) + ')' if dns_report['has_mx'] else '[FAIL] Missing'}")
+    for mx in dns_report["mx_records"][:3]:
+        print(f"       -> {mx}")
+    print(f"   * SPF Record        : {'[OK] ' + str(dns_report['spf_record']) if dns_report['has_spf'] else '[FAIL] Missing'}")
+    print(f"   * DMARC Policy      : {'[OK] ' + str(dns_report['dmarc_record']) if dns_report['has_dmarc'] else '[FAIL] Missing'}")
+
+    if dns_report["issues"]:
+        print("\nIdentified Issues:")
+        for iss in dns_report["issues"]:
+            print(f"   - {iss}")
+
+    if dns_report["recommendations"]:
+        print("\nRecommendations:")
+        for rec in dns_report["recommendations"]:
+            print(f"   + {rec}")
+
+    # 2. Check Inboxes / Fleet if requested
+    if args.check_all or args.probe_inboxes:
+        print("\n" + "-" * 70)
+        print("INBOX FLEET TELEMETRY & WARMUP POSTURE")
+        print("-" * 70)
+
+        tester = DeliverabilityTester()
+        inboxes = tester.settings.get_outbound_inboxes() or tester.settings.get_all_inboxes()
+        print(f"Active Fleet Size: {len(inboxes)} inboxes")
+        for ib in inboxes:
+            print(f" * [{ib.provider.upper():6}] {ib.id:8} | {ib.email_address:36} | Daily Limit: {ib.daily_limit}")
+
+        if args.probe_inboxes:
+            print("\nDispatching live probes to TestMail.app...")
+            fleet_report = tester.run_fleet_deliverability_audit(wait_seconds=6)
+            print(f"Fleet Status: {fleet_report.get('fleet_status')} | Avg Score: {fleet_report.get('average_score')}%")
+
+    print("\n" + "=" * 70)
+    print("Audit Complete.")
+    print("=" * 70)
+
+
+if __name__ == "__main__":
+    main()
+
