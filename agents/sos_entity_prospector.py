@@ -14,7 +14,7 @@ from typing import Any
 
 from .llm_client import LLMAgentEngine, is_disallowed_buyer
 from .tools.web_search import search_web, search_company_intelligence, find_linkedin_decision_maker
-from .tools.web_fetcher import extract_contact_info_from_url
+from .tools.web_fetcher import extract_contact_info_from_url, fetch_page_content, fetch_with_zyte
 from .logging_config import get_logger
 
 logger = get_logger("sos_entity_prospector")
@@ -95,6 +95,44 @@ class SOSEntityProspector:
     def __init__(self, llm_engine: LLMAgentEngine | None = None):
         self.llm_engine = llm_engine or LLMAgentEngine()
 
+    def scrape_registry_direct(
+        self,
+        state_code: str = "DE",
+        keyword: str = "Title Company",
+        max_results: int = 5,
+    ) -> list[DiscoveredSOSEntity]:
+        """Directly probe state corporate registries via Zyte residential proxy."""
+        cfg = SOS_REGISTRY_CONFIGS.get(state_code.upper(), SOS_REGISTRY_CONFIGS["TX"])
+        state_name = cfg["state_name"]
+        discovered: list[DiscoveredSOSEntity] = []
+
+        if state_code.upper() == "DE":
+            endpoint = f"https://data.delaware.gov/resource/5zy2-grhr.json?$limit=25&$q={keyword.replace(' ', '+')}"
+            try:
+                res = fetch_page_content(endpoint, timeout=10.0, use_zyte=True)
+                if res.get("ok"):
+                    import json
+                    raw = json.loads(res.get("raw_html", "[]"))
+                    if isinstance(raw, list):
+                        for item in raw:
+                            name = item.get("business_name") or item.get("name", "")
+                            if name and not is_disallowed_buyer(name, "", ""):
+                                discovered.append(DiscoveredSOSEntity(
+                                    company_name=name.strip(),
+                                    state="DE",
+                                    entity_type=keyword,
+                                    registered_agent=item.get("contact_person", ""),
+                                    filing_number=item.get("license_number", ""),
+                                    jurisdiction=f"{state_name} Statewide",
+                                    registry_url=endpoint,
+                                ))
+                                if len(discovered) >= max_results:
+                                    break
+            except Exception as ex:
+                logger.debug("Delaware direct registry probe note: %s", ex)
+
+        return discovered
+
     def discover_new_registrations(
         self,
         state_code: str = "TX",
@@ -107,14 +145,26 @@ class SOSEntityProspector:
 
         logger.info(f"🏢 [SOS ENTITY PROSPECTOR] Searching {cfg['sos_name']} for newly formed '{keyword}' entities...")
 
+        discovered: list[DiscoveredSOSEntity] = []
+        seen_names: set[str] = set()
+
+        # 1. Probe direct state corporate registry via Zyte if supported
+        direct_entities = self.scrape_registry_direct(state_code, keyword, max_results=max_results)
+        for ent in direct_entities:
+            norm_name = ent.company_name.lower()
+            if norm_name not in seen_names:
+                seen_names.add(norm_name)
+                discovered.append(ent)
+
+        if len(discovered) >= max_results:
+            logger.info(f"✓ [SOS ENTITY PROSPECTOR] Discovered {len(discovered)} direct corporate entities from {cfg['sos_name']}")
+            return discovered
+
         queries = [
             f'site:{cfg["search_domain"]} "{keyword}" LLC OR Inc registered entity',
             f'"{cfg["sos_name"]}" "{keyword}" "formation date" OR "registered" {state_name}',
             f'newly registered "{keyword}" "{state_name}" LLC filing',
         ]
-
-        discovered: list[DiscoveredSOSEntity] = []
-        seen_names: set[str] = set()
 
         for q in queries:
             if len(discovered) >= max_results:
@@ -253,3 +303,19 @@ class SOSEntityProspector:
             "pitch_subject": subject,
             "pitch_body": body,
         }
+
+
+if __name__ == "__main__":
+    import sys
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    target_state = sys.argv[1] if len(sys.argv) > 1 else "FL"
+    target_keyword = sys.argv[2] if len(sys.argv) > 2 else "Title Agency"
+    print(f"=== Running SOS Entity Prospector for {target_state} ({target_keyword}) ===")
+    prospector = SOSEntityProspector()
+    results = prospector.discover_new_registrations(state_code=target_state, keyword=target_keyword, max_results=5)
+    print(f"Discovered {len(results)} entities:")
+    for r in results:
+        print(f" - {r.company_name} [{r.state}] (Agent: {r.registered_agent or 'N/A'}, File: {r.filing_number or 'N/A'})")
+

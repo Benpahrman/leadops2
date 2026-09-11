@@ -23,6 +23,9 @@ azure-identity>=1.16.0
 # Browser Automation & Scraping
 playwright>=1.43.0
 beautifulsoup4>=4.12.3
+requests>=2.31.0
+urllib3>=2.0.0
+
 
 # AI & LLM Clients
 google-genai>=0.1.1

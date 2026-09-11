@@ -414,6 +414,12 @@ class InboundEmailWatcher:
                                 reply_inbox = inb
                                 break
 
+                    # 3. Fall back to active outbound inbox pool (e.g. Zoho) if primary is inbound-only Outlook
+                    if not reply_inbox and hasattr(self.settings, "get_outbound_inboxes"):
+                        outbound_inboxes = self.settings.get_outbound_inboxes()
+                        if outbound_inboxes:
+                            reply_inbox = outbound_inboxes[0]
+
                 self.client.send_email(
                     to_email=sender,
                     to_name=msg.get("sender_name") or "there",

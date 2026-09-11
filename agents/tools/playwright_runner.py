@@ -13,8 +13,38 @@ Features:
 import asyncio
 import concurrent.futures
 import json
+import os
 from dataclasses import dataclass, field
 from typing import Any, Callable
+
+
+async def get_zyte_page(playwright):
+    """Launch Playwright browser and context configured with Zyte Smart Proxy Manager (SPM).
+    
+    ignore_https_errors=True is REQUIRED for Zyte MITM TLS proxying.
+    """
+    zyte_key = os.getenv("ZYTE_API_KEY")
+    
+    proxy_settings = {
+        "server": "http://proxy.zyte.com:8011",
+        "username": zyte_key,
+        "password": "",  # Zyte leaves the password string empty
+    }
+    
+    browser = await playwright.chromium.launch(
+        headless=True,
+        args=["--disable-blink-features=AutomationControlled"]
+    )
+    
+    # ignore_https_errors=True is REQUIRED for Zyte MITM proxying
+    context = await browser.new_context(
+        proxy=proxy_settings,
+        ignore_https_errors=True,
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    )
+    
+    page = await context.new_page()
+    return browser, page
 
 
 @dataclass
@@ -62,6 +92,7 @@ logger = logging.getLogger("extractor")
 # Configuration & Proxy Integration
 TARGET_URL = os.getenv("SCRAPER_TARGET_URL", "{task_url}")
 PROXY_URL = os.getenv("SCRAPER_PROXY_URL", "{task_proxy_url}")
+ZYTE_API_KEY = os.getenv("ZYTE_API_KEY", "")
 MAX_ROWS = int(os.getenv("SCRAPER_MAX_ROWS", "{task_max_rows}"))
 TIMEOUT_MS = int(os.getenv("SCRAPER_TIMEOUT_MS", "{task_timeout_ms}"))
 MAX_RETRIES = 3
@@ -323,9 +354,29 @@ async def run_pipeline() -> list[dict[str, Any]]:
                     ]
                 }}
 
-                if PROXY_URL:
+                ignore_https = False
+                if ZYTE_API_KEY and ZYTE_API_KEY != "your_zyte_spm_api_key_here":
+                    launch_options["proxy"] = {{
+                        "server": "http://proxy.zyte.com:8011",
+                        "username": ZYTE_API_KEY,
+                        "password": "",
+                    }}
+                    ignore_https = True
+                    logger.info("Routing through Zyte Smart Proxy Manager (SPM)...")
+                elif PROXY_URL:
                     launch_options["proxy"] = {{"server": PROXY_URL}}
-                    logger.info("Routing through rotating proxy pool...")
+                    ignore_https = True
+                    logger.info("Routing through configured proxy pool...")
+                else:
+                    try:
+                        from agents.tools.proxy_rotator import get_working_proxy
+                        dynamic_p = get_working_proxy()
+                        if dynamic_p:
+                            launch_options["proxy"] = {{"server": dynamic_p}}
+                            ignore_https = True
+                            logger.info("Routing through autonomous verified proxy: %s", dynamic_p)
+                    except Exception:
+                        pass
 
                 browser = await p.chromium.launch(**launch_options)
                 context = await browser.new_context(
@@ -333,6 +384,7 @@ async def run_pipeline() -> list[dict[str, Any]]:
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                     locale="en-US",
                     timezone_id="America/Chicago",
+                    ignore_https_errors=ignore_https,
                 )
 
                 await apply_stealth_evasions(context)
@@ -509,12 +561,38 @@ class PlaywrightRunner:
                     "headless": self.headless,
                     "args": ["--disable-blink-features=AutomationControlled", "--no-sandbox"],
                 }
-                if task.proxy_url:
+                zyte_key = os.getenv("ZYTE_API_KEY")
+                explicit_proxy = os.getenv("SCRAPER_PROXY_URL")
+                ignore_https_errors = False
+
+                if zyte_key and zyte_key not in ("your_zyte_spm_api_key_here", ""):
+                    launch_options["proxy"] = {
+                        "server": "http://proxy.zyte.com:8011",
+                        "username": zyte_key,
+                        "password": "",
+                    }
+                    ignore_https_errors = True
+                elif task.proxy_url:
                     launch_options["proxy"] = {"server": task.proxy_url}
+                    ignore_https_errors = True
+                elif explicit_proxy and not explicit_proxy.startswith("your_"):
+                    launch_options["proxy"] = {"server": explicit_proxy}
+                    ignore_https_errors = True
+                else:
+                    try:
+                        from .proxy_rotator import get_working_proxy
+                        dynamic_p = get_working_proxy()
+                        if dynamic_p:
+                            launch_options["proxy"] = {"server": dynamic_p}
+                            ignore_https_errors = True
+                            logger.info("Playwright routing through autonomous verified proxy: %s", dynamic_p)
+                    except Exception as px_err:
+                        logger.debug("Dynamic proxy selection note: %s", px_err)
 
                 browser = await p.chromium.launch(**launch_options)
                 context = await browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                    ignore_https_errors=ignore_https_errors,
                 )
                 page = await context.new_page()
                 await page.goto(task.url, timeout=task.timeout_ms, wait_until="domcontentloaded")
