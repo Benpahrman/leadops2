@@ -46,3 +46,6 @@ def publish_scout_candidate(
         }
     except (KeyError, ValueError, TypeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error publishing scout candidate: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail=f"Failed to publish candidate: {str(e)}")

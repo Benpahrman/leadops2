@@ -166,8 +166,17 @@ def trigger_scout_run(
     storage_backend=Depends(get_storage),
     portal_service=Depends(get_portal_service),
 ):
-    worker = ScoutBackgroundWorker(storage=storage_backend, portal=portal_service)
-    return worker.discover_next_candidate()
+    try:
+        worker = ScoutBackgroundWorker(storage=storage_backend, portal=portal_service)
+        return worker.discover_next_candidate()
+    except Exception as exc:
+        logger.error(f"Scout run failed: {exc}", exc_info=True)
+        return {
+            "ok": False,
+            "status": "SCOUT_ERROR",
+            "message": f"Scout execution error: {str(exc)}",
+            "reason": str(exc),
+        }
 
 @router.get("/api/admin/scout/status", tags=["Admin Operations"])
 def get_scout_status(
@@ -216,39 +225,48 @@ def trigger_web_scout_run(
     storage_backend=Depends(get_storage),
     portal_service=Depends(get_portal_service),
 ):
-    niche = req.niche.strip() if req and req.niche and req.niche.strip() else None
-    channel = req.channel.strip() if req and req.channel and req.channel.strip() else None
-    run_until_found = req.run_until_found if req and req.run_until_found is not None else True
-    max_attempts = req.max_attempts if req and req.max_attempts else 12
+    try:
+        niche = req.niche.strip() if req and req.niche and req.niche.strip() else None
+        channel = req.channel.strip() if req and req.channel and req.channel.strip() else None
+        run_until_found = req.run_until_found if req and req.run_until_found is not None else True
+        max_attempts = req.max_attempts if req and req.max_attempts else 12
 
-    # High-ROI structured channels (county_filing_party, state_bar, sos_entity,
-    # local_business) are handled by ScoutBackgroundWorker which has the full
-    # multi-channel dispatch logic. If niche/search is provided, B2BWebScoutWorker is used.
-    HIGH_ROI_CHANNELS = {"county_filing_party", "state_bar", "sos_entity", "local_business"}
-    if niche:
-        # User specified an explicit search query or niche -> hunt with B2BWebScoutWorker until found
+        # High-ROI structured channels (county_filing_party, state_bar, sos_entity,
+        # local_business) are handled by ScoutBackgroundWorker which has the full
+        # multi-channel dispatch logic. If niche/search is provided, B2BWebScoutWorker is used.
+        HIGH_ROI_CHANNELS = {"county_filing_party", "state_bar", "sos_entity", "local_business"}
+        if niche:
+            # User specified an explicit search query or niche -> hunt with B2BWebScoutWorker until found
+            web_worker = B2BWebScoutWorker(storage=storage_backend, portal=portal_service)
+            return web_worker.discover_next_candidate(
+                custom_niche=niche,
+                run_until_found=run_until_found,
+                max_attempts=max_attempts,
+            )
+
+        if channel in HIGH_ROI_CHANNELS or (channel is None and not niche):
+            worker = ScoutBackgroundWorker(storage=storage_backend, portal=portal_service)
+            return worker.discover_next_candidate(
+                channel=channel,
+                run_until_found=run_until_found,
+                max_attempts=max_attempts,
+            )
+
+        # Explicit niche brainstorm path — use B2B web scout
         web_worker = B2BWebScoutWorker(storage=storage_backend, portal=portal_service)
         return web_worker.discover_next_candidate(
             custom_niche=niche,
             run_until_found=run_until_found,
             max_attempts=max_attempts,
         )
-
-    if channel in HIGH_ROI_CHANNELS or (channel is None and not niche):
-        worker = ScoutBackgroundWorker(storage=storage_backend, portal=portal_service)
-        return worker.discover_next_candidate(
-            channel=channel,
-            run_until_found=run_until_found,
-            max_attempts=max_attempts,
-        )
-
-    # Explicit niche brainstorm path — use B2B web scout
-    web_worker = B2BWebScoutWorker(storage=storage_backend, portal=portal_service)
-    return web_worker.discover_next_candidate(
-        custom_niche=niche,
-        run_until_found=run_until_found,
-        max_attempts=max_attempts,
-    )
+    except Exception as exc:
+        logger.error(f"Web scout trigger failed: {exc}", exc_info=True)
+        return {
+            "ok": False,
+            "status": "SCOUT_ERROR",
+            "message": f"Scout execution error: {str(exc)}",
+            "reason": str(exc),
+        }
 
 @router.post("/api/admin/leads/{lead_id}/override-transition", tags=["Admin Operations"])
 def override_lead_transition(

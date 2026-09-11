@@ -168,7 +168,7 @@ def fetch_page_content(url: str, timeout: float = 6.0, use_zyte: bool = False, u
     if edge_url and not edge_url.startswith("your_"):
         try:
             logger.info("⚡ [WEB FETCHER] Routing fetch through Cloudflare Edge Worker...")
-            html = fetch_with_edge_worker(url, headers)
+            html = fetch_with_edge_worker(url, headers, timeout=timeout)
             return _parse_html_payload(html, url, status_code=200)
         except Exception as edge_err:
             logger.warning("Cloudflare edge proxy route failed for %s: %s", url, edge_err)
@@ -278,17 +278,13 @@ def extract_contact_info_from_url(website_url: str) -> dict[str, Any]:
     schema_meta = dict(base_result.get("schema_meta", {}))
     decision_makers: list[dict[str, str]] = []
 
-    subpaths = [
-        "/contact", "/contact-us", "/about", "/about-us",
-        "/our-team", "/team", "/leadership", "/attorneys",
-        "/partners", "/staff", "/people", "/get-in-touch"
-    ]
+    subpaths = ["/contact", "/about", "/team", "/contact-us"]
 
     for path in subpaths:
-        if len(all_emails) >= 2 and len(decision_makers) >= 1:
+        if len(all_emails) >= 1 and len(decision_makers) >= 1:
             break
         sub_url = urljoin(website_url, path)
-        sub_res = fetch_page_content(sub_url, timeout=3.5)
+        sub_res = fetch_page_content(sub_url, timeout=2.5)
         if sub_res.get("ok"):
             all_emails.extend(sub_res.get("emails", []))
             all_phones.extend(sub_res.get("phones", []))

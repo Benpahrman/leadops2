@@ -23,7 +23,11 @@ class ProspectWebsiteVerificationAgent:
         page_content: str,
     ) -> dict[str, Any]:
         """Perform autonomous LLM verification on prospect website."""
-        truncated_content = (page_content or "")[:3500].strip()
+        if isinstance(page_content, dict):
+            raw_text = page_content.get("content_snippet") or page_content.get("clean_text") or page_content.get("description") or ""
+        else:
+            raw_text = str(page_content or "")
+        truncated_content = raw_text[:3500].strip()
         system_prompt = (
             "You are the Commercial Due-Diligence & Prospect Verification Agent at LeadOps. "
             "Your task is to inspect a prospect's website content and determine if they are a legitimate, "
