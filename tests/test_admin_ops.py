@@ -230,7 +230,9 @@ def test_is_office_hours():
 
 def test_batch_approve_pending_pitches(test_setup, monkeypatch):
     import agents.scout_runner
+    from agents.email.client import EmailClient
     monkeypatch.setattr(agents.scout_runner, "is_office_hours", lambda: (True, 3600, "Office hours active"))
+    monkeypatch.setattr(EmailClient, "send_email", lambda self, *args, **kwargs: {"ok": True, "message_id": "<mock_msg_123@test.com>"})
     storage, admin_service, client = test_setup
     admin_headers = {"Authorization": "Bearer mock_user_founder_lead_admin"}
 
@@ -317,7 +319,11 @@ def test_auto_outreach_scheduler():
     assert scheduler.is_pending("lead-auto-test-1") is False
 
 
-def test_quick_action_cancel_and_send_now(test_setup):
+def test_quick_action_cancel_and_send_now(test_setup, monkeypatch):
+    import agents.scout_runner
+    from agents.email.client import EmailClient
+    monkeypatch.setattr(agents.scout_runner, "is_office_hours", lambda: (True, 3600, "Within office hours"))
+    monkeypatch.setattr(EmailClient, "send_email", lambda self, *args, **kwargs: {"ok": True, "message_id": "<mock_msg_123@test.com>"})
     from agents.auth import generate_mobile_action_token
     storage, admin_service, client = test_setup
 

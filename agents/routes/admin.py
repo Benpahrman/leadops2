@@ -229,7 +229,7 @@ def trigger_web_scout_run(
         niche = req.niche.strip() if req and req.niche and req.niche.strip() else None
         channel = req.channel.strip() if req and req.channel and req.channel.strip() else None
         run_until_found = req.run_until_found if req and req.run_until_found is not None else True
-        max_attempts = req.max_attempts if req and req.max_attempts else 12
+        max_attempts = req.max_attempts if req and req.max_attempts is not None else 4
 
         # High-ROI structured channels (county_filing_party, state_bar, sos_entity,
         # local_business) are handled by ScoutBackgroundWorker which has the full
@@ -2044,44 +2044,63 @@ def get_deliverability_status(
     user: ClerkUser = Depends(require_admin),
 ):
     """Retrieve the latest fleet-wide deliverability and SpamAssassin assessment."""
-    latest = None
-    if hasattr(storage_backend, "get_latest_deliverability_audit"):
-        latest = storage_backend.get_latest_deliverability_audit()
+    try:
+        latest = None
+        if hasattr(storage_backend, "get_latest_deliverability_audit"):
+            latest = storage_backend.get_latest_deliverability_audit()
 
-    if latest:
-        return {"ok": True, "report": latest, "cached": True}
+        if latest:
+            return {"ok": True, "report": latest, "cached": True}
 
-    from ..email.config import EmailSettings
-    settings = EmailSettings.from_environment()
-    inbox_addrs = [acc.email_address for acc in settings.inbox_pool if acc.is_active] or ([settings.user] if settings.user else [])
+        from ..email.config import EmailSettings
+        settings = EmailSettings.from_environment()
+        inbox_addrs = [acc.email_address for acc in settings.inbox_pool if acc.is_active] or ([settings.user] if settings.user else [])
 
-    return {
-        "ok": True,
-        "report": {
-            "fleet_status": "PENDING_AUDIT",
-            "average_score": 0.0,
-            "inbox_count": len(inbox_addrs),
-            "healthy_count": 0,
-            "warning_count": 0,
-            "critical_count": 0,
-            "audited_at": None,
-            "inboxes": [
-                {
-                    "inbox_id": addr.replace("@", "_").replace(".", "_"),
-                    "email_address": addr,
-                    "status": "PENDING",
-                    "score": 0,
-                    "spf": "untested",
-                    "dkim": "untested",
-                    "spam_score": 0.0,
-                    "diagnostic": "Awaiting initial morning audit run",
-                }
-                for addr in inbox_addrs
-            ],
-            "testmail_namespace": os.environ.get("TESTMAIL_NAMESPACE", "KGDDJ"),
-        },
-        "cached": False,
-    }
+        return {
+            "ok": True,
+            "report": {
+                "fleet_status": "PENDING_AUDIT",
+                "average_score": 0.0,
+                "inbox_count": len(inbox_addrs),
+                "healthy_count": 0,
+                "warning_count": 0,
+                "critical_count": 0,
+                "audited_at": None,
+                "inboxes": [
+                    {
+                        "inbox_id": addr.replace("@", "_").replace(".", "_"),
+                        "email_address": addr,
+                        "status": "PENDING",
+                        "score": 0,
+                        "spf": "untested",
+                        "dkim": "untested",
+                        "spam_score": 0.0,
+                        "diagnostic": "Awaiting initial morning audit run",
+                    }
+                    for addr in inbox_addrs
+                ],
+                "testmail_namespace": os.environ.get("TESTMAIL_NAMESPACE", "KGDDJ"),
+            },
+            "cached": False,
+        }
+    except Exception as exc:
+        logger.error(f"Error generating deliverability status: {exc}", exc_info=True)
+        return {
+            "ok": True,
+            "report": {
+                "fleet_status": "PENDING_AUDIT",
+                "average_score": 0.0,
+                "inbox_count": 0,
+                "healthy_count": 0,
+                "warning_count": 0,
+                "critical_count": 0,
+                "audited_at": None,
+                "inboxes": [],
+                "diagnostic": f"Deliverability monitor initializing ({str(exc)})",
+                "testmail_namespace": os.environ.get("TESTMAIL_NAMESPACE", "KGDDJ"),
+            },
+            "cached": False,
+        }
 
 
 class RunDeliverabilityAuditRequest(BaseModel):

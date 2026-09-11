@@ -1749,6 +1749,24 @@ class PostgresStorageBackend:
                 except Exception as ex:
                     logger.debug("Column %s might already exist in postgres inbox_accounts: %s", col, ex)
 
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS deliverability_audits (
+                    id SERIAL PRIMARY KEY,
+                    run_id VARCHAR(128) NOT NULL,
+                    audited_at VARCHAR(100) NOT NULL,
+                    fleet_status VARCHAR(64) NOT NULL,
+                    average_score DOUBLE PRECISION NOT NULL,
+                    inbox_count INTEGER NOT NULL,
+                    healthy_count INTEGER NOT NULL,
+                    warning_count INTEGER NOT NULL,
+                    critical_count INTEGER NOT NULL,
+                    report_json TEXT NOT NULL
+                )
+            """))
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_deliverability_audits_date ON deliverability_audits (audited_at DESC)
+            """))
+
     def save_lead(self, lead: Lead) -> None:
         from sqlalchemy import text
         stmt = text("""
@@ -2426,28 +2444,36 @@ class PostgresStorageBackend:
 
     def get_latest_deliverability_audit(self) -> dict[str, Any] | None:
         from sqlalchemy import text
-        with self.engine.connect() as conn:
-            res = conn.execute(text("SELECT report_json FROM deliverability_audits ORDER BY audited_at DESC, id DESC LIMIT 1"))
-            row = res.mappings().fetchone()
-            if row and row.get("report_json"):
-                try:
-                    return json.loads(row["report_json"])
-                except Exception:
-                    return None
+        try:
+            with self.engine.connect() as conn:
+                res = conn.execute(text("SELECT report_json FROM deliverability_audits ORDER BY audited_at DESC, id DESC LIMIT 1"))
+                row = res.mappings().fetchone()
+                if row and row.get("report_json"):
+                    try:
+                        return json.loads(row["report_json"])
+                    except Exception:
+                        return None
+                return None
+        except Exception as ex:
+            logger.debug(f"Postgres deliverability audit query note: {ex}")
             return None
 
     def list_deliverability_audits(self, limit: int = 10) -> list[dict[str, Any]]:
         from sqlalchemy import text
-        with self.engine.connect() as conn:
-            res = conn.execute(text("SELECT report_json FROM deliverability_audits ORDER BY audited_at DESC, id DESC LIMIT :limit"), {"limit": limit})
-            rows = res.mappings().fetchall()
-            results = []
-            for r in rows:
-                try:
-                    results.append(json.loads(r["report_json"]))
-                except Exception:
-                    pass
-            return results
+        try:
+            with self.engine.connect() as conn:
+                res = conn.execute(text("SELECT report_json FROM deliverability_audits ORDER BY audited_at DESC, id DESC LIMIT :limit"), {"limit": limit})
+                rows = res.mappings().fetchall()
+                results = []
+                for r in rows:
+                    try:
+                        results.append(json.loads(r["report_json"]))
+                    except Exception:
+                        pass
+                return results
+        except Exception as ex:
+            logger.debug(f"Postgres list deliverability audits note: {ex}")
+            return []
 
     def backup_db(self, target_path: str | None = None) -> str:
         return target_path or f"azure_pg_backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.sql"

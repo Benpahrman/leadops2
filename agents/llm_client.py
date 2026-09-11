@@ -183,6 +183,9 @@ class LLMAgentEngine:
             except Exception as e_key:
                 logger.warning(f"Azure API key client init warning: {e_key}")
 
+        if getattr(self, "_azure_credential_failed", False):
+            return None
+
         # Step 2: Fallback to Bearer token provider via DefaultAzureCredential
         try:
             from azure.identity import DefaultAzureCredential, get_bearer_token_provider
@@ -190,6 +193,7 @@ class LLMAgentEngine:
             token_provider = get_bearer_token_provider(cred, scope)
             return OpenAI(base_url=endpoint, api_key=token_provider)
         except Exception as e_tok:
+            self._azure_credential_failed = True
             logger.debug(f"Azure token provider initialization info: {e_tok}")
 
         return None
@@ -313,15 +317,37 @@ class LLMAgentEngine:
             return content
         except Exception as e:
             logger.warning(f"⚠️ [LLM NOTICE] Provider error ({type(e).__name__}: {e}). Trying fallback...")
-            # Fallback 1: Azure AI Foundry (gpt-5-mini) - Enterprise Cloud Backbone
-            try:
-                azure_res = self._call_azure_foundry(system_prompt, user_prompt, max_tokens)
-                if azure_res:
-                    return azure_res
-            except Exception as azure_err:
-                logger.warning(f"Azure AI Foundry fallback error: {azure_err}")
 
-            # Fallback 2: Nvidia if configured
+            # Fallback 1: Google Gemini 3.6 Flash (High Throughput, Ultra-Fast & Extremely Reliable)
+            gemini_key = os.environ.get("GEMINI_API_KEY")
+            if gemini_key:
+                try:
+                    gemini_model = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
+                    fb_gemini = OpenAI(
+                        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+                        api_key=gemini_key,
+                        max_retries=1,
+                    )
+                    g_resp = fb_gemini.chat.completions.create(
+                        model=gemini_model,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        timeout=25.0,
+                    )
+                    c = g_resp.choices[0].message.content or ""
+                    if "<think>" in c:
+                        c = re.sub(r"<think>.*?</think>", "", c, flags=re.DOTALL)
+                    if c.strip():
+                        logger.info(f"✓ [GEMINI FALLBACK SUCCESS] Generated {len(c)} chars via {gemini_model}")
+                        return c.strip()
+                except Exception as g_err:
+                    logger.warning(f"Gemini fallback warning: {g_err}")
+
+            # Fallback 2: Nvidia Nemotron if configured (30s timeout)
             if os.environ.get("NVIDIA_API_KEY"):
                 try:
                     fallback_client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=os.environ["NVIDIA_API_KEY"])
@@ -330,15 +356,46 @@ class LLMAgentEngine:
                         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
                         temperature=temperature,
                         max_tokens=max_tokens,
-                        timeout=10.0,
+                        timeout=30.0,
                     )
                     c = fb_resp.choices[0].message.content or ""
                     if "<think>" in c:
                         c = re.sub(r"<think>.*?</think>", "", c, flags=re.DOTALL)
                     if c.strip():
+                        logger.info(f"✓ [NVIDIA FALLBACK SUCCESS] Generated {len(c)} chars via Nemotron")
                         return c.strip()
                 except Exception as fb_err:
                     logger.warning(f"Nvidia fallback error: {fb_err}")
+
+            # Fallback 3: Alternative Groq Model if rate-limited on primary model
+            if os.environ.get("GROQ_API_KEY") and ("rate_limit" in str(e).lower() or "429" in str(e)):
+                for alt_model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+                    try:
+                        groq_alt = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=os.environ["GROQ_API_KEY"])
+                        alt_resp = groq_alt.chat.completions.create(
+                            model=alt_model,
+                            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            timeout=20.0,
+                        )
+                        c = alt_resp.choices[0].message.content or ""
+                        if "<think>" in c:
+                            c = re.sub(r"<think>.*?</think>", "", c, flags=re.DOTALL)
+                        if c.strip():
+                            logger.info(f"✓ [GROQ ALT MODEL SUCCESS] Generated {len(c)} chars via {alt_model}")
+                            return c.strip()
+                    except Exception as alt_err:
+                        logger.debug(f"Groq alt model {alt_model} failed: {alt_err}")
+
+            # Fallback 4: Azure AI Foundry (gpt-5-mini)
+            if not getattr(self, "_azure_credential_failed", False):
+                try:
+                    azure_res = self._call_azure_foundry(system_prompt, user_prompt, max_tokens)
+                    if azure_res:
+                        return azure_res
+                except Exception as azure_err:
+                    logger.warning(f"Azure AI Foundry fallback error: {azure_err}")
 
             return ""
 
