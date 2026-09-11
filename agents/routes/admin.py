@@ -268,6 +268,55 @@ def trigger_web_scout_run(
             "reason": str(exc),
         }
 
+
+class BatchScoutRequest(BaseModel):
+    count: Optional[int] = 3
+    channel: Optional[str] = None
+    niche: Optional[str] = None
+
+
+@router.post("/api/admin/scout/batch-scout", tags=["Admin Operations"])
+def trigger_batch_scout_run(
+    req: Optional[BatchScoutRequest] = None,
+    _: ClerkUser = Depends(require_admin),
+    storage_backend=Depends(get_storage),
+    portal_service=Depends(get_portal_service),
+):
+    """Ramp up scouting: Trigger multi-lead batch discovery across high-ROI channels."""
+    try:
+        count = min(max(req.count if req and req.count else 3, 1), 5)
+        channel = req.channel.strip() if req and req.channel and req.channel.strip() else None
+        niche = req.niche.strip() if req and req.niche and req.niche.strip() else None
+
+        worker = ScoutBackgroundWorker(storage=storage_backend, portal=portal_service)
+        return worker.discover_batch_candidates(count=count, channel=channel, niche=niche)
+    except Exception as exc:
+        logger.error(f"Batch scout failed: {exc}", exc_info=True)
+        return {
+            "ok": False,
+            "status": "BATCH_SCOUT_ERROR",
+            "message": f"Batch scout error: {str(exc)}",
+            "reason": str(exc),
+        }
+
+
+@router.post("/api/admin/leads/{lead_id}/enrich", tags=["Admin Operations"])
+def re_enrich_lead_endpoint(
+    lead_id: str,
+    _: ClerkUser = Depends(require_admin),
+    storage_backend=Depends(get_storage),
+    portal_service=Depends(get_portal_service),
+):
+    """Deep Research: On-demand live re-enrichment of lead with deep operational & market intelligence."""
+    try:
+        worker = ScoutBackgroundWorker(storage=storage_backend, portal=portal_service)
+        return worker.re_enrich_lead(lead_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"Re-enrichment failed for {lead_id}: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Enrichment error: {str(exc)}")
+
 @router.post("/api/admin/leads/{lead_id}/override-transition", tags=["Admin Operations"])
 def override_lead_transition(
     lead_id: str,

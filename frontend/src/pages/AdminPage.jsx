@@ -24,6 +24,8 @@ import {
   fetchAutoOutreachStatus,
   toggleAutoOutreach,
   triggerScoutDiscovery,
+  triggerBatchScout,
+  deepEnrichLead,
   cancelAutoOutreach,
   fetchAdminInboxes,
   upsertAdminInbox,
@@ -108,6 +110,7 @@ export default function AdminPage() {
   const [autoOutreachStatus, setAutoOutreachStatus] = useState(null);
   const [autoOutreachLoading, setAutoOutreachLoading] = useState(false);
   const [scoutingInProgress, setScoutingInProgress] = useState(false);
+  const [scoutBatchCount, setScoutBatchCount] = useState(1);
   const [selectedScoutChannel, setSelectedScoutChannel] = useState('');
   const [scoutSearchQuery, setScoutSearchQuery] = useState('');
 
@@ -700,10 +703,11 @@ export default function AdminPage() {
     }
   };
 
-  const handleTriggerWebScout = async (overrideChannel = null, overrideQuery = null) => {
+  const handleTriggerWebScout = async (overrideChannel = null, overrideQuery = null, overrideBatch = null) => {
     setScoutingInProgress(true);
     const targetChannel = overrideChannel !== null ? overrideChannel : selectedScoutChannel;
     const targetQuery = overrideQuery !== null ? overrideQuery : scoutSearchQuery;
+    const countToScout = overrideBatch !== null ? overrideBatch : scoutBatchCount;
     const searchTrimmed = (targetQuery || '').trim();
     const channelLabel = searchTrimmed
       ? `Search: "${searchTrimmed}"`
@@ -715,24 +719,67 @@ export default function AdminPage() {
       ? 'SOS Registrations'
       : targetChannel === 'local_business'
       ? 'Google Maps / Local'
-      : 'All Channels (Auto)';
+      : 'All High-ROI Channels';
 
-    showToast(`🔎 Hunting for a new qualified lead via [${channelLabel}] until found...`, 'info');
+    if (countToScout > 1) {
+      showToast(`🚀 Swarm scouting ${countToScout} qualified leads across [${channelLabel}]...`, 'info');
+    } else {
+      showToast(`🔎 Hunting for a new qualified lead via [${channelLabel}] until found...`, 'info');
+    }
+
     try {
       const token = await resolveToken();
-      const res = await triggerScoutDiscovery(searchTrimmed || null, token, targetChannel || null, true);
-      if (res && res.lead_id) {
-        showToast(`🎯 Discovered new qualified lead: ${res.company_name || res.lead_id}!`, 'success');
-      } else if (res && res.ok) {
-        showToast(`🎯 Discovered new lead! Telemetry updated.`, 'success');
+      let res;
+      if (countToScout > 1) {
+        res = await triggerBatchScout(countToScout, searchTrimmed || null, targetChannel || null, token);
+        if (res && res.count_discovered > 0) {
+          showToast(`🎯 Batch complete! Successfully scouted & qualified ${res.count_discovered}/${countToScout} leads!`, 'success');
+        } else {
+          showToast(res.message || 'Batch scout pass complete.', 'info');
+        }
       } else {
-        showToast(res.message || res.reason || 'Scout pass complete. Telemetry updated.', 'info');
+        res = await triggerScoutDiscovery(searchTrimmed || null, token, targetChannel || null, true);
+        if (res && res.lead_id) {
+          showToast(`🎯 Discovered new qualified lead: ${res.company_name || res.lead_id}!`, 'success');
+        } else if (res && res.ok) {
+          showToast(`🎯 Discovered new lead! Telemetry updated.`, 'success');
+        } else {
+          showToast(res.message || res.reason || 'Scout pass complete. Telemetry updated.', 'info');
+        }
       }
       await loadAdminData();
     } catch (err) {
       showToast(`Scout trigger error: ${err.message}`, 'error');
     } finally {
       setScoutingInProgress(false);
+    }
+  };
+
+  const handleDeepEnrichLead = async (leadId) => {
+    setEnrichingLeadId(leadId);
+    showToast(`🔬 Running live deep market & operational research on lead...`, 'info');
+    try {
+      const token = await resolveToken();
+      const res = await deepEnrichLead(leadId, token);
+      showToast(`✅ Deep research dossier updated for ${res.company_name || leadId}!`, 'success');
+      await loadAdminData();
+      if (scoreModal.open && scoreModal.lead?.lead_id === leadId) {
+        setScoreModal((prev) => ({
+          ...prev,
+          lead: {
+            ...prev.lead,
+            research: res.research,
+            contact_name: res.research.decision_maker_name || prev.lead.contact_name,
+            contact_role: res.research.decision_maker_role || prev.lead.contact_role,
+            decision_maker_linkedin: res.research.linkedin_url || prev.lead.decision_maker_linkedin,
+            contact_phone: res.research.verified_phone || prev.lead.contact_phone,
+          },
+        }));
+      }
+    } catch (err) {
+      showToast(`Enrichment failed: ${err.message}`, 'error');
+    } finally {
+      setEnrichingLeadId(null);
     }
   };
 
@@ -1258,6 +1305,46 @@ export default function AdminPage() {
                 <option value="sos_entity">🏢 SOS New Registrations (Priority 3)</option>
                 <option value="local_business">📍 Google Maps / Local (Priority 4)</option>
               </select>
+
+              {/* Batch Count Selector */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '3px',
+                  background: 'rgba(15, 23, 42, 0.85)',
+                  border: '1px solid rgba(56, 189, 248, 0.35)',
+                  borderRadius: '6px',
+                  padding: '2px 5px',
+                }}
+                title="Select number of leads to hunt in this swarm batch"
+              >
+                <span style={{ fontSize: '10px', color: 'var(--text-dim)', fontWeight: 600, paddingRight: '2px' }}>
+                  Batch:
+                </span>
+                {[1, 3, 5].map((cnt) => (
+                  <button
+                    key={cnt}
+                    type="button"
+                    onClick={() => setScoutBatchCount(cnt)}
+                    style={{
+                      background: scoutBatchCount === cnt ? 'var(--cyan)' : 'transparent',
+                      color: scoutBatchCount === cnt ? '#090d16' : 'var(--cyan)',
+                      border: 'none',
+                      borderRadius: '4px',
+                      padding: '2px 6px',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                    }}
+                    title={`Hunt ${cnt} lead${cnt > 1 ? 's in parallel swarm batch' : ''}`}
+                  >
+                    {cnt === 5 ? '⚡5' : cnt}
+                  </button>
+                ))}
+              </div>
+
               <button
                 className="btn btn-outline"
                 style={{
@@ -1268,12 +1355,19 @@ export default function AdminPage() {
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '5px',
+                  background: scoutBatchCount > 1 ? 'rgba(56, 189, 248, 0.08)' : 'transparent',
                 }}
                 onClick={() => handleTriggerWebScout()}
                 disabled={scoutingInProgress}
-                title="Manually trigger autonomous scout to hunt continuously until a new qualified B2B lead is found."
+                title="Trigger autonomous swarm scout to hunt qualified B2B leads."
               >
-                <span>{scoutingInProgress ? '⏳ Hunting Lead...' : '🔎 Scout Now'}</span>
+                <span>
+                  {scoutingInProgress
+                    ? `⏳ Hunting ${scoutBatchCount > 1 ? `Swarm (${scoutBatchCount})...` : 'Lead...'}`
+                    : scoutBatchCount > 1
+                    ? `⚡ Swarm Hunt (${scoutBatchCount} Leads)`
+                    : '🔎 Scout Now'}
+                </span>
               </button>
             </div>
 
@@ -4428,6 +4522,17 @@ export default function AdminPage() {
         }
         const qa = lead.qa_score !== null && lead.qa_score !== undefined ? lead.qa_score : null;
 
+        let research = {};
+        if (typeof lead.research === 'object' && lead.research !== null) {
+          research = lead.research;
+        } else if (typeof lead.research === 'string' && lead.research.trim()) {
+          try {
+            research = JSON.parse(lead.research);
+          } catch (_) {
+            research = {};
+          }
+        }
+
         return (
           <div className="admin-modal-overlay" onClick={() => setScoreModal({ open: false, lead: null })}>
             <div className="admin-modal-content" style={{ maxWidth: '780px' }} onClick={(e) => e.stopPropagation()}>
@@ -4450,13 +4555,32 @@ export default function AdminPage() {
                     <span style={{ color: 'var(--cyan)' }}>{lead.jurisdiction || lead.target_portal_name || 'Municipal Portal'}</span>
                   </div>
                 </div>
-                <button
-                  className="btn btn-outline"
-                  style={{ padding: '6px 12px', fontSize: '12px' }}
-                  onClick={() => setScoreModal({ open: false, lead: null })}
-                >
-                  ✕ Close
-                </button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <button
+                    className="btn btn-outline"
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      borderColor: 'rgba(56, 189, 248, 0.4)',
+                      color: 'var(--cyan)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                    onClick={() => handleDeepEnrichLead(lead.lead_id)}
+                    disabled={enrichingLeadId === lead.lead_id}
+                    title="Trigger deep LLM agent enrichment & market research on this lead"
+                  >
+                    {enrichingLeadId === lead.lead_id ? '⏳ Researching...' : '⚡ Deep Re-Enrich'}
+                  </button>
+                  <button
+                    className="btn btn-outline"
+                    style={{ padding: '6px 12px', fontSize: '12px' }}
+                    onClick={() => setScoreModal({ open: false, lead: null })}
+                  >
+                    ✕ Close
+                  </button>
+                </div>
               </div>
 
               {/* KPI Scores Row */}
@@ -4661,6 +4785,217 @@ export default function AdminPage() {
                     )}
                   </div>
                 </div>
+              </div>
+
+              {/* Deep Market & Operational Intelligence Dossier */}
+              <div
+                style={{
+                  background: 'var(--bg)',
+                  border: '1px solid rgba(56, 189, 248, 0.35)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    borderBottom: '1px solid rgba(56, 189, 248, 0.15)',
+                    paddingBottom: '8px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '16px' }}>🔬</span>
+                    <h4 style={{ fontSize: '14px', fontWeight: 700, color: '#fff', margin: 0 }}>
+                      Deep Market &amp; Operational Intelligence Dossier
+                    </h4>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: '10px',
+                      background: 'rgba(56, 189, 248, 0.15)',
+                      color: 'var(--cyan)',
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    AI Agent Enriched
+                  </span>
+                </div>
+
+                {/* Row 1: Org Scale, HQ & Est ROI */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px' }}>
+                  <div style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px' }}>
+                    <div style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 600 }}>HQ Location</div>
+                    <div style={{ fontSize: '12px', color: '#fff', fontWeight: 600, marginTop: '2px' }}>
+                      📍 {research.headquarters_location || lead.jurisdiction || 'Regional Office'}
+                    </div>
+                  </div>
+                  <div style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px' }}>
+                    <div style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 600 }}>Company Scale</div>
+                    <div style={{ fontSize: '12px', color: '#fff', fontWeight: 600, marginTop: '2px' }}>
+                      🏢 {research.company_scale || 'Small-to-Mid Market Firm'}
+                    </div>
+                  </div>
+                  <div style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px' }}>
+                    <div style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 600 }}>Weekly Hours Saved</div>
+                    <div style={{ fontSize: '13px', color: 'var(--green)', fontWeight: 700, marginTop: '2px' }}>
+                      ⏱️ ~{research.estimated_hours_saved_weekly || 8} hrs/wk
+                    </div>
+                  </div>
+                  <div style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px' }}>
+                    <div style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 600 }}>Est. Labor Savings</div>
+                    <div style={{ fontSize: '13px', color: 'var(--cyan)', fontWeight: 700, marginTop: '2px' }}>
+                      💰 ${research.estimated_monthly_labor_savings || 1200}/mo
+                    </div>
+                  </div>
+                </div>
+
+                {/* Row 2: Secondary Contact & Tech Stack */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '10px' }}>
+                  {research.secondary_decision_maker && (research.secondary_decision_maker.name || research.secondary_decision_maker.role) ? (
+                    <div style={{ background: 'rgba(15, 23, 42, 0.5)', border: '1px solid var(--border)', borderRadius: '6px', padding: '10px' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 600, marginBottom: '4px' }}>
+                        👥 Secondary Decision Maker / Influencer
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#fff', fontWeight: 600 }}>
+                        {research.secondary_decision_maker.name || 'Key Contact'}
+                        {research.secondary_decision_maker.role && (
+                          <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> — {research.secondary_decision_maker.role}</span>
+                        )}
+                      </div>
+                      {research.secondary_decision_maker.email && (
+                        <div style={{ fontSize: '11px', color: 'var(--cyan)', marginTop: '2px' }}>
+                          ✉️ {research.secondary_decision_maker.email}
+                        </div>
+                      )}
+                      {research.secondary_decision_maker.linkedin && (
+                        <a
+                          href={research.secondary_decision_maker.linkedin}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ fontSize: '11px', color: 'var(--purple)', textDecoration: 'underline', display: 'inline-block', marginTop: '2px' }}
+                        >
+                          LinkedIn Profile ↗
+                        </a>
+                      )}
+                    </div>
+                  ) : null}
+
+                  {research.detected_tech_stack && (
+                    <div style={{ background: 'rgba(15, 23, 42, 0.5)', border: '1px solid var(--border)', borderRadius: '6px', padding: '10px' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 600, marginBottom: '6px' }}>
+                        💻 Detected Software &amp; Tech Stack
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                        {(Array.isArray(research.detected_tech_stack) ? research.detected_tech_stack : [research.detected_tech_stack]).map((tool, idx) => (
+                          <span
+                            key={idx}
+                            style={{
+                              fontSize: '11px',
+                              background: 'rgba(147, 51, 234, 0.15)',
+                              color: '#c084fc',
+                              border: '1px solid rgba(147, 51, 234, 0.3)',
+                              padding: '2px 7px',
+                              borderRadius: '4px',
+                              fontWeight: 500,
+                            }}
+                          >
+                            {typeof tool === 'object' ? JSON.stringify(tool) : String(tool)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Row 3: Competitors */}
+                {Array.isArray(research.local_competitors) && research.local_competitors.length > 0 && (
+                  <div style={{ background: 'rgba(15, 23, 42, 0.5)', border: '1px solid var(--border)', borderRadius: '6px', padding: '10px' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 600, marginBottom: '6px' }}>
+                      ⚔️ Local &amp; Regional Competitors in Vertical
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                      {research.local_competitors.map((comp, idx) => {
+                        const compName = typeof comp === 'object' && comp !== null ? (comp.name || comp.company || JSON.stringify(comp)) : String(comp);
+                        return (
+                          <span
+                            key={idx}
+                            style={{
+                              fontSize: '11px',
+                              background: 'rgba(255, 255, 255, 0.05)',
+                              color: 'var(--text)',
+                              border: '1px solid var(--border)',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                            }}
+                          >
+                            {compName}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Row 4: Alex Objection Playbook */}
+                {research.objection_playbook && typeof research.objection_playbook === 'object' && Object.keys(research.objection_playbook).length > 0 && (
+                  <div style={{ background: 'rgba(15, 23, 42, 0.5)', border: '1px solid var(--border)', borderRadius: '6px', padding: '10px' }}>
+                    <div style={{ fontSize: '11px', color: 'var(--cyan)', fontWeight: 700, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      💬 Alex Persona Tailored Objection Playbook (1-Click Copy)
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {Object.entries(research.objection_playbook).map(([objection, answer], idx) => {
+                        const answerText = typeof answer === 'object' && answer !== null ? (answer.response || JSON.stringify(answer)) : String(answer);
+                        return (
+                          <div
+                            key={idx}
+                            style={{
+                              background: 'rgba(15, 23, 42, 0.7)',
+                              border: '1px solid rgba(255, 255, 255, 0.07)',
+                              borderRadius: '5px',
+                              padding: '8px 10px',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                              <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--yellow)' }}>
+                                ❓ {objection.replace(/_/g, ' ')}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard?.writeText(answerText);
+                                  setToastMessage('Copied playbook answer to clipboard!');
+                                  setTimeout(() => setToastMessage(''), 2500);
+                                }}
+                                style={{
+                                  background: 'transparent',
+                                  border: '1px solid rgba(56, 189, 248, 0.3)',
+                                  color: 'var(--cyan)',
+                                  borderRadius: '4px',
+                                  padding: '2px 6px',
+                                  fontSize: '10px',
+                                  cursor: 'pointer',
+                                }}
+                                title="Copy counter-argument to clipboard"
+                              >
+                                📋 Copy
+                              </button>
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--text)', fontStyle: 'italic', lineHeight: 1.4 }}>
+                              &ldquo;{answerText}&rdquo;
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Pain Points / Human Observation */}

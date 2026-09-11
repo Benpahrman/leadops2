@@ -1013,6 +1013,24 @@ class ScoutBackgroundWorker:
             target["operational_friction"] = enrichment["operational_friction"]
         if enrichment.get("recent_activity_hook"):
             target["recent_activity_hook"] = enrichment["recent_activity_hook"]
+        if enrichment.get("headquarters_location"):
+            target["headquarters_location"] = enrichment["headquarters_location"]
+        if enrichment.get("company_scale"):
+            target["company_scale"] = enrichment["company_scale"]
+        if enrichment.get("detected_tech_stack"):
+            target["detected_tech_stack"] = enrichment["detected_tech_stack"]
+        if enrichment.get("secondary_decision_maker"):
+            target["secondary_decision_maker"] = enrichment["secondary_decision_maker"]
+        if enrichment.get("estimated_docket_volume"):
+            target["estimated_docket_volume"] = enrichment["estimated_docket_volume"]
+        if enrichment.get("estimated_hours_saved_weekly"):
+            target["estimated_hours_saved_weekly"] = enrichment["estimated_hours_saved_weekly"]
+        if enrichment.get("estimated_monthly_labor_savings"):
+            target["estimated_monthly_labor_savings"] = enrichment["estimated_monthly_labor_savings"]
+        if enrichment.get("local_competitors"):
+            target["local_competitors"] = enrichment["local_competitors"]
+        if enrichment.get("objection_playbook"):
+            target["objection_playbook"] = enrichment["objection_playbook"]
 
         # 4. Enrich lead with contact intelligence, BDR Manager Qualification Scoring, & AI Pitcher Agent
         from .tools.lead_database_tool import (
@@ -1069,6 +1087,15 @@ class ScoutBackgroundWorker:
                 "human_observation": target.get("human_observation", ""),
                 "operational_friction": target.get("operational_friction", ""),
                 "recent_activity_hook": target.get("recent_activity_hook", ""),
+                "headquarters_location": target.get("headquarters_location", ""),
+                "company_scale": target.get("company_scale", ""),
+                "detected_tech_stack": target.get("detected_tech_stack", []),
+                "secondary_decision_maker": target.get("secondary_decision_maker"),
+                "estimated_docket_volume": target.get("estimated_docket_volume", ""),
+                "estimated_hours_saved_weekly": target.get("estimated_hours_saved_weekly", 8.0),
+                "estimated_monthly_labor_savings": target.get("estimated_monthly_labor_savings", "$1,600/month"),
+                "local_competitors": target.get("local_competitors", []),
+                "objection_playbook": target.get("objection_playbook", {}),
                 "automation_opportunity_score": opp_score,
                 "purchase_probability": purchase_prob,
                 "pain_severity": pain_sev,
@@ -1251,6 +1278,58 @@ class ScoutBackgroundWorker:
                         description="Autonomous bypass and resolution of portal anti-bot or status anomaly"
                     )
 
+                # Persist deep market intelligence & operational research dossier
+                sec_contact_obj = target.get("secondary_decision_maker") or {}
+                tech_stack_items = target.get("detected_tech_stack") or ["Google Workspace", "Microsoft 365"]
+                competitor_items = target.get("local_competitors") or []
+                playbook = target.get("objection_playbook") or {}
+
+                dossier_md = (
+                    f"# Market Intelligence & Operational Research Dossier: {target['company_name']}\n\n"
+                    f"## 🏢 Commercial Profile\n"
+                    f"- **Company Name:** {target['company_name']}\n"
+                    f"- **Headquarters / Office:** {target.get('headquarters_location') or 'Regional Office'}\n"
+                    f"- **Company Scale:** {target.get('company_scale') or 'Commercial Operator'}\n"
+                    f"- **Primary Domain:** {target.get('website') or 'N/A'}\n"
+                    f"- **Vertical / Niche:** {target.get('niche') or 'Public Records'}\n"
+                    f"- **Target Government Portal:** {target.get('portal_name')} ({target.get('target_url')})\n"
+                    f"- **Jurisdiction:** {target.get('jurisdiction') or 'Statewide'}\n\n"
+                    f"## 👔 Decision Makers & Practice Leadership\n"
+                    f"- **Primary Executive:** {target['contact_name']} ({target['contact_role']})\n"
+                    f"  - **Verified Email:** {target['contact_email']}\n"
+                    f"  - **Direct Phone:** {target.get('contact_phone') or 'N/A'}\n"
+                    f"  - **LinkedIn Profile:** {target.get('linkedin_url') or 'N/A'}\n"
+                    f"- **Secondary Operations Contact:** {sec_contact_obj.get('name', 'N/A')} ({sec_contact_obj.get('role', 'Operations Coordinator')})\n"
+                    f"  - **Contact Channel:** {sec_contact_obj.get('email') or 'N/A'} (Source: {sec_contact_obj.get('source', 'Inferred')})\n\n"
+                    f"## ⚡ Operational Burden & Labor Savings ROI\n"
+                    f"- **Business Specialty:** {target.get('business_specialty', '')}\n"
+                    f"- **Peer Observation:** {target.get('human_observation', '')}\n"
+                    f"- **Operational Friction:** {target.get('operational_friction', '')}\n"
+                    f"- **Estimated Docket Volume:** {target.get('estimated_docket_volume', '100-250 records/mo')}\n"
+                    f"- **Estimated Time Saved:** {target.get('estimated_hours_saved_weekly', 8.0)} hours/week\n"
+                    f"- **Estimated Labor Cost Offset:** {target.get('estimated_monthly_labor_savings', '$1,600/month')}\n\n"
+                    f"## 🛠️ Detected Software Stack\n"
+                    + "\n".join(f"- {t}" for t in tech_stack_items) + "\n\n"
+                    f"## 🏛️ Local Market Peers & Competitors\n"
+                    + ("\n".join(f"- {c}" for c in competitor_items) if competitor_items else "- Regional peer operators") + "\n\n"
+                    f"## 💬 Alex @ LeadOps Objection Playbook\n"
+                    f"- **If they say they pull dockets in-house:**\n"
+                    f"  > \"{playbook.get('already_in_house', 'Makes complete sense. Streaming these directly frees up ~8 hours weekly for client work.')}\"\n"
+                    f"- **If they mention legacy aggregators:**\n"
+                    f"  > \"{playbook.get('uses_legacy_tool', 'Understood. Big aggregators run on 3-7 day delays; our feed streams same-day at 6:00 AM.')}\"\n"
+                    f"- **If they ask about cost/onboarding:**\n"
+                    f"  > \"{playbook.get('cost_concern', 'Everything starts with a $99 setup sprint 100% credited to Month 1, backed by a live 95% QA pass.')}\"\n"
+                )
+
+                artifact_store.save_artifact(
+                    lead_id=candidate.lead_id,
+                    stage="01_SCOUT_DISCOVERY",
+                    agent_name="Market Intelligence Prospector",
+                    filename="01_market_research_dossier.md",
+                    content=dossier_md,
+                    description="Deep operational research, ROI labor analysis, tech stack, and Alex objection playbook",
+                )
+
                 # Initialize modular codebase and company root knowledge notes
                 artifact_store.scaffold_modular_codebase(
                     lead_id=candidate.lead_id,
@@ -1391,6 +1470,138 @@ class ScoutBackgroundWorker:
         }
         self.discovery_history.append(record)
         return record
+
+    def discover_batch_candidates(
+        self,
+        count: int = 3,
+        channel: str | None = None,
+        niche: str | None = None,
+        max_attempts_per_lead: int = 6,
+    ) -> dict[str, Any]:
+        """Ramp up scouting: Discover multiple unique qualified candidates in a single batch."""
+        clamped_count = max(1, min(count, 5))
+        discovered_leads = []
+        errors = []
+        channels_to_use = [channel] if channel else ["county_filing_party", "state_bar", "sos_entity", "local_business", "b2b_web_search"]
+
+        for i in range(clamped_count):
+            target_chan = channels_to_use[i % len(channels_to_use)]
+            try:
+                if niche or target_chan == "b2b_web_search":
+                    web_worker = B2BWebScoutWorker(storage=self.storage, portal=self.portal, llm_engine=self.llm_engine)
+                    res = web_worker.discover_next_candidate(
+                        custom_niche=niche,
+                        run_until_found=True,
+                        max_attempts=max_attempts_per_lead,
+                    )
+                else:
+                    res = self.discover_next_candidate(
+                        channel=target_chan,
+                        run_until_found=True,
+                        max_attempts=max_attempts_per_lead,
+                    )
+                if res and res.get("ok"):
+                    discovered_leads.append(res)
+                else:
+                    err_msg = (res or {}).get("reason") or (res or {}).get("message") or f"Attempt {i+1} unfulfilled"
+                    errors.append(err_msg)
+            except Exception as exc:
+                logger.error(f"Error during batch scout pass {i+1}: {exc}", exc_info=True)
+                errors.append(str(exc))
+
+        return {
+            "ok": len(discovered_leads) > 0,
+            "count_requested": clamped_count,
+            "count_discovered": len(discovered_leads),
+            "leads": discovered_leads,
+            "errors": errors,
+            "message": f"Successfully scouted & qualified {len(discovered_leads)}/{clamped_count} leads.",
+        }
+
+    def re_enrich_lead(self, lead_id: str) -> dict[str, Any]:
+        """Perform deep on-demand live re-enrichment of an existing lead."""
+        lead = self.storage.get_lead(lead_id)
+        if not lead:
+            raise KeyError(f"Lead {lead_id} not found")
+
+        company_name = getattr(lead, "company_name", "") or lead_id
+        website = getattr(lead, "website", "") or ""
+        niche = getattr(lead, "niche", "Public Records") or "Public Records"
+
+        # Scrape or fetch live site
+        from .tools.web_fetcher import extract_contact_info_from_url
+        from .tools.web_search import find_linkedin_decision_maker
+        contact_info = extract_contact_info_from_url(website) if website else {}
+
+        # Pull or reuse sample data
+        sandbox_slug = getattr(lead, "slug", "")
+        sample_records = []
+        if sandbox_slug and self.portal:
+            sb = self.portal.get_sandbox(sandbox_slug)
+            if sb and sb.rows:
+                sample_records = sb.rows
+        if not sample_records:
+            from .datasets import pull_live_austin_permits
+            try:
+                sample_records = pull_live_austin_permits(10)
+            except Exception:
+                sample_records = []
+
+        # Find linkedin if missing
+        linkedin_contact = None
+        if not getattr(lead, "decision_maker_linkedin", ""):
+            linkedin_contact = find_linkedin_decision_maker(company_name, domain_hint=website)
+
+        enrichment = self.llm_engine.run_lead_enrichment_agent(
+            company_name=company_name,
+            website=website,
+            niche=niche,
+            sample_records=sample_records,
+            contact_data=contact_info,
+            linkedin_data=linkedin_contact,
+        )
+
+        # Update lead fields if better ones found
+        if enrichment.get("decision_maker_name") and (not lead.contact_name or lead.contact_name in ["there", "Executive Leadership"]):
+            lead.contact_name = enrichment["decision_maker_name"]
+        if enrichment.get("decision_maker_role") and (not lead.contact_role or "Preconstruction" in lead.contact_role):
+            lead.contact_role = enrichment["decision_maker_role"]
+        if enrichment.get("linkedin_url"):
+            lead.decision_maker_linkedin = enrichment["linkedin_url"]
+        if enrichment.get("verified_phone") and not lead.contact_phone:
+            lead.contact_phone = enrichment["verified_phone"]
+
+        # Update research dictionary
+        current_res = getattr(lead, "research", {}) or {}
+        if not isinstance(current_res, dict):
+            current_res = {}
+
+        current_res.update({
+            "business_specialty": enrichment.get("business_specialty", ""),
+            "human_observation": enrichment.get("human_observation", ""),
+            "operational_friction": enrichment.get("operational_friction", ""),
+            "recent_activity_hook": enrichment.get("recent_activity_hook", ""),
+            "headquarters_location": enrichment.get("headquarters_location", ""),
+            "company_scale": enrichment.get("company_scale", ""),
+            "detected_tech_stack": enrichment.get("detected_tech_stack", []),
+            "secondary_decision_maker": enrichment.get("secondary_decision_maker"),
+            "estimated_docket_volume": enrichment.get("estimated_docket_volume", ""),
+            "estimated_hours_saved_weekly": enrichment.get("estimated_hours_saved_weekly", 8.0),
+            "estimated_monthly_labor_savings": enrichment.get("estimated_monthly_labor_savings", "$1,600/month"),
+            "local_competitors": enrichment.get("local_competitors", []),
+            "objection_playbook": enrichment.get("objection_playbook", {}),
+            "re_enriched_at": datetime.now(timezone.utc).isoformat(),
+        })
+        lead.research = current_res
+        self.storage.save_lead(lead)
+
+        return {
+            "ok": True,
+            "lead_id": lead_id,
+            "company_name": company_name,
+            "research": current_res,
+            "message": f"Successfully re-enriched intelligence dossier for {company_name}.",
+        }
 
     async def _runner_loop(self, interval_seconds: int = 600) -> None:
         """Background continuous prospecting loop."""

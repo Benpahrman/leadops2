@@ -431,3 +431,79 @@ def test_admin_scout_trigger_web_scout_endpoint(test_setup, monkeypatch):
         run_until_found=True,
         max_attempts=10,
     )
+
+
+def test_admin_batch_scout_endpoint(test_setup, monkeypatch):
+    """Verify that the batch-scout endpoint triggers multi-lead swarm discovery."""
+    from unittest.mock import MagicMock
+    from agents.scout_runner import ScoutBackgroundWorker
+    storage, admin_service, client = test_setup
+
+    admin_headers = {
+        "Authorization": "Bearer test-admin-token",
+        "X-Admin-Role": "founder",
+    }
+    monkeypatch.setattr("agents.routes.admin.require_admin", lambda: ClerkUser("user_admin", ["admin@example.com"]))
+
+    mock_batch = MagicMock(return_value={
+        "ok": True,
+        "count_requested": 3,
+        "count_discovered": 3,
+        "leads": [
+            {"lead_id": "l-1", "company_name": "Apex Legal"},
+            {"lead_id": "l-2", "company_name": "Lone Star Title"},
+            {"lead_id": "l-3", "company_name": "Austin Probate"},
+        ],
+    })
+    monkeypatch.setattr(ScoutBackgroundWorker, "discover_batch_candidates", mock_batch)
+
+    res = client.post(
+        "/api/admin/scout/batch-scout",
+        json={"count": 3, "channel": "state_bar", "niche": "Probate Law"},
+        headers=admin_headers,
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert data["count_discovered"] == 3
+    assert len(data["leads"]) == 3
+    mock_batch.assert_called_once_with(count=3, channel="state_bar", niche="Probate Law")
+
+
+def test_admin_deep_enrich_endpoint(test_setup, monkeypatch):
+    """Verify that the on-demand deep-enrich endpoint executes re_enrich_lead."""
+    from unittest.mock import MagicMock
+    from agents.scout_runner import ScoutBackgroundWorker
+    storage, admin_service, client = test_setup
+
+    admin_headers = {
+        "Authorization": "Bearer test-admin-token",
+        "X-Admin-Role": "founder",
+    }
+    monkeypatch.setattr("agents.routes.admin.require_admin", lambda: ClerkUser("user_admin", ["admin@example.com"]))
+
+    mock_enrich = MagicMock(return_value={
+        "ok": True,
+        "lead_id": "lead-admin-1",
+        "company_name": "Apex Probate Law",
+        "research": {
+            "headquarters_location": "Austin, TX",
+            "company_scale": "10-25 attorneys",
+            "estimated_hours_saved_weekly": 14,
+            "estimated_monthly_labor_savings": 2200,
+        },
+        "dossier_path": "artifacts/lead-admin-1/01_market_research_dossier.md",
+    })
+    monkeypatch.setattr(ScoutBackgroundWorker, "re_enrich_lead", mock_enrich)
+
+    res = client.post(
+        "/api/admin/leads/lead-admin-1/enrich",
+        headers=admin_headers,
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert data["research"]["headquarters_location"] == "Austin, TX"
+    assert data["research"]["estimated_hours_saved_weekly"] == 14
+    mock_enrich.assert_called_once_with("lead-admin-1")
+

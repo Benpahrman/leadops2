@@ -567,6 +567,36 @@ export async function triggerScoutDiscovery(niche = null, token = '', channel = 
   return res.json();
 }
 
+export async function triggerBatchScout(count = 3, niche = null, channel = null, token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/scout/batch-scout`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ count, niche, channel }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function deepEnrichLead(leadId, token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/leads/${leadId}/enrich`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Enrichment failed (HTTP ${res.status})`);
+  }
+  return res.json();
+}
+
 export async function cancelAutoOutreach(leadId, token = '') {
   const headers = { 'Content-Type': 'application/json' };
   const resolved = resolveAdminAuth(token);
