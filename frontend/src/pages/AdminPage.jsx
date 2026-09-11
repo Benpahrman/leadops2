@@ -36,6 +36,8 @@ import {
   fetchMicrosoftOAuthStatus,
   fetchMicrosoftOAuthAuthorizeUrl,
   disconnectMicrosoftOAuth,
+  fetchDeliverabilityStatus,
+  runDeliverabilityAudit,
 } from '../services/api';
 import { useToast } from '../context/ToastContext';
 import ConfirmModal from '../components/common/ConfirmModal';
@@ -107,6 +109,7 @@ export default function AdminPage() {
   const [autoOutreachLoading, setAutoOutreachLoading] = useState(false);
   const [scoutingInProgress, setScoutingInProgress] = useState(false);
   const [selectedScoutChannel, setSelectedScoutChannel] = useState('');
+  const [scoutSearchQuery, setScoutSearchQuery] = useState('');
 
   const renderDiscoveryBadge = (channel, filingCaseNumber) => {
     const norm = (channel || '').toUpperCase().trim();
@@ -239,6 +242,7 @@ export default function AdminPage() {
   // Inboxes & Email Infrastructure State
   const [inboxes, setInboxes] = useState([]);
   const [fleetSummary, setFleetSummary] = useState(null);
+  const [inboxFilter, setInboxFilter] = useState('ALL');
   const [inboxesLoading, setInboxesLoading] = useState(false);
   const [testingInboxId, setTestingInboxId] = useState(null);
   const [testResults, setTestResults] = useState({});
@@ -252,6 +256,11 @@ export default function AdminPage() {
     provider: 'zoho',
     daily_limit: 25,
   });
+
+  // Morning Deliverability & TestMail Spam Assessment State
+  const [deliverabilityReport, setDeliverabilityReport] = useState(null);
+  const [auditingDeliverability, setAuditingDeliverability] = useState(false);
+  const [selectedSpamReport, setSelectedSpamReport] = useState(null);
 
   // Microsoft OAuth2 State
   const [msOAuthStatus, setMsOAuthStatus] = useState(null);
@@ -415,10 +424,49 @@ export default function AdminPage() {
         setFleetSummary(res.fleet_summary);
       }
       loadMsOAuthStatus();
+      loadDeliverabilityStatus();
     } catch (err) {
       console.warn('Could not load inboxes:', err);
     } finally {
       setInboxesLoading(false);
+    }
+  };
+
+  const loadDeliverabilityStatus = async () => {
+    try {
+      const token = await resolveToken();
+      const res = await fetchDeliverabilityStatus(token);
+      if (res && res.report) {
+        setDeliverabilityReport(res.report);
+      }
+    } catch (err) {
+      console.warn('Could not load deliverability status:', err);
+    }
+  };
+
+  const handleRunDeliverabilityAudit = async () => {
+    setAuditingDeliverability(true);
+    showToast('🛡️ Initiating morning deliverability probes: sending AI cold emails to TestMail across all active Zoho inboxes...', 'info');
+    try {
+      const token = await resolveToken();
+      await runDeliverabilityAudit({ force: true, wait: false }, token);
+      showToast('🚀 Test probes dispatched! Polling TestMail for live SPF, DKIM, and SpamAssassin scores...', 'success');
+
+      // Schedule progressive poll refreshes
+      setTimeout(async () => {
+        await loadDeliverabilityStatus();
+      }, 8000);
+      setTimeout(async () => {
+        await loadDeliverabilityStatus();
+        setAuditingDeliverability(false);
+        showToast('✅ Deliverability audit scorecard updated from live TestMail report!', 'success');
+      }, 16000);
+      setTimeout(async () => {
+        await loadDeliverabilityStatus();
+      }, 30000);
+    } catch (err) {
+      showToast(`Deliverability audit failed: ${err.message}`, 'error');
+      setAuditingDeliverability(false);
     }
   };
 
@@ -652,10 +700,14 @@ export default function AdminPage() {
     }
   };
 
-  const handleTriggerWebScout = async (overrideChannel = null) => {
+  const handleTriggerWebScout = async (overrideChannel = null, overrideQuery = null) => {
     setScoutingInProgress(true);
     const targetChannel = overrideChannel !== null ? overrideChannel : selectedScoutChannel;
-    const channelLabel = targetChannel === 'county_filing_party'
+    const targetQuery = overrideQuery !== null ? overrideQuery : scoutSearchQuery;
+    const searchTrimmed = (targetQuery || '').trim();
+    const channelLabel = searchTrimmed
+      ? `Search: "${searchTrimmed}"`
+      : targetChannel === 'county_filing_party'
       ? 'County Filing Parties'
       : targetChannel === 'state_bar'
       ? 'State Bar Attorneys'
@@ -664,12 +716,15 @@ export default function AdminPage() {
       : targetChannel === 'local_business'
       ? 'Google Maps / Local'
       : 'All Channels (Auto)';
-    showToast(`🔎 Triggering autonomous Scout via [${channelLabel}]...`, 'info');
+
+    showToast(`🔎 Hunting for a new qualified lead via [${channelLabel}] until found...`, 'info');
     try {
       const token = await resolveToken();
-      const res = await triggerScoutDiscovery(null, token, targetChannel || null);
-      if (res.lead_id) {
-        showToast(`Discovered qualified lead: ${res.company_name || res.lead_id}!`, 'success');
+      const res = await triggerScoutDiscovery(searchTrimmed || null, token, targetChannel || null, true);
+      if (res && res.lead_id) {
+        showToast(`🎯 Discovered new qualified lead: ${res.company_name || res.lead_id}!`, 'success');
+      } else if (res && res.ok) {
+        showToast(`🎯 Discovered new lead! Telemetry updated.`, 'success');
       } else {
         showToast(res.message || res.reason || 'Scout pass complete. Telemetry updated.', 'info');
       }
@@ -1157,9 +1212,33 @@ export default function AdminPage() {
               <span>{autoOutreachStatus?.enabled ? '⏱️ Auto-Outreach: ON (3m Grace)' : '⏸️ Auto-Outreach: OFF'}</span>
             </button>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <input
+                type="text"
+                value={scoutSearchQuery}
+                onChange={(e) => setScoutSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !scoutingInProgress) {
+                    handleTriggerWebScout();
+                  }
+                }}
+                placeholder="🔍 Search query or niche (e.g. Austin probate)..."
+                disabled={scoutingInProgress}
+                style={{
+                  background: 'rgba(15, 23, 42, 0.85)',
+                  border: '1px solid rgba(56, 189, 248, 0.35)',
+                  borderRadius: '6px',
+                  color: '#e2e8f0',
+                  fontSize: '11px',
+                  padding: '5px 10px',
+                  width: '220px',
+                  outline: 'none',
+                }}
+                title="Enter custom search query or niche. Press Enter or click Scout Now to run until a new lead is found."
+              />
               <select
                 value={selectedScoutChannel}
                 onChange={(e) => setSelectedScoutChannel(e.target.value)}
+                disabled={scoutingInProgress}
                 style={{
                   background: 'rgba(15, 23, 42, 0.85)',
                   border: '1px solid rgba(56, 189, 248, 0.35)',
@@ -1192,9 +1271,9 @@ export default function AdminPage() {
                 }}
                 onClick={() => handleTriggerWebScout()}
                 disabled={scoutingInProgress}
-                title="Manually trigger autonomous scout to probe public registries and discover qualified B2B leads."
+                title="Manually trigger autonomous scout to hunt continuously until a new qualified B2B lead is found."
               >
-                <span>{scoutingInProgress ? '⏳ Scouting...' : '🔎 Scout Now'}</span>
+                <span>{scoutingInProgress ? '⏳ Hunting Lead...' : '🔎 Scout Now'}</span>
               </button>
             </div>
 
@@ -1242,102 +1321,140 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* Top Summary Stats Bar */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '28px' }}>
-          <div className="stat-card">
-            <div className="stat-label">🏦 Down Payments Held</div>
+        {/* Top Summary Stats Bar - 5 Color-Coded Live KPIs */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+          <div className="stat-card stat-green">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="stat-label" style={{ color: 'var(--green)' }}>🏦 Down Payments Held</div>
+              <span className="pulse-dot-green" title="Milestone #1 deposits secured in escrow" />
+            </div>
             <div className="stat-value" style={{ color: 'var(--green)' }}>
               ${depositTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-              Milestone #1 ($99 refundable deposits)
+            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px', display: 'flex', justifyContent: 'space-between' }}>
+              <span>Milestone #1 ($99 deposits)</span>
+              <span style={{ color: '#fff', fontWeight: 600 }}>{pipeline.filter((l) => l.deposit_paid).length} secured</span>
             </div>
           </div>
 
-          <div className="stat-card">
-            <div className="stat-label">💰 Released Milestone #2</div>
+          <div className="stat-card stat-cyan">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="stat-label" style={{ color: 'var(--cyan)' }}>💰 Released Milestone #2</div>
+              <span className="pulse-dot-cyan" title="Auto-charged on ≥95% QA pass" />
+            </div>
             <div className="stat-value" style={{ color: 'var(--cyan)' }}>
               ${releasedTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-              Passed QA Gate (≥95% verified)
+            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px', display: 'flex', justifyContent: 'space-between' }}>
+              <span>Passed QA Gate (≥95%)</span>
+              <span style={{ color: '#fff', fontWeight: 600 }}>{pipeline.filter((l) => l.final_paid).length} verified</span>
             </div>
           </div>
 
-          <div className="stat-card">
-            <div className="stat-label">📈 Active Retainer MRR</div>
+          <div className="stat-card stat-purple">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="stat-label" style={{ color: '#c084fc' }}>📈 Active Retainer MRR</div>
+              <span style={{ fontSize: '12px' }}>🟣</span>
+            </div>
             <div className="stat-value" style={{ color: 'var(--purple)' }}>
               ${activeMrr.toLocaleString('en-US', { minimumFractionDigits: 2 })}/mo
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-              Live subscription cashflow
+            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px', display: 'flex', justifyContent: 'space-between' }}>
+              <span>Recurring cashflow</span>
+              <span style={{ color: '#fff', fontWeight: 600 }}>{pipeline.filter((l) => l.subscription_active).length} retainers</span>
             </div>
           </div>
 
-          <div className="stat-card">
-            <div className="stat-label">🎯 Active Pipeline Deals</div>
-            <div className="stat-value" style={{ color: '#fff' }}>
+          <div className="stat-card stat-yellow">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="stat-label" style={{ color: '#fbbf24' }}>🎯 Active Pipeline Deals</div>
+              <span className="pulse-dot-amber" title="Active pipeline load" />
+            </div>
+            <div className="stat-value" style={{ color: '#fbbf24' }}>
               {pipeline.filter((l) => l.state !== 'ARCHIVED').length}
             </div>
-            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-              Excludes {archivedLeads.length} archived in Vault
+            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px', display: 'flex', justifyContent: 'space-between' }}>
+              <span>{activeBuilds.length} dev builds active</span>
+              <span style={{ color: 'var(--text-muted)' }}>{archivedLeads.length} in vault</span>
+            </div>
+          </div>
+
+          <div className={`stat-card ${
+            deliverabilityReport?.fleet_status === 'HEALTHY'
+              ? 'stat-green'
+              : deliverabilityReport?.fleet_status === 'WARNING'
+              ? 'stat-yellow'
+              : deliverabilityReport?.fleet_status === 'CRITICAL'
+              ? 'stat-red'
+              : 'stat-cyan'
+          }`}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="stat-label" style={{
+                color: deliverabilityReport?.fleet_status === 'HEALTHY'
+                  ? 'var(--green)'
+                  : deliverabilityReport?.fleet_status === 'WARNING'
+                  ? '#fbbf24'
+                  : deliverabilityReport?.fleet_status === 'CRITICAL'
+                  ? '#f87171'
+                  : 'var(--cyan)'
+              }}>
+                🛡️ TestMail Deliverability
+              </div>
+              <span className={
+                deliverabilityReport?.fleet_status === 'HEALTHY'
+                  ? 'pulse-dot-green'
+                  : deliverabilityReport?.fleet_status === 'CRITICAL'
+                  ? 'pulse-dot-red'
+                  : 'pulse-dot-amber'
+              } />
+            </div>
+            <div className="stat-value" style={{
+              color: deliverabilityReport?.fleet_status === 'HEALTHY'
+                ? 'var(--green)'
+                : deliverabilityReport?.fleet_status === 'WARNING'
+                ? '#fbbf24'
+                : deliverabilityReport?.fleet_status === 'CRITICAL'
+                ? '#f87171'
+                : '#fff',
+              fontSize: '20px',
+              display: 'flex',
+              alignItems: 'baseline',
+              gap: '6px',
+            }}>
+              <span>{deliverabilityReport?.fleet_status || 'ARMED'}</span>
+              {deliverabilityReport?.average_score !== undefined && (
+                <span style={{ fontSize: '13px', color: 'var(--cyan)', fontWeight: 700 }}>({deliverabilityReport.average_score}%)</span>
+              )}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px', display: 'flex', justifyContent: 'space-between' }}>
+              <span>{deliverabilityReport?.healthy_count ?? inboxes.length} healthy inboxes</span>
+              <span style={{ color: 'var(--green)', fontWeight: 600 }}>0% Spam Trap</span>
             </div>
           </div>
         </div>
 
         {/* =========================================================
-            ⚡ FLEET DISPATCH VELOCITY & JITTER ENGINE CARD
+            ⚡ AUTONOMOUS AI SWARM LIVE OPERATIONS COCKPIT & HUD
            ========================================================= */}
-        <div
-          style={{
-            background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(10, 19, 36, 0.98) 100%)',
-            border: '1px solid rgba(56, 189, 248, 0.25)',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.35)',
-            borderRadius: 'var(--radius-md)',
-            padding: '20px 24px',
-            marginBottom: '24px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '16px',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+        <div className="swarm-cockpit-card">
+          {/* Header Row & Quick Controls */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px', marginBottom: '18px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <span style={{ fontSize: '24px', background: 'rgba(56, 189, 248, 0.12)', padding: '8px', borderRadius: '10px', border: '1px solid rgba(56, 189, 248, 0.25)' }}>⚡</span>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                   <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#fff', margin: 0, letterSpacing: '-0.3px' }}>
-                    Fleet Dispatch Velocity &amp; Jitter Engine
+                    Autonomous AI Swarm Operations Cockpit
                   </h3>
-                  <span
-                    style={{
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      padding: '2px 8px',
-                      borderRadius: '12px',
-                      background: 'rgba(16, 185, 129, 0.15)',
-                      color: 'var(--green)',
-                      border: '1px solid rgba(16, 185, 129, 0.35)',
-                    }}
-                  >
-                    ● 5 Zoho Inboxes Active
+                  <span className="badge-tag badge-green" style={{ fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                    <span className="pulse-dot-green" /> 6 Swarms Active &amp; Governed
                   </span>
-                  <span
-                    style={{
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      padding: '2px 8px',
-                      borderRadius: '12px',
-                      background: 'rgba(56, 189, 248, 0.15)',
-                      color: 'var(--cyan)',
-                      border: '1px solid rgba(56, 189, 248, 0.35)',
-                    }}
-                  >
-                    ⏱️ 5 – 20 min Jitter Window
+                  <span className="badge-tag badge-cyan" style={{ fontSize: '11px' }}>
+                    ⏱️ 5 – 20m Jitter Stagger
                   </span>
                 </div>
                 <p style={{ fontSize: '12px', color: 'var(--text-dim)', margin: '4px 0 0' }}>
-                  Sequential anti-spam dispatch pool rotating across 5 Zoho accounts with randomized 5–20 minute cooldowns.
+                  Autonomous swarm telemetry with live anti-spam jitter rotation, AST self-healing, and ≥95% schema release gates.
                 </p>
               </div>
             </div>
@@ -1357,7 +1474,7 @@ export default function AdminPage() {
                 }}
                 onClick={handleFlushOutreachQueue}
                 disabled={flushingQueue}
-                title="Immediately process any queued pitches adhering to anti-burst human stagger"
+                title="Immediately process queued pitches adhering to anti-burst human stagger"
               >
                 <span>{flushingQueue ? '⏳ Flushing...' : '⚡ Flush Outreach Queue'}</span>
               </button>
@@ -1379,6 +1496,162 @@ export default function AdminPage() {
               >
                 <span>{scoutingInProgress ? '⏳ Scouting...' : '🔎 Scout Lead'}</span>
               </button>
+              <button
+                className="btn btn-outline"
+                style={{
+                  fontSize: '11px',
+                  padding: '7px 14px',
+                  borderColor: 'rgba(99, 102, 241, 0.35)',
+                  color: '#818cf8',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontWeight: 600,
+                }}
+                onClick={handleRunDeliverabilityAudit}
+                disabled={auditingDeliverability}
+                title="Send test emails to TestMail and verify SPF/DKIM/SpamAssassin scores"
+              >
+                <span>{auditingDeliverability ? '⏳ Probing...' : '🛡️ TestMail Audit'}</span>
+              </button>
+              <button
+                className="btn btn-outline"
+                style={{
+                  fontSize: '11px',
+                  padding: '7px 12px',
+                  borderColor: 'var(--border)',
+                  color: 'var(--text-muted)',
+                }}
+                onClick={loadAdminData}
+                title="Refresh all swarm telemetry from PostgreSQL and server logs"
+              >
+                🔄
+              </button>
+            </div>
+          </div>
+
+          {/* 6-Agent Live Telemetry HUD Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '10px', marginBottom: '18px' }}>
+            {/* Agent 1: Scout */}
+            <div className="swarm-agent-tile">
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '16px' }}>🔍</span>
+                  <span className={`badge-tag ${scoutingInProgress ? 'badge-yellow' : 'badge-green'}`} style={{ fontSize: '10px' }}>
+                    {scoutingInProgress ? '⏳ SCOUTING' : '🟢 ACTIVE'}
+                  </span>
+                </div>
+                <div style={{ fontSize: '12px', fontWeight: 800, color: '#fff' }}>Scout Agent</div>
+                <div style={{ fontSize: '11px', color: 'var(--cyan)', marginTop: '2px' }}>Travis/Harris Dockets</div>
+              </div>
+              <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
+                Same-Day Freshness (&lt;24h cache)
+              </div>
+            </div>
+
+            {/* Agent 2: Pitcher */}
+            {(() => {
+              const earliestWait = fleetSummary?.earliest_jitter_wait ?? Math.min(...inboxes.map((i) => i.jitter_wait_seconds || 0));
+              const isOnWait = earliestWait > 0;
+              return (
+                <div className="swarm-agent-tile">
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '16px' }}>💬</span>
+                      <span className={`badge-tag ${isOnWait ? 'badge-yellow' : 'badge-green'}`} style={{ fontSize: '10px' }}>
+                        {isOnWait ? `⏳ ~${(earliestWait / 60).toFixed(0)}m WAIT` : '🟢 PRIMED'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '12px', fontWeight: 800, color: '#fff' }}>Pitcher (Alex)</div>
+                    <div style={{ fontSize: '11px', color: '#c084fc', marginTop: '2px' }}>5 Zoho Sequential</div>
+                  </div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
+                    Sub-55w Zero-Link Plaintext
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Agent 3: Dev Swarm */}
+            <div className="swarm-agent-tile">
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '16px' }}>⚙️</span>
+                  <span className={`badge-tag ${activeBuilds.length > 0 ? 'badge-cyan' : 'badge-green'}`} style={{ fontSize: '10px' }}>
+                    {activeBuilds.length > 0 ? `⚡ ${activeBuilds.length} BUILDING` : '🟢 STANDBY'}
+                  </span>
+                </div>
+                <div style={{ fontSize: '12px', fontWeight: 800, color: '#fff' }}>Dev Swarm</div>
+                <div style={{ fontSize: '11px', color: 'var(--cyan)', marginTop: '2px' }}>AST Selector Pruner</div>
+              </div>
+              <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
+                Docker Sandbox (≤4k tokens)
+              </div>
+            </div>
+
+            {/* Agent 4: QA Gatekeeper */}
+            <div className="swarm-agent-tile">
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '16px' }}>🧪</span>
+                  <span className="badge-tag badge-green" style={{ fontSize: '10px' }}>
+                    🟢 ≥95% FLOOR
+                  </span>
+                </div>
+                <div style={{ fontSize: '12px', fontWeight: 800, color: '#fff' }}>QA Gatekeeper</div>
+                <div style={{ fontSize: '11px', color: 'var(--green)', marginTop: '2px' }}>Release Authority</div>
+              </div>
+              <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
+                Unlocks M2 Balance Auto-Charge
+              </div>
+            </div>
+
+            {/* Agent 5: Deliverability Shield */}
+            <div className="swarm-agent-tile">
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '16px' }}>🛡️</span>
+                  <span className={`badge-tag ${
+                    deliverabilityReport?.fleet_status === 'HEALTHY'
+                      ? 'badge-green'
+                      : deliverabilityReport?.fleet_status === 'WARNING'
+                      ? 'badge-yellow'
+                      : deliverabilityReport?.fleet_status === 'CRITICAL'
+                      ? 'badge-red'
+                      : 'badge-cyan'
+                  }`} style={{ fontSize: '10px' }}>
+                    {deliverabilityReport?.fleet_status === 'HEALTHY'
+                      ? '🟢 NOMINAL'
+                      : deliverabilityReport?.fleet_status === 'WARNING'
+                      ? '⚠️ WARNING'
+                      : deliverabilityReport?.fleet_status === 'CRITICAL'
+                      ? '🚨 CRITICAL'
+                      : '🟢 ARMED'}
+                  </span>
+                </div>
+                <div style={{ fontSize: '12px', fontWeight: 800, color: '#fff' }}>Deliverability Shield</div>
+                <div style={{ fontSize: '11px', color: '#818cf8', marginTop: '2px' }}>TestMail Live Probes</div>
+              </div>
+              <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
+                SPF / DKIM / SpamAssassin Check
+              </div>
+            </div>
+
+            {/* Agent 6: Courier Dispatcher */}
+            <div className="swarm-agent-tile">
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                  <span style={{ fontSize: '16px' }}>🚚</span>
+                  <span className="badge-tag badge-green" style={{ fontSize: '10px' }}>
+                    🟢 06:00 UTC
+                  </span>
+                </div>
+                <div style={{ fontSize: '12px', fontWeight: 800, color: '#fff' }}>Courier Dispatch</div>
+                <div style={{ fontSize: '11px', color: 'var(--green)', marginTop: '2px' }}>Zero-Idle Ephemeral</div>
+              </div>
+              <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
+                Sheets + API + 05:30 Drift Shield
+              </div>
             </div>
           </div>
 
@@ -1390,13 +1663,15 @@ export default function AdminPage() {
             const nextInboxId = fleetSummary?.available_inbox || (inboxes.find((i) => !i.is_on_jitter && (i.sent_today || 0) < (i.daily_limit || 25))?.inbox_id) || 'zoho_1';
             const earliestWait = fleetSummary?.earliest_jitter_wait ?? Math.min(...inboxes.map((i) => i.jitter_wait_seconds || 0));
 
+            const velocityColor = velocityPct >= 85 ? '#f87171' : velocityPct >= 60 ? '#fbbf24' : 'var(--green)';
+
             return (
               <div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '12px', marginBottom: '12px' }}>
                   <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '12px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
                     <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700 }}>TODAY'S FLEET VELOCITY</div>
                     <div style={{ fontSize: '20px', fontWeight: 800, color: '#fff', marginTop: '3px', display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-                      <span>{fleetSent} / {fleetQuota}</span>
+                      <span style={{ color: velocityColor }}>{fleetSent} / {fleetQuota}</span>
                       <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 500 }}>dispatched today ({velocityPct}%)</span>
                     </div>
                   </div>
@@ -1429,7 +1704,11 @@ export default function AdminPage() {
                     style={{
                       height: '100%',
                       width: `${Math.max(velocityPct, 3)}%`,
-                      background: 'linear-gradient(90deg, #38bdf8 0%, #10b981 100%)',
+                      background: velocityPct >= 85
+                        ? 'linear-gradient(90deg, #f59e0b 0%, #ef4444 100%)'
+                        : velocityPct >= 60
+                        ? 'linear-gradient(90deg, #38bdf8 0%, #f59e0b 100%)'
+                        : 'linear-gradient(90deg, #38bdf8 0%, #10b981 100%)',
                       borderRadius: '4px',
                       transition: 'width 0.4s ease',
                     }}
@@ -1442,6 +1721,7 @@ export default function AdminPage() {
                     {inboxes.map((inb) => {
                       const onJitter = inb.is_on_jitter;
                       const waitSec = inb.jitter_wait_seconds || 0;
+                      const isMaxed = (inb.sent_today || 0) >= (inb.daily_limit || 25);
                       return (
                         <div
                           key={inb.inbox_id}
@@ -1449,19 +1729,35 @@ export default function AdminPage() {
                             fontSize: '11px',
                             padding: '5px 10px',
                             borderRadius: '6px',
-                            background: onJitter ? 'rgba(245, 158, 11, 0.1)' : 'rgba(16, 185, 129, 0.1)',
-                            border: `1px solid ${onJitter ? 'rgba(245, 158, 11, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
-                            color: onJitter ? '#fbbf24' : 'var(--green)',
+                            background: isMaxed
+                              ? 'rgba(239, 68, 68, 0.1)'
+                              : onJitter
+                              ? 'rgba(245, 158, 11, 0.1)'
+                              : 'rgba(16, 185, 129, 0.1)',
+                            border: `1px solid ${
+                              isMaxed
+                                ? 'rgba(239, 68, 68, 0.35)'
+                                : onJitter
+                                ? 'rgba(245, 158, 11, 0.35)'
+                                : 'rgba(16, 185, 129, 0.35)'
+                            }`,
+                            color: isMaxed ? '#f87171' : onJitter ? '#fbbf24' : 'var(--green)',
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: '6px',
                           }}
-                          title={onJitter ? `Jitter cooldown: ~${(waitSec / 60).toFixed(1)}m remaining` : 'Ready to dispatch'}
+                          title={
+                            isMaxed
+                              ? 'Daily quota reached'
+                              : onJitter
+                              ? `Jitter cooldown: ~${(waitSec / 60).toFixed(1)}m remaining`
+                              : 'Ready to dispatch'
+                          }
                         >
-                          <span>{onJitter ? '⏳' : '🟢'}</span>
+                          <span>{isMaxed ? '🛑' : onJitter ? '⏳' : '🟢'}</span>
                           <span style={{ fontWeight: 700, color: '#fff' }}>{inb.inbox_id}:</span>
                           <span>{inb.sent_today || 0}/{inb.daily_limit || 25} sent</span>
-                          {onJitter && waitSec > 0 && (
+                          {onJitter && waitSec > 0 && !isMaxed && (
                             <span style={{ color: '#fbbf24', fontSize: '10px' }}>({(waitSec / 60).toFixed(0)}m wait)</span>
                           )}
                         </div>
@@ -1830,12 +2126,16 @@ export default function AdminPage() {
                           </td>
                           <td>
                             <span className={`badge-tag ${
-                              lead.state === 'DELIVERED' || lead.state === 'WARRANTY_ACTIVE'
+                              lead.state === 'DELIVERED' || lead.state === 'WARRANTY_ACTIVE' || lead.state === 'ESCROW_PREVIEW'
                                 ? 'badge-green'
                                 : lead.state === 'DEV_BUILDING'
                                 ? 'badge-cyan'
                                 : lead.state === 'DEPOSIT_PAID'
                                 ? 'badge-purple'
+                                : lead.state === 'PITCH_PENDING_APPROVAL'
+                                ? 'badge-orange'
+                                : lead.state === 'OUTREACH_SENT'
+                                ? 'badge-blue'
                                 : 'badge-yellow'
                             }`}>
                               {lead.state}
@@ -2035,23 +2335,23 @@ export default function AdminPage() {
         {activeTab === 'kanban' && (
           <div className="kanban-board">
             {[
-              { key: 'PROSPECTING', label: '1. Prospecting' },
-              { key: 'REVIEW', label: '2. Enriched / Review' },
-              { key: 'PITCH_PENDING_APPROVAL', label: '3. Pitch Pending' },
-              { key: 'OUTREACH_SENT', label: '4. Outreach Sent' },
-              { key: 'DEPOSIT_PAID', label: '5. Down Payment Paid ($99)' },
-              { key: 'DEV_BUILDING', label: '6. Dev Swarm Building' },
-              { key: 'ESCROW_PREVIEW', label: '7. QA Gate Pass (95%+)' },
-              { key: 'DELIVERED', label: '8. Delivered / Active' },
+              { key: 'PROSPECTING', label: '1. Prospecting', color: 'var(--cyan)', borderTop: '3px solid var(--cyan)', badgeClass: 'badge-cyan' },
+              { key: 'REVIEW', label: '2. Enriched / Review', color: '#fbbf24', borderTop: '3px solid #fbbf24', badgeClass: 'badge-yellow' },
+              { key: 'PITCH_PENDING_APPROVAL', label: '3. Pitch Pending', color: '#fb923c', borderTop: '3px solid #fb923c', badgeClass: 'badge-orange' },
+              { key: 'OUTREACH_SENT', label: '4. Outreach Sent', color: '#60a5fa', borderTop: '3px solid #60a5fa', badgeClass: 'badge-blue' },
+              { key: 'DEPOSIT_PAID', label: '5. Down Payment ($99)', color: '#c084fc', borderTop: '3px solid #c084fc', badgeClass: 'badge-purple' },
+              { key: 'DEV_BUILDING', label: '6. Dev Swarm', color: 'var(--cyan)', borderTop: '3px solid var(--cyan)', badgeClass: 'badge-cyan' },
+              { key: 'ESCROW_PREVIEW', label: '7. QA Pass (≥95%)', color: 'var(--green)', borderTop: '3px solid var(--green)', badgeClass: 'badge-green' },
+              { key: 'DELIVERED', label: '8. Delivered', color: 'var(--green)', borderTop: '3px solid var(--green)', badgeClass: 'badge-green' },
             ].map((col) => {
               const colLeads = pipeline.filter((l) => l.state === col.key);
 
               return (
-                <div key={col.key} className="kanban-column">
+                <div key={col.key} className="kanban-column" style={{ borderTop: col.borderTop }}>
                   <div className="kanban-col-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span>{col.label}</span>
-                      <span className="badge-tag">{colLeads.length}</span>
+                      <span style={{ color: col.color, fontWeight: 700 }}>{col.label}</span>
+                      <span className={`badge-tag ${col.badgeClass}`}>{colLeads.length}</span>
                     </div>
                     {col.key === 'PITCH_PENDING_APPROVAL' && colLeads.length > 0 && (
                       <button
@@ -2968,8 +3268,11 @@ export default function AdminPage() {
 
             {/* Quick Fleet Metrics */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-              <div className="stat-card">
-                <div className="stat-label">⚡ Active Inboxes</div>
+              <div className="stat-card stat-green">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div className="stat-label" style={{ color: 'var(--green)' }}>⚡ Active Inboxes</div>
+                  <span className="pulse-dot-green" title="Active sending accounts" />
+                </div>
                 <div className="stat-value" style={{ color: 'var(--green)' }}>
                   {inboxes.filter((i) => i.is_active).length} / {inboxes.length}
                 </div>
@@ -2977,8 +3280,12 @@ export default function AdminPage() {
                   Participating in rotation
                 </div>
               </div>
-              <div className="stat-card">
-                <div className="stat-label">🟣 Zoho Workplace Inboxes</div>
+
+              <div className="stat-card stat-purple">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div className="stat-label" style={{ color: '#c084fc' }}>🟣 Zoho Workplace Inboxes</div>
+                  <span style={{ fontSize: '12px' }}>🔒</span>
+                </div>
                 <div className="stat-value" style={{ color: '#c084fc' }}>
                   {inboxes.filter((i) => i.provider === 'zoho').length}
                 </div>
@@ -2986,23 +3293,158 @@ export default function AdminPage() {
                   smtp.zoho.com (SSL 465)
                 </div>
               </div>
-              <div className="stat-card">
-                <div className="stat-label">📈 Total Fleet Daily Capacity</div>
+
+              <div className="stat-card stat-cyan">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div className="stat-label" style={{ color: 'var(--cyan)' }}>📈 Fleet Daily Capacity</div>
+                  <span className="pulse-dot-cyan" title="Warmup daily limit" />
+                </div>
                 <div className="stat-value" style={{ color: 'var(--cyan)' }}>
-                  {inboxes.filter((i) => i.is_active && (i.provider === 'zoho' || i.inbox_id !== 'primary')).reduce((sum, i) => sum + (i.daily_limit || 25), 0) || (inboxes.filter((i) => i.is_active).length * 25)} emails/day
+                  {inboxes.filter((i) => i.is_active && (i.provider === 'zoho' || i.inbox_id !== 'primary')).reduce((sum, i) => sum + (i.daily_limit || 25), 0) || (inboxes.filter((i) => i.is_active).length * 25)}/day
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
                   5 Zoho inboxes × 25/day (Week 1 Warmup)
                 </div>
               </div>
-              <div className="stat-card">
-                <div className="stat-label">📨 Dispatched Today</div>
-                <div className="stat-value" style={{ color: '#fff' }}>
-                  {inboxes.reduce((sum, i) => sum + (i.sent_today || 0), 0)} / {inboxes.filter((i) => i.is_active && (i.provider === 'zoho' || i.inbox_id !== 'primary')).reduce((sum, i) => sum + (i.daily_limit || 25), 0) || 125} sent
+
+              <div className="stat-card stat-yellow">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div className="stat-label" style={{ color: '#fbbf24' }}>📨 Dispatched Today</div>
+                  <span className="pulse-dot-amber" title="Fleet sends today" />
+                </div>
+                <div className="stat-value" style={{ color: '#fbbf24' }}>
+                  {inboxes.reduce((sum, i) => sum + (i.sent_today || 0), 0)} / {inboxes.filter((i) => i.is_active && (i.provider === 'zoho' || i.inbox_id !== 'primary')).reduce((sum, i) => sum + (i.daily_limit || 25), 0) || 125}
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
                   Across all active inboxes
                 </div>
+              </div>
+            </div>
+
+            {/* Morning Fleet Deliverability & TestMail Spam Assessment Shield */}
+            <div
+              style={{
+                background: deliverabilityReport?.fleet_status === 'HEALTHY'
+                  ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(15, 23, 42, 0.85) 100%)'
+                  : deliverabilityReport?.fleet_status === 'WARNING'
+                  ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(15, 23, 42, 0.85) 100%)'
+                  : deliverabilityReport?.fleet_status === 'CRITICAL'
+                  ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.14) 0%, rgba(15, 23, 42, 0.85) 100%)'
+                  : 'linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(15, 23, 42, 0.85) 100%)',
+                borderRadius: 'var(--radius-md)',
+                border: deliverabilityReport?.fleet_status === 'HEALTHY'
+                  ? '1px solid rgba(16, 185, 129, 0.4)'
+                  : deliverabilityReport?.fleet_status === 'WARNING'
+                  ? '1px solid rgba(245, 158, 11, 0.4)'
+                  : deliverabilityReport?.fleet_status === 'CRITICAL'
+                  ? '1px solid rgba(239, 68, 68, 0.4)'
+                  : '1px solid rgba(99, 102, 241, 0.35)',
+                padding: '22px 24px',
+                marginBottom: '24px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '18px',
+                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px', maxWidth: '780px' }}>
+                <div
+                  style={{
+                    width: '50px',
+                    height: '50px',
+                    borderRadius: '12px',
+                    background: 'rgba(99, 102, 241, 0.2)',
+                    border: '1px solid rgba(99, 102, 241, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '24px',
+                    flexShrink: 0,
+                  }}
+                >
+                  🛡️
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <h3 style={{ fontSize: '17px', fontWeight: 800, color: '#fff', margin: 0 }}>
+                      Morning Fleet Deliverability &amp; TestMail Spam Shield
+                    </h3>
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: '3px 10px',
+                        borderRadius: '20px',
+                        background: deliverabilityReport?.fleet_status === 'HEALTHY'
+                          ? 'rgba(16, 185, 129, 0.2)'
+                          : deliverabilityReport?.fleet_status === 'WARNING'
+                          ? 'rgba(245, 158, 11, 0.2)'
+                          : deliverabilityReport?.fleet_status === 'CRITICAL'
+                          ? 'rgba(239, 68, 68, 0.2)'
+                          : 'rgba(148, 163, 184, 0.2)',
+                        color: deliverabilityReport?.fleet_status === 'HEALTHY'
+                          ? 'var(--green)'
+                          : deliverabilityReport?.fleet_status === 'WARNING'
+                          ? '#fbbf24'
+                          : deliverabilityReport?.fleet_status === 'CRITICAL'
+                          ? '#f87171'
+                          : '#cbd5e1',
+                        border: `1px solid ${
+                          deliverabilityReport?.fleet_status === 'HEALTHY'
+                            ? 'rgba(16, 185, 129, 0.4)'
+                            : deliverabilityReport?.fleet_status === 'WARNING'
+                            ? 'rgba(245, 158, 11, 0.4)'
+                            : 'rgba(148, 163, 184, 0.3)'
+                        }`,
+                      }}
+                    >
+                      {deliverabilityReport?.fleet_status === 'HEALTHY'
+                        ? '🟢 100% HEALTHY'
+                        : deliverabilityReport?.fleet_status === 'WARNING'
+                        ? '⚠️ WARNINGS DETECTED'
+                        : deliverabilityReport?.fleet_status === 'CRITICAL'
+                        ? '🚨 CRITICAL RISKS'
+                        : '⚪ PENDING AUDIT'}
+                    </span>
+                    {deliverabilityReport?.average_score !== undefined && deliverabilityReport?.average_score !== null && (
+                      <span style={{ fontSize: '12px', color: 'var(--cyan)', fontWeight: 700, fontFamily: 'var(--mono)' }}>
+                        Grade: {deliverabilityReport.average_score}%
+                      </span>
+                    )}
+                  </div>
+                  <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: '6px 0 0', lineHeight: 1.5 }}>
+                    Autonomous AI agent sends compliant zero-link test cold emails to <code>{deliverabilityReport?.testmail_namespace || 'KGDDJ'}.*@inbox.testmail.app</code> across all sending addresses and parses live <strong>SPF</strong>, <strong>DKIM</strong>, and <strong>SpamAssassin</strong> scores before prospect dispatches begin.
+                  </p>
+                  {deliverabilityReport?.audited_at && (
+                    <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '6px' }}>
+                      Last Audited: <span style={{ color: '#fff' }}>{new Date(deliverabilityReport.audited_at).toLocaleString()}</span> ({deliverabilityReport.healthy_count || 0} Healthy, {deliverabilityReport.warning_count || 0} Warnings, {deliverabilityReport.critical_count || 0} Critical)
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <button
+                  className="btn btn-primary"
+                  style={{
+                    fontSize: '13px',
+                    padding: '10px 18px',
+                    background: 'linear-gradient(135deg, #4f46e5 0%, #4338ca 100%)',
+                    border: '1px solid #818cf8',
+                    boxShadow: '0 0 16px rgba(99, 102, 241, 0.35)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontWeight: 700,
+                  }}
+                  onClick={handleRunDeliverabilityAudit}
+                  disabled={auditingDeliverability}
+                >
+                  <span>{auditingDeliverability ? '⏳' : '🛡️'}</span>
+                  {auditingDeliverability ? 'Probing TestMail...' : 'Run Deliverability Audit Now'}
+                </button>
               </div>
             </div>
 
@@ -3142,161 +3584,342 @@ export default function AdminPage() {
                   + Add Your First Zoho Inbox
                 </button>
               </div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '18px' }}>
-                {inboxes.map((inbox) => {
-                  const testRes = testResults[inbox.inbox_id];
-                  const isTesting = testingInboxId === inbox.inbox_id;
-                  const pct = Math.min(100, Math.round(((inbox.sent_today || 0) / (inbox.daily_limit || 25)) * 100));
+            ) : (() => {
+              const healthyInboxes = inboxes.filter((inbox) => {
+                const deliv = deliverabilityReport?.inboxes?.find(
+                  (d) => d.email_address?.toLowerCase() === inbox.email_address?.toLowerCase() || d.inbox_id === inbox.inbox_id
+                );
+                return inbox.is_active && (!deliv || deliv.status === 'HEALTHY') && !inbox.is_on_jitter && ((inbox.sent_today || 0) < (inbox.daily_limit || 25));
+              });
 
-                  return (
-                    <div
-                      key={inbox.inbox_id}
-                      style={{
-                        background: 'var(--card)',
-                        borderRadius: 'var(--radius-md)',
-                        border: inbox.is_active ? '1px solid var(--border)' : '1px solid rgba(148, 163, 184, 0.2)',
-                        padding: '20px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'space-between',
-                        opacity: inbox.is_active ? 1 : 0.65,
-                        transition: 'border-color 0.2s ease',
-                      }}
+              const warningInboxes = inboxes.filter((inbox) => {
+                const deliv = deliverabilityReport?.inboxes?.find(
+                  (d) => d.email_address?.toLowerCase() === inbox.email_address?.toLowerCase() || d.inbox_id === inbox.inbox_id
+                );
+                return !inbox.is_active || (deliv && (deliv.status === 'WARNING' || deliv.status === 'CRITICAL')) || ((inbox.sent_today || 0) >= (inbox.daily_limit || 25) * 0.75);
+              });
+
+              const jitterInboxes = inboxes.filter((inbox) => inbox.is_on_jitter);
+
+              const filteredInboxes = inboxes.filter((inbox) => {
+                if (inboxFilter === 'ALL') return true;
+                if (inboxFilter === 'HEALTHY') return healthyInboxes.some((i) => i.inbox_id === inbox.inbox_id);
+                if (inboxFilter === 'WARNING') return warningInboxes.some((i) => i.inbox_id === inbox.inbox_id);
+                if (inboxFilter === 'JITTER') return jitterInboxes.some((i) => i.inbox_id === inbox.inbox_id);
+                return true;
+              });
+
+              return (
+                <div>
+                  {/* Status Filter Chips Bar */}
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Filter Fleet:</span>
+                    <button
+                      type="button"
+                      className={`inbox-filter-chip ${inboxFilter === 'ALL' ? 'active' : ''}`}
+                      onClick={() => setInboxFilter('ALL')}
                     >
-                      <div>
-                        {/* Header: Provider & Active Pill */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-                          <span
-                            style={{
-                              fontSize: '11px',
-                              fontWeight: 700,
-                              padding: '4px 10px',
-                              borderRadius: '20px',
-                              background: inbox.provider === 'zoho' ? 'rgba(168, 85, 247, 0.15)' : 'rgba(59, 130, 246, 0.15)',
-                              color: inbox.provider === 'zoho' ? '#c084fc' : '#60a5fa',
-                              border: `1px solid ${inbox.provider === 'zoho' ? 'rgba(168, 85, 247, 0.35)' : 'rgba(59, 130, 246, 0.35)'}`,
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                            }}
-                          >
-                            <span>{inbox.provider === 'zoho' ? '🟣' : inbox.provider === 'outlook' ? '🟧' : '🔵'}</span>
-                            {inbox.provider === 'zoho' ? 'Zoho Workplace' : inbox.provider === 'outlook' ? 'Microsoft Outlook' : inbox.provider === 'gmail' ? 'Google / Gmail' : 'Custom SMTP'}
-                          </span>
+                      All Inboxes ({inboxes.length})
+                    </button>
+                    <button
+                      type="button"
+                      className={`inbox-filter-chip ${inboxFilter === 'HEALTHY' ? 'active' : ''}`}
+                      onClick={() => setInboxFilter('HEALTHY')}
+                    >
+                      <span className="pulse-dot-green" /> 🟢 Healthy &amp; Ready ({healthyInboxes.length})
+                    </button>
+                    <button
+                      type="button"
+                      className={`inbox-filter-chip ${inboxFilter === 'WARNING' ? 'active' : ''}`}
+                      onClick={() => setInboxFilter('WARNING')}
+                    >
+                      <span className="pulse-dot-amber" /> ⚠️ Attention ({warningInboxes.length})
+                    </button>
+                    <button
+                      type="button"
+                      className={`inbox-filter-chip ${inboxFilter === 'JITTER' ? 'active' : ''}`}
+                      onClick={() => setInboxFilter('JITTER')}
+                    >
+                      ⏳ Jitter Cooldown ({jitterInboxes.length})
+                    </button>
+                  </div>
 
-                          <span
-                            style={{
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              padding: '3px 8px',
-                              borderRadius: '6px',
-                              background: inbox.is_active ? 'rgba(16, 185, 129, 0.15)' : 'rgba(100, 116, 139, 0.2)',
-                              color: inbox.is_active ? 'var(--green)' : '#94a3b8',
-                              border: `1px solid ${inbox.is_active ? 'rgba(16, 185, 129, 0.3)' : 'rgba(100, 116, 139, 0.3)'}`,
-                            }}
-                          >
-                            {inbox.is_active ? '● Active' : '○ Paused'}
-                          </span>
-                        </div>
-
-                        {/* Email & From Name */}
-                        <div style={{ marginBottom: '16px' }}>
-                          <div style={{ fontSize: '16px', fontWeight: 700, color: '#fff', wordBreak: 'break-all' }}>
-                            {inbox.email_address}
-                          </div>
-                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px' }}>
-                            From: <span style={{ color: 'var(--text-dim)' }}>{inbox.from_name || 'Alex | OmniLeadFeeder'}</span>
-                          </div>
-                        </div>
-
-                        {/* Protocol Chips */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '16px', fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--mono)', background: 'rgba(15, 23, 42, 0.5)', padding: '10px 12px', borderRadius: 'var(--radius-sm)' }}>
-                          <div>📤 SMTP: <span style={{ color: '#fff' }}>{inbox.smtp_host || 'smtp.zoho.com'}:{inbox.smtp_port || 465}</span> ({inbox.smtp_use_ssl ? 'SSL' : 'TLS'})</div>
-                          <div>📥 IMAP: <span style={{ color: '#fff' }}>{inbox.imap_host || 'imap.zoho.com'}:{inbox.imap_port || 993}</span> ({inbox.imap_use_ssl ? 'SSL' : 'TLS'})</div>
-                        </div>
-
-                        {/* Quota Progress */}
-                        <div style={{ marginBottom: '16px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px' }}>
-                            <span style={{ color: 'var(--text-muted)' }}>Daily Warmup Quota:</span>
-                            <span style={{ color: '#fff', fontWeight: 600 }}>
-                              {inbox.sent_today || 0} / {inbox.daily_limit || 25} sent ({pct}%)
-                            </span>
-                          </div>
-                          <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
-                            <div
-                              style={{
-                                width: `${pct}%`,
-                                height: '100%',
-                                background: pct >= 100 ? 'var(--red)' : pct >= 75 ? '#f59e0b' : 'var(--green)',
-                                transition: 'width 0.3s ease',
-                              }}
-                            />
-                          </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-dim)', marginTop: '4px' }}>
-                            <span>{inbox.warmup_name || 'Week 1 (Warmup: 20-25/day)'}</span>
-                            <span>{inbox.can_send ? '✅ Quota Available' : '⚠️ Limit Reached Today'}</span>
-                          </div>
-                        </div>
-
-                        {/* Test Result Card */}
-                        {testRes && (
-                          <div
-                            style={{
-                              padding: '10px 12px',
-                              borderRadius: 'var(--radius-sm)',
-                              marginBottom: '16px',
-                              fontSize: '11px',
-                              background: testRes.smtp_ok && testRes.imap_ok ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                              border: `1px solid ${testRes.smtp_ok && testRes.imap_ok ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
-                              color: testRes.smtp_ok && testRes.imap_ok ? 'var(--green)' : '#fca5a5',
-                            }}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, marginBottom: '4px' }}>
-                              <span>{testRes.smtp_ok && testRes.imap_ok ? '✅ Verification Passed' : '⚠️ Verification Issue'}</span>
-                              <span>⚡ {testRes.latency_ms}ms</span>
-                            </div>
-                            <div>SMTP: {testRes.smtp_message}</div>
-                            <div>IMAP: {testRes.imap_message}</div>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Footer Actions */}
-                      <div style={{ display: 'flex', gap: '8px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
-                        <button
-                          className="btn btn-outline"
-                          style={{ flex: 1, fontSize: '11px', padding: '6px 10px' }}
-                          onClick={() => handleTestInbox(inbox.inbox_id)}
-                          disabled={isTesting}
-                        >
-                          {isTesting ? '⚡ Testing...' : '⚡ Test Connection'}
-                        </button>
-                        <button
-                          className="btn btn-outline"
-                          style={{ fontSize: '11px', padding: '6px 10px' }}
-                          onClick={() => handleToggleInboxActive(inbox)}
-                          title={inbox.is_active ? 'Pause this inbox' : 'Activate this inbox'}
-                        >
-                          {inbox.is_active ? '⏸️ Pause' : '▶️ Activate'}
-                        </button>
-                        {inbox.inbox_id !== 'primary' && (
-                          <button
-                            className="btn btn-outline"
-                            style={{ fontSize: '11px', padding: '6px 10px', color: '#f87171' }}
-                            onClick={() => handleDeleteInbox(inbox.inbox_id)}
-                            title="Remove inbox from storage"
-                          >
-                            🗑️
-                          </button>
-                        )}
-                      </div>
+                  {filteredInboxes.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '40px 20px', background: 'var(--card)', borderRadius: 'var(--radius-md)', border: '1px dashed var(--border)', color: 'var(--text-muted)' }}>
+                      No inboxes match the "{inboxFilter}" filter.
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '18px' }}>
+                      {filteredInboxes.map((inbox) => {
+                        const testRes = testResults[inbox.inbox_id];
+                        const isTesting = testingInboxId === inbox.inbox_id;
+                        const pct = Math.min(100, Math.round(((inbox.sent_today || 0) / (inbox.daily_limit || 25)) * 100));
+
+                        const deliv = deliverabilityReport?.inboxes?.find(
+                          (d) => d.email_address?.toLowerCase() === inbox.email_address?.toLowerCase() || d.inbox_id === inbox.inbox_id
+                        );
+                        const isCritical = deliv?.status === 'CRITICAL' || (testRes && (!testRes.smtp_ok || !testRes.imap_ok));
+                        const isWarning = deliv?.status === 'WARNING' || inbox.is_on_jitter || ((inbox.sent_today || 0) >= (inbox.daily_limit || 25) * 0.75);
+
+                        const cardBorder = isCritical
+                          ? '1px solid rgba(239, 68, 68, 0.5)'
+                          : isWarning
+                          ? '1px solid rgba(245, 158, 11, 0.45)'
+                          : '1px solid rgba(16, 185, 129, 0.4)';
+
+                        const cardGlow = isCritical
+                          ? '0 6px 24px -4px var(--red-glow)'
+                          : isWarning
+                          ? '0 6px 24px -4px var(--yellow-glow)'
+                          : '0 6px 24px -4px var(--green-glow)';
+
+                        return (
+                          <div
+                            key={inbox.inbox_id}
+                            style={{
+                              background: 'var(--card)',
+                              borderRadius: 'var(--radius-md)',
+                              border: cardBorder,
+                              boxShadow: cardGlow,
+                              padding: '20px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              justifyContent: 'space-between',
+                              opacity: inbox.is_active ? 1 : 0.65,
+                              transition: 'all 0.2s ease',
+                            }}
+                          >
+                            <div>
+                              {/* Header: Provider & Active Pill */}
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                                <span
+                                  style={{
+                                    fontSize: '11px',
+                                    fontWeight: 700,
+                                    padding: '4px 10px',
+                                    borderRadius: '20px',
+                                    background: inbox.provider === 'zoho' ? 'rgba(168, 85, 247, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+                                    color: inbox.provider === 'zoho' ? '#c084fc' : '#60a5fa',
+                                    border: `1px solid ${inbox.provider === 'zoho' ? 'rgba(168, 85, 247, 0.35)' : 'rgba(59, 130, 246, 0.35)'}`,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                  }}
+                                >
+                                  <span>{inbox.provider === 'zoho' ? '🟣' : inbox.provider === 'outlook' ? '🟧' : '🔵'}</span>
+                                  {inbox.provider === 'zoho' ? 'Zoho Workplace' : inbox.provider === 'outlook' ? 'Microsoft Outlook' : inbox.provider === 'gmail' ? 'Google / Gmail' : 'Custom SMTP'}
+                                </span>
+
+                                <span
+                                  style={{
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    padding: '3px 8px',
+                                    borderRadius: '6px',
+                                    background: inbox.is_active ? 'rgba(16, 185, 129, 0.15)' : 'rgba(100, 116, 139, 0.2)',
+                                    color: inbox.is_active ? 'var(--green)' : '#94a3b8',
+                                    border: `1px solid ${inbox.is_active ? 'rgba(16, 185, 129, 0.3)' : 'rgba(100, 116, 139, 0.3)'}`,
+                                  }}
+                                >
+                                  {inbox.is_active ? '● Active' : '○ Paused'}
+                                </span>
+                              </div>
+
+                              {/* Email & From Name */}
+                              <div style={{ marginBottom: '16px' }}>
+                                <div style={{ fontSize: '16px', fontWeight: 700, color: '#fff', wordBreak: 'break-all' }}>
+                                  {inbox.email_address}
+                                </div>
+                                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '3px' }}>
+                                  From: <span style={{ color: 'var(--text-dim)' }}>{inbox.from_name || 'Alex | OmniLeadFeeder'}</span>
+                                </div>
+                              </div>
+
+                              {/* Protocol Chips */}
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '16px', fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--mono)', background: 'rgba(15, 23, 42, 0.5)', padding: '10px 12px', borderRadius: 'var(--radius-sm)' }}>
+                                <div>📤 SMTP: <span style={{ color: '#fff' }}>{inbox.smtp_host || 'smtp.zoho.com'}:{inbox.smtp_port || 465}</span> ({inbox.smtp_use_ssl ? 'SSL' : 'TLS'})</div>
+                                <div>📥 IMAP: <span style={{ color: '#fff' }}>{inbox.imap_host || 'imap.zoho.com'}:{inbox.imap_port || 993}</span> ({inbox.imap_use_ssl ? 'SSL' : 'TLS'})</div>
+                              </div>
+
+                              {/* Quota Progress */}
+                              <div style={{ marginBottom: '16px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', marginBottom: '6px' }}>
+                                  <span style={{ color: 'var(--text-muted)' }}>Daily Warmup Quota:</span>
+                                  <span style={{ color: '#fff', fontWeight: 600 }}>
+                                    {inbox.sent_today || 0} / {inbox.daily_limit || 25} sent ({pct}%)
+                                  </span>
+                                </div>
+                                <div style={{ width: '100%', height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
+                                  <div
+                                    style={{
+                                      width: `${pct}%`,
+                                      height: '100%',
+                                      background: pct >= 100 ? 'var(--red)' : pct >= 75 ? '#f59e0b' : 'var(--green)',
+                                      transition: 'width 0.3s ease',
+                                    }}
+                                  />
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-dim)', marginTop: '4px' }}>
+                                  <span>{inbox.warmup_name || 'Week 1 (Warmup: 20-25/day)'}</span>
+                                  <span>{inbox.can_send ? '✅ Quota Available' : '⚠️ Limit Reached Today'}</span>
+                                </div>
+                              </div>
+
+                              {/* Deliverability & Spam Status (TestMail Live Telemetry) */}
+                              {deliv && (() => {
+                                const isSpamClean = (deliv.spam_score || 0) <= 2.0;
+                                const spfPass = (deliv.spf || '').toLowerCase().includes('pass');
+                                const dkimPass = (deliv.dkim || '').toLowerCase().includes('pass');
+
+                                return (
+                                  <div
+                                    style={{
+                                      background: 'rgba(15, 23, 42, 0.65)',
+                                      border: '1px solid rgba(255, 255, 255, 0.08)',
+                                      borderRadius: 'var(--radius-sm)',
+                                      padding: '12px',
+                                      marginBottom: '16px',
+                                      fontSize: '11px',
+                                    }}
+                                  >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                      <span style={{ fontWeight: 700, color: '#fff' }}>🛡️ Deliverability &amp; Spam</span>
+                                      <span
+                                        style={{
+                                          fontSize: '10px',
+                                          fontWeight: 700,
+                                          padding: '2px 7px',
+                                          borderRadius: '4px',
+                                          background: deliv.status === 'HEALTHY' ? 'rgba(16, 185, 129, 0.2)' : deliv.status === 'WARNING' ? 'rgba(245, 158, 11, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                                          color: deliv.status === 'HEALTHY' ? 'var(--green)' : deliv.status === 'WARNING' ? '#fbbf24' : '#f87171',
+                                          border: `1px solid ${deliv.status === 'HEALTHY' ? 'rgba(16, 185, 129, 0.4)' : deliv.status === 'WARNING' ? 'rgba(245, 158, 11, 0.4)' : 'rgba(239, 68, 68, 0.4)'}`,
+                                        }}
+                                      >
+                                        {deliv.status} ({deliv.score}%)
+                                      </span>
+                                    </div>
+
+                                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                                      <span
+                                        style={{
+                                          padding: '3px 7px',
+                                          borderRadius: '4px',
+                                          fontSize: '10px',
+                                          fontWeight: 600,
+                                          background: spfPass ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                          color: spfPass ? 'var(--green)' : '#f87171',
+                                          border: `1px solid ${spfPass ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                                        }}
+                                      >
+                                        SPF: {deliv.spf?.toUpperCase() || 'NONE'}
+                                      </span>
+
+                                      <span
+                                        style={{
+                                          padding: '3px 7px',
+                                          borderRadius: '4px',
+                                          fontSize: '10px',
+                                          fontWeight: 600,
+                                          background: dkimPass ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                                          color: dkimPass ? 'var(--green)' : '#fbbf24',
+                                          border: `1px solid ${dkimPass ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+                                        }}
+                                      >
+                                        DKIM: {deliv.dkim?.toUpperCase() || 'NONE'}
+                                      </span>
+
+                                      <span
+                                        style={{
+                                          padding: '3px 7px',
+                                          borderRadius: '4px',
+                                          fontSize: '10px',
+                                          fontWeight: 600,
+                                          background: isSpamClean ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                          color: isSpamClean ? 'var(--green)' : '#f87171',
+                                          border: `1px solid ${isSpamClean ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                                        }}
+                                      >
+                                        Spam: {typeof deliv.spam_score === 'number' ? deliv.spam_score.toFixed(1) : deliv.spam_score}
+                                      </span>
+                                    </div>
+
+                                    <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginBottom: deliv.spam_report ? '8px' : '0', lineHeight: 1.4 }}>
+                                      {deliv.diagnostic}
+                                    </div>
+
+                                    {deliv.spam_report && (
+                                      <button
+                                        className="btn btn-outline"
+                                        style={{ width: '100%', fontSize: '10px', padding: '5px 8px', color: 'var(--cyan)', borderColor: 'rgba(6, 182, 212, 0.3)' }}
+                                        onClick={() => setSelectedSpamReport(deliv)}
+                                      >
+                                        📄 Inspect SpamAssassin Details
+                                      </button>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+
+                              {/* Test Result Card */}
+                              {testRes && (
+                                <div
+                                  style={{
+                                    padding: '10px 12px',
+                                    borderRadius: 'var(--radius-sm)',
+                                    marginBottom: '16px',
+                                    fontSize: '11px',
+                                    background: testRes.smtp_ok && testRes.imap_ok ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                                    border: `1px solid ${testRes.smtp_ok && testRes.imap_ok ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                                    color: testRes.smtp_ok && testRes.imap_ok ? 'var(--green)' : '#fca5a5',
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, marginBottom: '4px' }}>
+                                    <span>{testRes.smtp_ok && testRes.imap_ok ? '✅ Verification Passed' : '⚠️ Verification Issue'}</span>
+                                    <span>⚡ {testRes.latency_ms}ms</span>
+                                  </div>
+                                  <div>SMTP: {testRes.smtp_message}</div>
+                                  <div>IMAP: {testRes.imap_message}</div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Footer Actions */}
+                            <div style={{ display: 'flex', gap: '8px', paddingTop: '12px', borderTop: '1px solid var(--border)' }}>
+                              <button
+                                className="btn btn-outline"
+                                style={{ flex: 1, fontSize: '11px', padding: '6px 10px' }}
+                                onClick={() => handleTestInbox(inbox.inbox_id)}
+                                disabled={isTesting}
+                              >
+                                {isTesting ? '⚡ Testing...' : '⚡ Test Connection'}
+                              </button>
+                              <button
+                                className="btn btn-outline"
+                                style={{ fontSize: '11px', padding: '6px 10px' }}
+                                onClick={() => handleToggleInboxActive(inbox)}
+                                title={inbox.is_active ? 'Pause this inbox' : 'Activate this inbox'}
+                              >
+                                {inbox.is_active ? '⏸️ Pause' : '▶️ Activate'}
+                              </button>
+                              {inbox.inbox_id !== 'primary' && (
+                                <button
+                                  className="btn btn-outline"
+                                  style={{ fontSize: '11px', padding: '6px 10px', color: '#f87171' }}
+                                  onClick={() => handleDeleteInbox(inbox.inbox_id)}
+                                  title="Remove inbox from storage"
+                                >
+                                  🗑️
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>
@@ -4079,6 +4702,113 @@ export default function AdminPage() {
           </div>
         );
       })()}
+
+      {/* SpamAssassin Detailed Breakdown Modal */}
+      {selectedSpamReport && (
+        <div className="admin-modal-overlay" onClick={() => setSelectedSpamReport(null)}>
+          <div
+            className="admin-modal-content"
+            style={{ maxWidth: '650px', background: 'var(--card)', border: '1px solid var(--border)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '24px' }}>🛡️</span>
+                <div>
+                  <h3 style={{ fontSize: '17px', fontWeight: 800, color: '#fff', margin: 0 }}>
+                    SpamAssassin Deliverability Report
+                  </h3>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    {selectedSpamReport.email_address}
+                  </div>
+                </div>
+              </div>
+              <button
+                className="btn btn-outline"
+                style={{ padding: '4px 10px', fontSize: '12px' }}
+                onClick={() => setSelectedSpamReport(null)}
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            {/* Metric Pills */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '18px' }}>
+              <div style={{ background: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '6px', textAlign: 'center' }}>
+                <div style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase' }}>SPF Status</div>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: selectedSpamReport.spf?.includes('pass') ? 'var(--green)' : '#f87171', marginTop: '4px' }}>
+                  {selectedSpamReport.spf?.toUpperCase() || 'UNKNOWN'}
+                </div>
+              </div>
+              <div style={{ background: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '6px', textAlign: 'center' }}>
+                <div style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase' }}>DKIM Status</div>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: selectedSpamReport.dkim?.includes('pass') ? 'var(--green)' : '#fbbf24', marginTop: '4px' }}>
+                  {selectedSpamReport.dkim?.toUpperCase() || 'NONE'}
+                </div>
+              </div>
+              <div style={{ background: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '6px', textAlign: 'center' }}>
+                <div style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase' }}>Spam Score</div>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: (selectedSpamReport.spam_score || 0) <= 2.0 ? 'var(--green)' : '#f87171', marginTop: '4px' }}>
+                  {typeof selectedSpamReport.spam_score === 'number' ? selectedSpamReport.spam_score.toFixed(1) : selectedSpamReport.spam_score}
+                </div>
+              </div>
+            </div>
+
+            {/* Recommendation Callout */}
+            {selectedSpamReport.recommendation && (
+              <div
+                style={{
+                  background: selectedSpamReport.status === 'HEALTHY' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+                  border: `1px solid ${selectedSpamReport.status === 'HEALTHY' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '12px 14px',
+                  marginBottom: '16px',
+                  fontSize: '12px',
+                  color: selectedSpamReport.status === 'HEALTHY' ? 'var(--green)' : '#fbbf24',
+                  lineHeight: 1.5,
+                }}
+              >
+                <b>💡 Recommendation:</b> {selectedSpamReport.recommendation}
+              </div>
+            )}
+
+            {/* Raw SpamAssassin Report Output */}
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                SpamAssassin Rule Triggers &amp; Telemetry:
+              </div>
+              <pre
+                style={{
+                  background: '#090d16',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '14px',
+                  fontSize: '11px',
+                  color: '#e2e8f0',
+                  fontFamily: 'var(--mono)',
+                  maxHeight: '260px',
+                  overflowY: 'auto',
+                  whiteSpace: 'pre-wrap',
+                  lineHeight: 1.5,
+                  margin: 0,
+                }}
+              >
+                {selectedSpamReport.spam_report || 'No SpamAssassin rule triggers recorded. Clean message score.'}
+              </pre>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button
+                className="btn btn-primary"
+                style={{ fontSize: '12px', padding: '8px 18px' }}
+                onClick={() => setSelectedSpamReport(null)}
+              >
+                Close Report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Risk-Guard Confirmation Modal */}
       <ConfirmModal

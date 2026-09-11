@@ -553,7 +553,7 @@ export async function toggleAutoOutreach(enabled, token = '') {
   return res.json();
 }
 
-export async function triggerScoutDiscovery(niche = null, token = '', channel = null) {
+export async function triggerScoutDiscovery(niche = null, token = '', channel = null, runUntilFound = true) {
   const headers = { 'Content-Type': 'application/json' };
   const resolved = resolveAdminAuth(token);
   if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
@@ -561,7 +561,7 @@ export async function triggerScoutDiscovery(niche = null, token = '', channel = 
   const res = await fetch(`${API_BASE}/api/admin/scout/trigger-web-scout`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ niche, channel }),
+    body: JSON.stringify({ niche, channel, run_until_found: runUntilFound }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
@@ -658,6 +658,33 @@ export async function triggerOutreachFlush(token = '') {
     headers,
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function fetchDeliverabilityStatus(token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/deliverability/status`, { headers });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function runDeliverabilityAudit(options = {}, token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/deliverability/run-audit`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(options),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
   return res.json();
 }
 

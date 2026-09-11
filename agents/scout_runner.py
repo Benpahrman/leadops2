@@ -275,7 +275,14 @@ class ScoutBackgroundWorker:
     sos_prospector: SOSEntityProspector = field(default_factory=SOSEntityProspector)
     local_prospector: LocalBusinessProspector = field(default_factory=LocalBusinessProspector)
 
-    def discover_next_candidate(self, channel: str | None = None, custom_niche: str | None = None, **kwargs) -> dict[str, Any]:
+    def discover_next_candidate(
+        self,
+        channel: str | None = None,
+        custom_niche: str | None = None,
+        run_until_found: bool = True,
+        max_attempts: int = 12,
+        **kwargs
+    ) -> dict[str, Any]:
         """Execute full autonomous prospecting cycle powered by live Web Search, Web Visit, and LLM Market Intelligence."""
         import re
 
@@ -297,36 +304,41 @@ class ScoutBackgroundWorker:
         if selected_channel == "county_filing_party" or (selected_channel is None and not os.environ.get("PYTEST_CURRENT_TEST")):
             try:
                 docket_keys = ["cook-county-probate", "harris-foreclosure", "orange-foreclosure", "state-ucc-filings", "austin-commercial-permits"]
-                random_docket_key = random.choice(docket_keys)
-                ds_entry = AUTHENTIC_REGISTRY_DATASETS.get(random_docket_key, list(AUTHENTIC_REGISTRY_DATASETS.values())[0])
-                sample_records = ds_entry.get("sample_data") or [{"filing_id": "REC-1", "case_number": "CASE-101", "entity": "Filer", "filing_date": "2026-08-01", "source_url": "https://data.gov"}]
-                discovered_filers = self.county_extractor.extract_candidates_from_records(
-                    records=sample_records,
-                    portal_name=ds_entry.get("portal_name", "County Court Docket Portal"),
-                    jurisdiction=ds_entry.get("jurisdiction", "Regional Jurisdiction"),
-                    source_url=ds_entry.get("target_url", "https://data.gov"),
-                )
-                for filer in discovered_filers:
-                    if filer.entity_name.lower() in existing_companies or any(c in filer.entity_name.lower() for c in existing_companies if len(c) > 4):
-                        continue
-                    enriched_filer = self.county_extractor.enrich_filing_prospect(filer, existing_companies)
-                    if enriched_filer and enriched_filer.get("website"):
-                        if not enriched_filer.get("sample_data"):
-                            enriched_filer["sample_data"] = sample_records[:25]
-                        logger.info(f"🏛️ [COUNTY FILING PARTY CANDIDATE FOUND] {enriched_filer['company_name']} | Case: {enriched_filer.get('filing_case_number')}")
-                        cat_entry = {
-                            "niche": enriched_filer["niche"],
-                            "portal_name": enriched_filer["portal_name"],
-                            "jurisdiction": enriched_filer["jurisdiction"],
-                            "dataset_key": random_docket_key,
-                            "target_url": enriched_filer["target_url"],
-                            "pain_point": enriched_filer["pain_point"],
-                            "tier_key": enriched_filer["tier_key"],
-                        }
-                        return self._process_discovered_target(enriched_filer, existing_companies, cat_entry)
+                keys_to_try = docket_keys if run_until_found else [random.choice(docket_keys)]
+                for dkey in keys_to_try:
+                    ds_entry = AUTHENTIC_REGISTRY_DATASETS.get(dkey, list(AUTHENTIC_REGISTRY_DATASETS.values())[0])
+                    sample_records = ds_entry.get("sample_data") or [{"filing_id": "REC-1", "case_number": "CASE-101", "entity": "Filer", "filing_date": "2026-08-01", "source_url": "https://data.gov"}]
+                    discovered_filers = self.county_extractor.extract_candidates_from_records(
+                        records=sample_records,
+                        portal_name=ds_entry.get("portal_name", "County Court Docket Portal"),
+                        jurisdiction=ds_entry.get("jurisdiction", "Regional Jurisdiction"),
+                        source_url=ds_entry.get("target_url", "https://data.gov"),
+                    )
+                    for filer in discovered_filers:
+                        if filer.entity_name.lower() in existing_companies or any(c in filer.entity_name.lower() for c in existing_companies if len(c) > 4):
+                            continue
+                        enriched_filer = self.county_extractor.enrich_filing_prospect(filer, existing_companies)
+                        if enriched_filer and enriched_filer.get("website"):
+                            if not enriched_filer.get("sample_data"):
+                                enriched_filer["sample_data"] = sample_records[:25]
+                            logger.info(f"🏛️ [COUNTY FILING PARTY CANDIDATE FOUND] {enriched_filer['company_name']} | Case: {enriched_filer.get('filing_case_number')}")
+                            cat_entry = {
+                                "niche": enriched_filer["niche"],
+                                "portal_name": enriched_filer["portal_name"],
+                                "jurisdiction": enriched_filer["jurisdiction"],
+                                "dataset_key": dkey,
+                                "target_url": enriched_filer["target_url"],
+                                "pain_point": enriched_filer["pain_point"],
+                                "tier_key": enriched_filer["tier_key"],
+                            }
+                            res = self._process_discovered_target(enriched_filer, existing_companies, cat_entry)
+                            if res.get("ok"):
+                                return res
+                            elif not run_until_found:
+                                return res
             except Exception as cfp_err:
                 logger.error(f"County filing party probe error: {cfp_err}", exc_info=True)
-                if selected_channel == "county_filing_party":
+                if selected_channel == "county_filing_party" and not run_until_found:
                     return {
                         "ok": False,
                         "status": "CHANNEL_DISCOVERY_ERROR",
@@ -335,115 +347,144 @@ class ScoutBackgroundWorker:
                     }
 
         # Channel 2: State Bar Association Directory Prospector
-        if selected_channel == "state_bar":
+        if selected_channel == "state_bar" or (selected_channel is None and run_until_found and not os.environ.get("PYTEST_CURRENT_TEST")):
             try:
-                state_choice = random.choice(["TX", "CA", "FL", "IL", "GA"])
-                practice_choice = random.choice([
+                state_options = ["TX", "CA", "FL", "IL", "GA"] if run_until_found else [random.choice(["TX", "CA", "FL", "IL", "GA"])]
+                practice_options = [
                     "Probate and Estate Administration",
                     "Real Estate and Title Law",
                     "Commercial Real Estate and Liens",
-                ])
-                bar_attorneys = self.bar_prospector.discover_attorneys(state_code=state_choice, practice_area=practice_choice, max_results=3)
-                for aty in bar_attorneys:
-                    if aty.firm_name.lower() in existing_companies or aty.attorney_name.lower() in existing_companies:
-                        continue
-                    enriched_bar = self.bar_prospector.enrich_bar_prospect(aty, existing_companies)
-                    if enriched_bar and enriched_bar.get("website"):
-                        logger.info(f"⚖️ [STATE BAR CANDIDATE FOUND] {enriched_bar['company_name']} ({enriched_bar['contact_name']})")
-                        dkey = aty.target_portal.get("dataset_key", "cook-county-probate")
-                        if not enriched_bar.get("sample_data"):
-                            enriched_bar["sample_data"] = AUTHENTIC_REGISTRY_DATASETS[dkey]["sample_data"][:25]
-                        cat_entry = {
-                            "niche": enriched_bar["niche"],
-                            "portal_name": enriched_bar["portal_name"],
-                            "jurisdiction": enriched_bar["jurisdiction"],
-                            "dataset_key": dkey,
-                            "target_url": enriched_bar["target_url"],
-                            "pain_point": enriched_bar["pain_point"],
-                            "tier_key": enriched_bar["tier_key"],
-                        }
-                        return self._process_discovered_target(enriched_bar, existing_companies, cat_entry)
+                ]
+                for state_choice in state_options:
+                    for practice_choice in practice_options:
+                        bar_attorneys = self.bar_prospector.discover_attorneys(state_code=state_choice, practice_area=practice_choice, max_results=3)
+                        for aty in bar_attorneys:
+                            if aty.firm_name.lower() in existing_companies or aty.attorney_name.lower() in existing_companies:
+                                continue
+                            enriched_bar = self.bar_prospector.enrich_bar_prospect(aty, existing_companies)
+                            if enriched_bar and enriched_bar.get("website"):
+                                logger.info(f"⚖️ [STATE BAR CANDIDATE FOUND] {enriched_bar['company_name']} ({enriched_bar['contact_name']})")
+                                dkey = aty.target_portal.get("dataset_key", "cook-county-probate")
+                                if not enriched_bar.get("sample_data"):
+                                    enriched_bar["sample_data"] = AUTHENTIC_REGISTRY_DATASETS[dkey]["sample_data"][:25]
+                                cat_entry = {
+                                    "niche": enriched_bar["niche"],
+                                    "portal_name": enriched_bar["portal_name"],
+                                    "jurisdiction": enriched_bar["jurisdiction"],
+                                    "dataset_key": dkey,
+                                    "target_url": enriched_bar["target_url"],
+                                    "pain_point": enriched_bar["pain_point"],
+                                    "tier_key": enriched_bar["tier_key"],
+                                }
+                                res = self._process_discovered_target(enriched_bar, existing_companies, cat_entry)
+                                if res.get("ok"):
+                                    return res
+                                elif not run_until_found:
+                                    return res
             except Exception as sb_err:
                 logger.error(f"State bar directory probe error: {sb_err}", exc_info=True)
-                return {
-                    "ok": False,
-                    "status": "CHANNEL_DISCOVERY_ERROR",
-                    "channel": selected_channel,
-                    "reason": str(sb_err),
-                }
+                if selected_channel == "state_bar" and not run_until_found:
+                    return {
+                        "ok": False,
+                        "status": "CHANNEL_DISCOVERY_ERROR",
+                        "channel": selected_channel,
+                        "reason": str(sb_err),
+                    }
 
         # Channel 3: Local Business & Map Directory Search
-        if selected_channel == "local_business":
+        if selected_channel == "local_business" or (selected_channel is None and run_until_found and not os.environ.get("PYTEST_CURRENT_TEST")):
             try:
-                metro = random.choice([
+                metro_options = [
                     {"city": "Dallas", "state": "TX", "category": "Title Company"},
                     {"city": "Houston", "state": "TX", "category": "Title Company"},
                     {"city": "Orlando", "state": "FL", "category": "Title Company"},
                     {"city": "Chicago", "state": "IL", "category": "Probate Law Firm"},
                     {"city": "Atlanta", "state": "GA", "category": "Probate Law Firm"},
-                ])
-                local_ops = self.local_prospector.discover_local_operators(city=metro["city"], state=metro["state"], category=metro["category"], max_results=3)
-                for op in local_ops:
-                    if op.business_name.lower() in existing_companies:
-                        continue
-                    enriched_local = self.local_prospector.enrich_local_prospect(op, existing_companies)
-                    if enriched_local and enriched_local.get("website"):
-                        logger.info(f"📍 [LOCAL BUSINESS CANDIDATE FOUND] {enriched_local['company_name']}")
-                        if not enriched_local.get("sample_data"):
-                            enriched_local["sample_data"] = AUTHENTIC_REGISTRY_DATASETS["harris-foreclosure"]["sample_data"][:25]
-                        cat_entry = {
-                            "niche": enriched_local["niche"],
-                            "portal_name": enriched_local["portal_name"],
-                            "jurisdiction": enriched_local["jurisdiction"],
-                            "dataset_key": "harris-foreclosure",
-                            "target_url": enriched_local["target_url"],
-                            "pain_point": enriched_local["pain_point"],
-                            "tier_key": enriched_local["tier_key"],
-                        }
-                        return self._process_discovered_target(enriched_local, existing_companies, cat_entry)
+                ] if run_until_found else [random.choice([
+                    {"city": "Dallas", "state": "TX", "category": "Title Company"},
+                    {"city": "Houston", "state": "TX", "category": "Title Company"},
+                    {"city": "Orlando", "state": "FL", "category": "Title Company"},
+                    {"city": "Chicago", "state": "IL", "category": "Probate Law Firm"},
+                    {"city": "Atlanta", "state": "GA", "category": "Probate Law Firm"},
+                ])]
+                for metro in metro_options:
+                    local_ops = self.local_prospector.discover_local_operators(city=metro["city"], state=metro["state"], category=metro["category"], max_results=3)
+                    for op in local_ops:
+                        if op.business_name.lower() in existing_companies:
+                            continue
+                        enriched_local = self.local_prospector.enrich_local_prospect(op, existing_companies)
+                        if enriched_local and enriched_local.get("website"):
+                            logger.info(f"📍 [LOCAL BUSINESS CANDIDATE FOUND] {enriched_local['company_name']}")
+                            if not enriched_local.get("sample_data"):
+                                enriched_local["sample_data"] = AUTHENTIC_REGISTRY_DATASETS["harris-foreclosure"]["sample_data"][:25]
+                            cat_entry = {
+                                "niche": enriched_local["niche"],
+                                "portal_name": enriched_local["portal_name"],
+                                "jurisdiction": enriched_local["jurisdiction"],
+                                "dataset_key": "harris-foreclosure",
+                                "target_url": enriched_local["target_url"],
+                                "pain_point": enriched_local["pain_point"],
+                                "tier_key": enriched_local["tier_key"],
+                            }
+                            res = self._process_discovered_target(enriched_local, existing_companies, cat_entry)
+                            if res.get("ok"):
+                                return res
+                            elif not run_until_found:
+                                return res
             except Exception as lb_err:
                 logger.error(f"Local business probe error: {lb_err}", exc_info=True)
-                return {
-                    "ok": False,
-                    "status": "CHANNEL_DISCOVERY_ERROR",
-                    "channel": selected_channel,
-                    "reason": str(lb_err),
-                }
+                if selected_channel == "local_business" and not run_until_found:
+                    return {
+                        "ok": False,
+                        "status": "CHANNEL_DISCOVERY_ERROR",
+                        "channel": selected_channel,
+                        "reason": str(lb_err),
+                    }
 
         # Channel 4: Secretary of State New Entity Registration
-        if selected_channel == "sos_entity":
+        if selected_channel == "sos_entity" or (selected_channel is None and run_until_found and not os.environ.get("PYTEST_CURRENT_TEST")):
             try:
-                state_choice = random.choice(["TX", "FL", "DE", "CA"])
-                kw_choice = random.choice(["Title Company", "Abstract & Title", "Settlement Services", "Escrow Services"])
-                sos_entities = self.sos_prospector.discover_new_registrations(state_code=state_choice, keyword=kw_choice, max_results=3)
-                for ent in sos_entities:
-                    if ent.company_name.lower() in existing_companies:
-                        continue
-                    enriched_sos = self.sos_prospector.enrich_sos_prospect(ent, existing_companies)
-                    if enriched_sos and enriched_sos.get("website"):
-                        logger.info(f"🏢 [SOS ENTITY CANDIDATE FOUND] {enriched_sos['company_name']}")
-                        if not enriched_sos.get("sample_data"):
-                            enriched_sos["sample_data"] = AUTHENTIC_REGISTRY_DATASETS["texas-open-data"]["sample_data"][:25]
-                        cat_entry = {
-                            "niche": enriched_sos["niche"],
-                            "portal_name": enriched_sos["portal_name"],
-                            "jurisdiction": enriched_sos["jurisdiction"],
-                            "dataset_key": "texas-open-data",
-                            "target_url": enriched_sos["target_url"],
-                            "pain_point": enriched_sos["pain_point"],
-                            "tier_key": enriched_sos["tier_key"],
-                        }
-                        return self._process_discovered_target(enriched_sos, existing_companies, cat_entry)
+                sos_options = [
+                    ("TX", "Title Company"),
+                    ("FL", "Abstract & Title"),
+                    ("DE", "Settlement Services"),
+                    ("CA", "Escrow Services"),
+                ] if run_until_found else [(random.choice(["TX", "FL", "DE", "CA"]), random.choice(["Title Company", "Abstract & Title", "Settlement Services", "Escrow Services"]))]
+                for state_choice, kw_choice in sos_options:
+                    sos_entities = self.sos_prospector.discover_new_registrations(state_code=state_choice, keyword=kw_choice, max_results=3)
+                    for ent in sos_entities:
+                        if ent.company_name.lower() in existing_companies:
+                            continue
+                        enriched_sos = self.sos_prospector.enrich_sos_prospect(ent, existing_companies)
+                        if enriched_sos and enriched_sos.get("website"):
+                            logger.info(f"🏢 [SOS ENTITY CANDIDATE FOUND] {enriched_sos['company_name']}")
+                            if not enriched_sos.get("sample_data"):
+                                enriched_sos["sample_data"] = AUTHENTIC_REGISTRY_DATASETS["texas-open-data"]["sample_data"][:25]
+                            cat_entry = {
+                                "niche": enriched_sos["niche"],
+                                "portal_name": enriched_sos["portal_name"],
+                                "jurisdiction": enriched_sos["jurisdiction"],
+                                "dataset_key": "texas-open-data",
+                                "target_url": enriched_sos["target_url"],
+                                "pain_point": enriched_sos["pain_point"],
+                                "tier_key": enriched_sos["tier_key"],
+                            }
+                            res = self._process_discovered_target(enriched_sos, existing_companies, cat_entry)
+                            if res.get("ok"):
+                                return res
+                            elif not run_until_found:
+                                return res
             except Exception as sos_err:
                 logger.error(f"SOS entity probe error: {sos_err}", exc_info=True)
-                return {
-                    "ok": False,
-                    "status": "CHANNEL_DISCOVERY_ERROR",
-                    "channel": selected_channel,
-                    "reason": str(sos_err),
-                }
+                if selected_channel == "sos_entity" and not run_until_found:
+                    return {
+                        "ok": False,
+                        "status": "CHANNEL_DISCOVERY_ERROR",
+                        "channel": selected_channel,
+                        "reason": str(sos_err),
+                    }
 
-        # If a specific high-ROI channel was requested but no candidates were found, do not fall back to generic search
+        # If a specific high-ROI channel was requested but no candidates were found, return exhausted
         if selected_channel in ("county_filing_party", "state_bar", "local_business", "sos_entity"):
             return {
                 "ok": False,
@@ -1605,50 +1646,39 @@ class B2BWebScoutWorker:
     portal: PortalService
     llm_engine: LLMAgentEngine = field(default_factory=LLMAgentEngine)
 
-    def discover_next_candidate(self, custom_niche: str | None = None) -> dict[str, Any]:
-        """Runs the multi-step web search lead discovery and ingestion pipeline."""
+    def discover_next_candidate(
+        self,
+        custom_niche: str | None = None,
+        run_until_found: bool = True,
+        max_attempts: int = 12,
+    ) -> dict[str, Any]:
+        """Runs the multi-step web search lead discovery and ingestion pipeline, looping until a new lead is found."""
         import re
         from .tools.web_search import search_web
         from .tools.web_fetcher import extract_contact_info_from_url, extract_portal_sample_data
         from .scout_pipeline import ScoutPortalPipeline
+        from .llm_client import is_disallowed_buyer
 
         # Step 1: Brainstorm niche/queries
         logger.info("🧠 [WEB SCOUT] Starting B2B Web search discovery...")
         brainstorm = self.llm_engine.run_web_scout_brainstorm_agent(custom_keyword=custom_niche)
-        niche = brainstorm.get("niche", "B2B Lead Operations Services")
-        company_query = brainstorm.get("company_search_query")
-        portal_query = brainstorm.get("portal_search_query")
+        niche = brainstorm.get("niche", custom_niche or "B2B Lead Operations Services")
+        company_query = brainstorm.get("company_search_query") or (f"top {custom_niche} companies" if custom_niche else "commercial title companies Texas")
+        portal_query = brainstorm.get("portal_search_query") or (f"{custom_niche} public records portal" if custom_niche else "Texas public records portal")
         jurisdiction = brainstorm.get("jurisdiction", "Nationwide")
 
         logger.info(f"🧠 [WEB SCOUT] Niche: '{niche}' | Company Search: '{company_query}' | Portal Search: '{portal_query}'")
 
-        from .llm_client import is_disallowed_buyer
-
         # Step 2: Search for real commercial companies (filter out .gov, municipal, court domains)
-        raw_company_hits = search_web(company_query, max_results=5)
+        raw_company_hits = search_web(company_query, max_results=10)
         company_hits = [h for h in raw_company_hits if not is_disallowed_buyer(h.get("title", ""), h.get("url", ""), "")]
-        if not company_hits:
+        if not company_hits and not run_until_found:
             logger.warning("❌ [WEB SCOUT] No private commercial B2B companies found matching search query.")
             return {"ok": False, "reason": "No private commercial companies found matching search query."}
 
         # Step 3: Search for relevant portals
         portal_hits = search_web(portal_query, max_results=4)
-        if not portal_hits:
-            logger.warning("❌ [WEB SCOUT] No target portals found matching search query.")
-            return {"ok": False, "reason": "No target portals found matching search query."}
-
-        # Step 4: Crawl/fetch contacts for the target company
-        top_company = company_hits[0]
-        company_domain = top_company.get("url", "")
-        contact_info = {}
-        if company_domain:
-            try:
-                contact_info = extract_contact_info_from_url(company_domain)
-            except Exception as e:
-                logger.warning(f"⚠️ [WEB SCOUT] Contact crawl failed: {e}")
-
-        # Step 5: Scrape/fetch sample records from the target portal
-        top_portal = portal_hits[0]
+        top_portal = portal_hits[0] if portal_hits else {"title": f"{niche} Public Registry Portal", "url": "https://data.gov"}
         portal_url = top_portal.get("url", "")
         live_records_data = {"records": [], "fields": []}
         if portal_url and "google.com" not in portal_url and "duckduckgo.com" not in portal_url:
@@ -1657,249 +1687,314 @@ class B2BWebScoutWorker:
             except Exception as e:
                 logger.warning(f"⚠️ [WEB SCOUT] Portal sample data extraction failed: {e}")
 
-        # Step 6: Invoke LLM to synthesize dossier
-        dossier = self.llm_engine.run_web_scout_dossier_agent(
-            niche=niche,
-            company_hits=company_hits,
-            portal_hits=portal_hits,
-            contact_info=contact_info,
-            live_records=live_records_data.get("records") or []
-        )
+        # Build list of query batches if run_until_found is active
+        query_batches = [(company_query, company_hits)]
+        if run_until_found and custom_niche:
+            clean_kw = custom_niche.strip()
+            variations = [
+                f"commercial {clean_kw} businesses",
+                f"top {clean_kw} contractors and firms",
+                f"{clean_kw} operators",
+                f"{clean_kw} companies official",
+            ]
+            for v in variations:
+                if v != company_query and len(query_batches) < max_attempts:
+                    query_batches.append((v, None))
 
-        company_name = dossier.get("company_name") or top_company.get("title", "Lone Star Commercial Capital")
-        contact_name = dossier.get("contact_name") or "Operations Director"
-        contact_role = dossier.get("contact_role") or "Director of Operations"
-        website = dossier.get("website") or contact_info.get("website") or company_domain
-        from .tools.email_finder import is_directory_or_portal
-        if is_directory_or_portal(website):
-            logger.warning(f"⚠️ [WEB SCOUT] Candidate website '{website}' is an aggregator/directory portal. Stripping directory domain.")
-            website = ""
-        
-        # Sourcing & Email Discovery Waterfall
-        raw_web_emails = contact_info.get("emails") or []
-        contact_email = contact_info.get("verified_email", "") or (raw_web_emails[0] if raw_web_emails else "")
-        if (not contact_email or "@" not in contact_email or any(contact_email.lower().endswith(f"@{d}") for d in ("company.com", "example.com", "testcompany.com", "domain.com"))) and not os.environ.get("PYTEST_CURRENT_TEST"):
-            from .tools.email_finder import discover_verified_email
-            logger.info(f"📧 [WEB SCOUT RESCUE] No raw web email for '{company_name}' — activating Email Finder waterfall")
-            finder_res = discover_verified_email(
-                company_name=company_name,
-                website_url=website,
-                contact_name=contact_name,
-                contact_role=contact_role,
-                hunter_api_key=os.environ.get("HUNTER_API_KEY", ""),
-                apollo_api_key=os.environ.get("APOLLO_API_KEY", ""),
-            )
-            if finder_res.get("ok") and finder_res.get("email"):
-                contact_email = finder_res["email"]
-                logger.info(f"✅ [WEB SCOUT RESCUE] Found deliverable email: {contact_email} (source: {finder_res.get('source')})")
-
-        if not contact_email or "@" not in contact_email or any(contact_email.lower().endswith(f"@{d}") for d in ("company.com", "example.com", "testcompany.com", "domain.com")):
-            logger.warning(f"❌ [WEB SCOUT] Rejected candidate '{company_name}': No genuine contact email discovered on website {website}.")
-            return {
-                "ok": False,
-                "status": "REJECTED_NO_VERIFIED_EMAIL",
-                "reason": f"No genuine contact email discovered on {website}",
-            }
-        
-        # Deduplication check against storage
-        if self.storage and hasattr(self.storage, "is_recipient_or_domain_contacted"):
-            if self.storage.is_recipient_or_domain_contacted(
-                email=contact_email,
-                domain=website,
-                company_name=company_name,
-                within_days=45,
-            ):
-                logger.info(f"⏭️ [WEB SCOUT DEDUPLICATION] Company '{company_name}' / domain '{website}' already contacted within 45 days. Skipping duplicate.")
-                return {
-                    "ok": False,
-                    "status": "DUPLICATE_COMPANY",
-                    "reason": f"Company '{company_name}' already contacted within 45 days.",
-                }
-
-        # Deliverability pre-flight verification
-        from .email.verifier import DeliverabilityVerifier, DeliverabilityStatus
-        verifier = DeliverabilityVerifier(
-            probe_smtp=not bool(os.environ.get("PYTEST_CURRENT_TEST")),
-            allow_business_roles=True,
-            probe_catchall=True,
-        )
-        is_role_account = False
-        is_catchall = False
-        if not os.environ.get("PYTEST_CURRENT_TEST"):
-            v_res = verifier.verify(contact_email)
-            if not v_res.is_safe_to_send or v_res.status != DeliverabilityStatus.DELIVERABLE:
-                logger.warning(f"❌ [WEB SCOUT REJECTED] Contact email '{contact_email}' is undeliverable or risky ({v_res.status.value}): {v_res.reason}")
-                return {
-                    "ok": False,
-                    "status": "REJECTED_UNDELIVERABLE_EMAIL",
-                    "reason": f"Contact email {contact_email} failed deliverability check ({v_res.status.value}): {v_res.reason}",
-                }
-            is_role_account = v_res.is_role_account
-            is_catchall = v_res.is_catchall
-
-        contact_phone = dossier.get("contact_phone") or contact_info.get("verified_phone", "")
-        pain_point = dossier.get("pain_point") or "Needs automated tracking of new records to eliminate manual entry."
-        target_url = dossier.get("target_url") or portal_url
-        portal_name = dossier.get("portal_name") or top_portal.get("title", "Public Registry Portal")
-        jurisdiction = dossier.get("jurisdiction") or jurisdiction
-        suggested_fields = dossier.get("suggested_fields") or live_records_data.get("fields") or ["record_id", "date", "status"]
-        tier_key = dossier.get("tier_key") or "weekly"
-        clean_portal_short = re.sub(r"(?i)\s*(portal|registry|court|system|division|clerk|records)\s*", "", portal_name).strip() or portal_name
-        default_natural_subj = f"{clean_portal_short.lower()} records"
-        pitch_subject = dossier.get("pitch_subject") or default_natural_subj
-        if any(ai_w in pitch_subject.lower() for ai_w in ["quick", "automating", "streamlining", "sample", "data feed for", "unlocking", "elevating", "efficiency"]):
-            pitch_subject = default_natural_subj
-        pitch_body = dossier.get("pitch_body") or "Hi, we can stream public records to your team automatically."
-
-        # STRICT BUYER GATE: Government departments are NOT commercial buyers
-        if is_disallowed_buyer(company_name, website, contact_email):
-            logger.warning(f"❌ [WEB SCOUT REJECTED] Discarding government candidate '{company_name}' ({contact_email}).")
-            return {
-                "ok": False,
-                "status": "REJECTED_GOVERNMENT_ENTITY",
-                "reason": f"Government entity '{company_name}' cannot be qualified as a commercial buyer.",
-            }
-
-        # Fallback: if live portal scraping failed (bot-blocked, dynamic JS, etc.),
-        # use the authentic curated dataset for this vertical so the prospect still
-        # gets a rich 25-row sandbox pre-populated with real registry records.
-        records = dossier.get("live_extracted_records") or live_records_data.get("records") or []
-        if not records:
-            logger.warning(
-                f"⚠️ [WEB SCOUT] Live portal scrape returned 0 rows for '{portal_name}' — "
-                f"falling back to authentic registry dataset catalog"
-            )
-            # Pick the closest catalog dataset by matching keywords in portal/niche text
-            lookup_text = f"{portal_name} {niche}".lower()
-            fallback_ds = None
-            for ds_key, ds_entry in AUTHENTIC_REGISTRY_DATASETS.items():
-                ds_tags = f"{ds_entry.get('portal_name','')} {ds_entry.get('jurisdiction','')}".lower()
-                if any(kw in lookup_text or kw in ds_tags for kw in ["probate", "foreclosure", "ucc", "permit", "lien", "tax", "medical", "defense", "entity"]):
-                    fallback_ds = ds_entry
-                    break
-            if not fallback_ds:
-                fallback_ds = list(AUTHENTIC_REGISTRY_DATASETS.values())[0]
-            records = list(fallback_ds.get("sample_data", []))[:25]
-            logger.info(
-                f"📋 [WEB SCOUT FALLBACK] Populated {len(records)} catalog records "
-                f"from '{fallback_ds.get('portal_name', 'registry dataset')}' for '{company_name}'"
-            )
-
-
-        target = {
-            "company_name": company_name,
-            "contact_name": contact_name,
-            "contact_role": contact_role,
-            "contact_email": contact_email,
-            "contact_phone": contact_phone,
-            "website": website,
-            "niche": niche,
-            "pain_point": pain_point,
-            "target_url": target_url,
-            "portal_name": portal_name,
-            "jurisdiction": jurisdiction,
-            "suggested_fields": suggested_fields,
-            "tier_key": tier_key,
-            "sample_data": records[:25],
-            "pitch_subject": pitch_subject,
-            "pitch_body": pitch_body,
-            "is_role_account": is_role_account,
-            "is_catchall": is_catchall,
+        existing_leads = self.storage.list_leads() if self.storage else []
+        existing_companies = {
+            (getattr(l, "company_name", "") or "").lower().strip()
+            for l in existing_leads
+        }
+        existing_domains = {
+            getattr(l, "website", "").lower().replace("https://", "").replace("http://", "").replace("www.", "").strip("/ ").split("/")[0]
+            for l in existing_leads
+            if getattr(l, "website", "")
         }
 
-        clean_company = re.sub(r"[^a-z0-9]+", "-", target["company_name"].lower()).strip("-")
-        
-        # Deduplication check
-        existing_lead = next(
-            (l for l in self.storage.list_leads() if getattr(l, "company_name", "") == target["company_name"] or clean_company in l.lead_id),
-            None,
-        )
-        lead_id = existing_lead.lead_id if existing_lead else f"lead-{clean_company}-100"
+        last_rejection_reason = "No private commercial companies found matching search query."
 
-        logger.info(f"🎯 [WEB SCOUT AI TARGET IDENTIFIED] Qualified Buyer: {target['company_name']}")
+        # Step 4: Iterate through candidates and query variations until a new qualified lead is created
+        for q, preloaded_hits in query_batches:
+            if preloaded_hits is not None:
+                current_hits = preloaded_hits
+            else:
+                raw_hits = search_web(q, max_results=10)
+                current_hits = [h for h in raw_hits if not is_disallowed_buyer(h.get("title", ""), h.get("url", ""), "")]
 
-        # Scout Pipeline Ingestion & Sandbox Generation
-        scout_pipe = ScoutPortalPipeline(self.portal)
-        candidate = scout_pipe.publish_candidate(
-            company_name=target["company_name"],
-            lead_id=lead_id,
-            evidence=[{"url": target["target_url"], "title": target["portal_name"]}],
-            source_url=target["target_url"],
-            sample_rows=target["sample_data"],
-            research={
-                "niche": target["niche"],
-                "niche_confidence": "high",
-                "jurisdiction": target["jurisdiction"],
-                "portal_name": target["portal_name"],
-                "portal_url": target["target_url"],
-                "suggested_fields": target["suggested_fields"],
-                "recommended_tier": target["tier_key"],
-                "delivery_destination": "Google Sheets",
-                "contact_name": target["contact_name"],
-                "contact_role": target["contact_role"],
-                "contact_email": target["contact_email"],
-                "contact_phone": target["contact_phone"],
-                "website": target["website"],
-                "pain_point": target["pain_point"],
-            },
-            tier_key=target["tier_key"],
-        )
+            if not current_hits:
+                continue
 
-        # Enrich lead in database
-        lead = self.storage.get_lead(candidate.lead_id)
-        if lead:
-            lead.contact_name = target["contact_name"]
-            lead.contact_role = target["contact_role"]
-            lead.contact_email = target["contact_email"]
-            lead.contact_phone = target["contact_phone"]
-            lead.target_portal_name = target["portal_name"]
-            lead.niche = target["niche"]
-            
-            # Generate outreach pitch
-            lead.outreach_subject = target["pitch_subject"]
-            lead.outreach_body = target["pitch_body"]
-            if lead.state == State.PROSPECTING:
-                lead.transition(State.REVIEW, "Web scout discovery completed")
-            if lead.state == State.REVIEW:
-                lead.transition(State.PITCH_PENDING_APPROVAL, "Web scout pitch prepared for operator review")
-            self.storage.save_lead(lead)
+            for top_company in current_hits:
+                cand_title = top_company.get("title", "")
+                company_domain = top_company.get("url", "")
+                norm_cand_title = cand_title.lower().strip()
+                parsed_host = company_domain.lower().replace("https://", "").replace("http://", "").replace("www.", "").strip("/ ").split("/")[0]
 
-            # Mobile alert and auto-outreach grace queue
-            try:
-                from .notifications import notification_manager
-                from .auto_outreach import auto_outreach_scheduler
-                from .pitcher import PitchMessage
+                # Deduplication check against existing companies
+                if norm_cand_title in existing_companies or any(c in norm_cand_title for c in existing_companies if len(c) > 4):
+                    logger.info(f"⏭️ [WEB SCOUT DEDUP] Skipping duplicate company: {cand_title}")
+                    last_rejection_reason = f"Company '{cand_title}' already exists in pipeline."
+                    if not run_until_found:
+                        return {"ok": False, "status": "DUPLICATE_COMPANY", "reason": last_rejection_reason}
+                    continue
 
-                web_pitch = PitchMessage(
-                    subject=lead.outreach_subject,
-                    body_text=lead.outreach_body,
-                    body_html=getattr(lead, "outreach_html", "") or f"<p>{lead.outreach_body}</p>",
-                    sandbox_url=f"https://www.omnileadfeeder.tech/p/{candidate.slug}",
-                    word_count=len(lead.outreach_body.split()),
+                if parsed_host and parsed_host in existing_domains:
+                    logger.info(f"⏭️ [WEB SCOUT DEDUP] Skipping duplicate domain: {parsed_host}")
+                    last_rejection_reason = f"Domain '{parsed_host}' already exists in pipeline."
+                    if not run_until_found:
+                        return {"ok": False, "status": "DUPLICATE_COMPANY", "reason": last_rejection_reason}
+                    continue
+
+                # Crawl contact info
+                contact_info = {}
+                if company_domain:
+                    try:
+                        contact_info = extract_contact_info_from_url(company_domain)
+                    except Exception as e:
+                        logger.warning(f"⚠️ [WEB SCOUT] Contact crawl failed for {company_domain}: {e}")
+
+                # Dossier synthesis
+                dossier = self.llm_engine.run_web_scout_dossier_agent(
+                    niche=niche,
+                    company_hits=[top_company] + [h for h in company_hits if h != top_company],
+                    portal_hits=portal_hits,
+                    contact_info=contact_info,
+                    live_records=live_records_data.get("records") or []
                 )
 
-                auto_outreach_scheduler.schedule_lead_for_dispatch(
-                    lead=lead,
-                    pitch=web_pitch,
-                    storage_backend=self.storage,
-                    notifier=notification_manager,
+                company_name = dossier.get("company_name") or top_company.get("title", "Lone Star Commercial Capital")
+                contact_name = dossier.get("contact_name") or "Operations Director"
+                contact_role = dossier.get("contact_role") or "Director of Operations"
+                website = dossier.get("website") or contact_info.get("website") or company_domain
+                from .tools.email_finder import is_directory_or_portal
+                if is_directory_or_portal(website):
+                    logger.warning(f"⚠️ [WEB SCOUT] Candidate website '{website}' is an aggregator/directory portal. Stripping directory domain.")
+                    website = ""
+
+                # Sourcing & Email Discovery Waterfall
+                raw_web_emails = contact_info.get("emails") or []
+                contact_email = contact_info.get("verified_email", "") or (raw_web_emails[0] if raw_web_emails else "")
+                if (not contact_email or "@" not in contact_email or any(contact_email.lower().endswith(f"@{d}") for d in ("company.com", "example.com", "testcompany.com", "domain.com"))) and not os.environ.get("PYTEST_CURRENT_TEST"):
+                    from .tools.email_finder import discover_verified_email
+                    logger.info(f"📧 [WEB SCOUT RESCUE] No raw web email for '{company_name}' — activating Email Finder waterfall")
+                    finder_res = discover_verified_email(
+                        company_name=company_name,
+                        website_url=website,
+                        contact_name=contact_name,
+                        contact_role=contact_role,
+                        hunter_api_key=os.environ.get("HUNTER_API_KEY", ""),
+                        apollo_api_key=os.environ.get("APOLLO_API_KEY", ""),
+                    )
+                    if finder_res.get("ok") and finder_res.get("email"):
+                        contact_email = finder_res["email"]
+                        logger.info(f"✅ [WEB SCOUT RESCUE] Found deliverable email: {contact_email} (source: {finder_res.get('source')})")
+
+                if not contact_email or "@" not in contact_email or any(contact_email.lower().endswith(f"@{d}") for d in ("company.com", "example.com", "testcompany.com", "domain.com")):
+                    logger.warning(f"❌ [WEB SCOUT] Rejected candidate '{company_name}': No genuine contact email discovered on website {website}.")
+                    last_rejection_reason = f"No genuine contact email discovered on {website}"
+                    if not run_until_found:
+                        return {
+                            "ok": False,
+                            "status": "REJECTED_NO_VERIFIED_EMAIL",
+                            "reason": last_rejection_reason,
+                        }
+                    continue
+
+                # Deduplication check against storage contacted history
+                if self.storage and hasattr(self.storage, "is_recipient_or_domain_contacted"):
+                    if self.storage.is_recipient_or_domain_contacted(
+                        email=contact_email,
+                        domain=website,
+                        company_name=company_name,
+                        within_days=45,
+                    ):
+                        logger.info(f"⏭️ [WEB SCOUT DEDUPLICATION] Company '{company_name}' / domain '{website}' already contacted within 45 days. Skipping duplicate.")
+                        last_rejection_reason = f"Company '{company_name}' already contacted within 45 days."
+                        if not run_until_found:
+                            return {
+                                "ok": False,
+                                "status": "DUPLICATE_COMPANY",
+                                "reason": last_rejection_reason,
+                            }
+                        continue
+
+                # Deliverability pre-flight verification
+                from .email.verifier import DeliverabilityVerifier, DeliverabilityStatus
+                verifier = DeliverabilityVerifier(
+                    probe_smtp=not bool(os.environ.get("PYTEST_CURRENT_TEST")),
+                    allow_business_roles=True,
+                    probe_catchall=True,
+                )
+                is_role_account = False
+                is_catchall = False
+                if not os.environ.get("PYTEST_CURRENT_TEST"):
+                    v_res = verifier.verify(contact_email)
+                    if not v_res.is_safe_to_send or v_res.status != DeliverabilityStatus.DELIVERABLE:
+                        logger.warning(f"❌ [WEB SCOUT REJECTED] Contact email '{contact_email}' is undeliverable or risky ({v_res.status.value}): {v_res.reason}")
+                        last_rejection_reason = f"Contact email {contact_email} failed deliverability check ({v_res.status.value}): {v_res.reason}"
+                        if not run_until_found:
+                            return {
+                                "ok": False,
+                                "status": "REJECTED_UNDELIVERABLE_EMAIL",
+                                "reason": last_rejection_reason,
+                            }
+                        continue
+                    is_role_account = v_res.is_role_account
+                    is_catchall = v_res.is_catchall
+
+                contact_phone = dossier.get("contact_phone") or contact_info.get("verified_phone", "")
+                pain_point = dossier.get("pain_point") or "Needs automated tracking of new records to eliminate manual entry."
+                target_url = dossier.get("target_url") or portal_url
+                portal_name = dossier.get("portal_name") or top_portal.get("title", "Public Registry Portal")
+                jurisdiction = dossier.get("jurisdiction") or jurisdiction
+                suggested_fields = dossier.get("suggested_fields") or live_records_data.get("fields") or ["record_id", "date", "status"]
+                tier_key = dossier.get("tier_key") or "weekly"
+                clean_portal_short = re.sub(r"(?i)\s*(portal|registry|court|system|division|clerk|records)\s*", "", portal_name).strip() or portal_name
+                default_natural_subj = f"{clean_portal_short.lower()} records"
+                pitch_subject = dossier.get("pitch_subject") or default_natural_subj
+                if any(ai_w in pitch_subject.lower() for ai_w in ["quick", "automating", "streamlining", "sample", "data feed for", "unlocking", "elevating", "efficiency"]):
+                    pitch_subject = default_natural_subj
+                pitch_body = dossier.get("pitch_body") or "Hi, we can stream public records to your team automatically."
+
+                # STRICT BUYER GATE: Government departments are NOT commercial buyers
+                if is_disallowed_buyer(company_name, website, contact_email):
+                    logger.warning(f"❌ [WEB SCOUT REJECTED] Discarding government candidate '{company_name}' ({contact_email}).")
+                    last_rejection_reason = f"Government entity '{company_name}' cannot be qualified as a commercial buyer."
+                    if not run_until_found:
+                        return {
+                            "ok": False,
+                            "status": "REJECTED_GOVERNMENT_ENTITY",
+                            "reason": last_rejection_reason,
+                        }
+                    continue
+
+                # Live or catalog sample data
+                records = dossier.get("live_extracted_records") or live_records_data.get("records") or []
+                if not records:
+                    lookup_text = f"{portal_name} {niche}".lower()
+                    fallback_ds = None
+                    for ds_key, ds_entry in AUTHENTIC_REGISTRY_DATASETS.items():
+                        ds_tags = f"{ds_entry.get('portal_name','')} {ds_entry.get('jurisdiction','')}".lower()
+                        if any(kw in lookup_text or kw in ds_tags for kw in ["probate", "foreclosure", "ucc", "permit", "lien", "tax", "medical", "defense", "entity"]):
+                            fallback_ds = ds_entry
+                            break
+                    if not fallback_ds:
+                        fallback_ds = list(AUTHENTIC_REGISTRY_DATASETS.values())[0]
+                    records = list(fallback_ds.get("sample_data", []))[:25]
+
+                target = {
+                    "company_name": company_name,
+                    "contact_name": contact_name,
+                    "contact_role": contact_role,
+                    "contact_email": contact_email,
+                    "contact_phone": contact_phone,
+                    "website": website,
+                    "niche": niche,
+                    "pain_point": pain_point,
+                    "target_url": target_url,
+                    "portal_name": portal_name,
+                    "jurisdiction": jurisdiction,
+                    "suggested_fields": suggested_fields,
+                    "tier_key": tier_key,
+                    "sample_data": records[:25],
+                    "pitch_subject": pitch_subject,
+                    "pitch_body": pitch_body,
+                    "is_role_account": is_role_account,
+                    "is_catchall": is_catchall,
+                }
+
+                clean_company = re.sub(r"[^a-z0-9]+", "-", target["company_name"].lower()).strip("-")
+                lead_id = f"lead-{clean_company}-{int(time.time() * 1000)}"
+
+                logger.info(f"🎯 [WEB SCOUT AI TARGET IDENTIFIED] Qualified Buyer: {target['company_name']}")
+
+                # Scout Pipeline Ingestion & Sandbox Generation
+                scout_pipe = ScoutPortalPipeline(self.portal)
+                candidate = scout_pipe.publish_candidate(
+                    company_name=target["company_name"],
+                    lead_id=lead_id,
+                    evidence=[{"url": target["target_url"], "title": target["portal_name"]}],
+                    source_url=target["target_url"],
+                    sample_rows=target["sample_data"],
+                    research={
+                        "niche": target["niche"],
+                        "niche_confidence": "high",
+                        "jurisdiction": target["jurisdiction"],
+                        "portal_name": target["portal_name"],
+                        "portal_url": target["target_url"],
+                        "suggested_fields": target["suggested_fields"],
+                        "recommended_tier": target["tier_key"],
+                        "delivery_destination": "Google Sheets",
+                        "contact_name": target["contact_name"],
+                        "contact_role": target["contact_role"],
+                        "contact_email": target["contact_email"],
+                        "contact_phone": target["contact_phone"],
+                        "website": target["website"],
+                        "pain_point": target["pain_point"],
+                    },
+                    tier_key=target["tier_key"],
                 )
 
-                notification_manager.notify_lead_qualified_and_dispatching(
-                    lead=lead,
-                    pitch=web_pitch,
-                    grace_period_seconds=auto_outreach_scheduler.grace_period_seconds,
-                )
-            except Exception as notify_err:
-                logger.warning(f"Web scout notification dispatch notice: {notify_err}")
+                # Enrich lead in database
+                lead = self.storage.get_lead(candidate.lead_id)
+                if lead:
+                    lead.contact_name = target["contact_name"]
+                    lead.contact_role = target["contact_role"]
+                    lead.contact_email = target["contact_email"]
+                    lead.contact_phone = target["contact_phone"]
+                    lead.target_portal_name = target["portal_name"]
+                    lead.niche = target["niche"]
+                    
+                    lead.outreach_subject = target["pitch_subject"]
+                    lead.outreach_body = target["pitch_body"]
+                    if lead.state == State.PROSPECTING:
+                        lead.transition(State.REVIEW, "Web scout discovery completed")
+                    if lead.state == State.REVIEW:
+                        lead.transition(State.PITCH_PENDING_APPROVAL, "Web scout pitch prepared for operator review")
+                    self.storage.save_lead(lead)
+
+                    try:
+                        from .notifications import notification_manager
+                        from .auto_outreach import auto_outreach_scheduler
+                        from .pitcher import PitchMessage
+
+                        web_pitch = PitchMessage(
+                            subject=lead.outreach_subject,
+                            body_text=lead.outreach_body,
+                            body_html=getattr(lead, "outreach_html", "") or f"<p>{lead.outreach_body}</p>",
+                            sandbox_url=f"https://www.omnileadfeeder.tech/p/{candidate.slug}",
+                            word_count=len(lead.outreach_body.split()),
+                        )
+
+                        auto_outreach_scheduler.schedule_lead_for_dispatch(
+                            lead=lead,
+                            pitch=web_pitch,
+                            storage_backend=self.storage,
+                            notifier=notification_manager,
+                        )
+
+                        notification_manager.notify_lead_qualified_and_dispatching(
+                            lead=lead,
+                            pitch=web_pitch,
+                            grace_period_seconds=auto_outreach_scheduler.grace_period_seconds,
+                        )
+                    except Exception as notify_err:
+                        logger.warning(f"Web scout notification dispatch notice: {notify_err}")
+
+                return {
+                    "ok": True,
+                    "company_name": target["company_name"],
+                    "slug": candidate.slug,
+                    "lead_id": candidate.lead_id,
+                    "jurisdiction": target["jurisdiction"],
+                    "portal_name": target["portal_name"],
+                    "record_count": len(target["sample_data"])
+                }
 
         return {
-            "ok": True,
-            "company_name": target["company_name"],
-            "slug": candidate.slug,
-            "lead_id": candidate.lead_id,
-            "jurisdiction": target["jurisdiction"],
-            "portal_name": target["portal_name"],
-            "record_count": len(target["sample_data"])
+            "ok": False,
+            "status": "NO_QUALIFIED_LEAD_FOUND",
+            "reason": last_rejection_reason,
         }
 

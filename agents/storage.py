@@ -104,6 +104,13 @@ class StorageBackend(Protocol):
 
     def delete_lead(self, lead_id: str) -> bool: ...
 
+    # Deliverability & Spam Assessment operations
+    def save_deliverability_audit(self, report: dict[str, Any]) -> None: ...
+
+    def get_latest_deliverability_audit(self) -> dict[str, Any] | None: ...
+
+    def list_deliverability_audits(self, limit: int = 10) -> list[dict[str, Any]]: ...
+
 
 
 class InMemoryStorageBackend:
@@ -354,6 +361,21 @@ class InMemoryStorageBackend:
         for slug in to_del:
             del self.sandboxes[slug]
         return deleted
+
+    def save_deliverability_audit(self, report: dict[str, Any]) -> None:
+        if not hasattr(self, "_deliverability_audits"):
+            self._deliverability_audits = []
+        self._deliverability_audits.append(dict(report))
+
+    def get_latest_deliverability_audit(self) -> dict[str, Any] | None:
+        if not hasattr(self, "_deliverability_audits") or not self._deliverability_audits:
+            return None
+        return dict(self._deliverability_audits[-1])
+
+    def list_deliverability_audits(self, limit: int = 10) -> list[dict[str, Any]]:
+        if not hasattr(self, "_deliverability_audits"):
+            return []
+        return [dict(a) for a in reversed(self._deliverability_audits[-limit:])]
 
 
 
@@ -858,6 +880,27 @@ class SqliteStorageBackend:
                 CREATE INDEX IF NOT EXISTS ix_chat_messages_conv ON chat_messages (conversation_id, created_at)
                 """
             )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS deliverability_audits (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    audited_at TEXT NOT NULL,
+                    fleet_status TEXT NOT NULL,
+                    average_score REAL NOT NULL,
+                    inbox_count INTEGER NOT NULL,
+                    healthy_count INTEGER NOT NULL,
+                    warning_count INTEGER NOT NULL,
+                    critical_count INTEGER NOT NULL,
+                    report_json TEXT NOT NULL
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_deliverability_audits_date ON deliverability_audits (audited_at DESC)
+                """
+            )
             conn.commit()
 
 
@@ -1266,6 +1309,60 @@ class SqliteStorageBackend:
                 )
             rows = cursor.fetchall()
             return [dict(r) for r in rows]
+
+    def save_deliverability_audit(self, report: dict[str, Any]) -> None:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO deliverability_audits (
+                    run_id, audited_at, fleet_status, average_score,
+                    inbox_count, healthy_count, warning_count, critical_count, report_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    report.get("run_id", ""),
+                    report.get("audited_at", datetime.now(timezone.utc).isoformat()),
+                    report.get("fleet_status", "UNKNOWN"),
+                    float(report.get("average_score", 0.0)),
+                    int(report.get("inbox_count", 0)),
+                    int(report.get("healthy_count", 0)),
+                    int(report.get("warning_count", 0)),
+                    int(report.get("critical_count", 0)),
+                    json.dumps(report),
+                ),
+            )
+            conn.commit()
+
+    def get_latest_deliverability_audit(self) -> dict[str, Any] | None:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT report_json FROM deliverability_audits ORDER BY audited_at DESC, id DESC LIMIT 1"
+            )
+            row = cursor.fetchone()
+            if row and row["report_json"]:
+                try:
+                    return json.loads(row["report_json"])
+                except Exception:
+                    return None
+            return None
+
+    def list_deliverability_audits(self, limit: int = 10) -> list[dict[str, Any]]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT report_json FROM deliverability_audits ORDER BY audited_at DESC, id DESC LIMIT ?",
+                (limit,),
+            )
+            rows = cursor.fetchall()
+            results = []
+            for r in rows:
+                try:
+                    results.append(json.loads(r["report_json"]))
+                except Exception:
+                    pass
+            return results
 
 
     @staticmethod
@@ -2303,6 +2400,54 @@ class PostgresStorageBackend:
                 )
             return [dict(r) for r in result.mappings().fetchall()]
 
+    def save_deliverability_audit(self, report: dict[str, Any]) -> None:
+        from sqlalchemy import text
+        stmt = text("""
+            INSERT INTO deliverability_audits (
+                run_id, audited_at, fleet_status, average_score,
+                inbox_count, healthy_count, warning_count, critical_count, report_json
+            ) VALUES (
+                :run_id, :audited_at, :fleet_status, :average_score,
+                :inbox_count, :healthy_count, :warning_count, :critical_count, :report_json
+            )
+        """)
+        with self.engine.begin() as conn:
+            conn.execute(stmt, {
+                "run_id": report.get("run_id", ""),
+                "audited_at": report.get("audited_at", datetime.now(timezone.utc).isoformat()),
+                "fleet_status": report.get("fleet_status", "UNKNOWN"),
+                "average_score": float(report.get("average_score", 0.0)),
+                "inbox_count": int(report.get("inbox_count", 0)),
+                "healthy_count": int(report.get("healthy_count", 0)),
+                "warning_count": int(report.get("warning_count", 0)),
+                "critical_count": int(report.get("critical_count", 0)),
+                "report_json": json.dumps(report),
+            })
+
+    def get_latest_deliverability_audit(self) -> dict[str, Any] | None:
+        from sqlalchemy import text
+        with self.engine.connect() as conn:
+            res = conn.execute(text("SELECT report_json FROM deliverability_audits ORDER BY audited_at DESC, id DESC LIMIT 1"))
+            row = res.mappings().fetchone()
+            if row and row.get("report_json"):
+                try:
+                    return json.loads(row["report_json"])
+                except Exception:
+                    return None
+            return None
+
+    def list_deliverability_audits(self, limit: int = 10) -> list[dict[str, Any]]:
+        from sqlalchemy import text
+        with self.engine.connect() as conn:
+            res = conn.execute(text("SELECT report_json FROM deliverability_audits ORDER BY audited_at DESC, id DESC LIMIT :limit"), {"limit": limit})
+            rows = res.mappings().fetchall()
+            results = []
+            for r in rows:
+                try:
+                    results.append(json.loads(r["report_json"]))
+                except Exception:
+                    pass
+            return results
 
     def backup_db(self, target_path: str | None = None) -> str:
         return target_path or f"azure_pg_backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.sql"

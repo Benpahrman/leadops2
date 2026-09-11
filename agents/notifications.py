@@ -1432,6 +1432,101 @@ class NotificationManager:
         self._dispatch(_send)
         return briefing_data
 
+    def notify_deliverability_audit(self, report: dict[str, Any]) -> None:
+        """Send Discord & Telegram scorecard of morning multi-inbox deliverability & spam audit."""
+        if not self.settings.enabled:
+            return
+
+        def _send() -> None:
+            fleet_status = report.get("fleet_status", "UNKNOWN")
+            avg_score = report.get("average_score", 100.0)
+            inbox_count = report.get("inbox_count", 0)
+            healthy = report.get("healthy_count", 0)
+            warning = report.get("warning_count", 0)
+            critical = report.get("critical_count", 0)
+            inbox_reports = report.get("inboxes", [])
+
+            if fleet_status == "HEALTHY":
+                color = 0x10B981  # Green
+                icon = "🛡️"
+                verdict_text = "All Inboxes Fully Primed for Safe Cold Outreach"
+            elif fleet_status == "WARNING":
+                color = 0xF59E0B  # Amber
+                icon = "⚠️"
+                verdict_text = "Deliverability Warnings Detected (DKIM or Mild Spam Hits)"
+            else:
+                color = 0xEF4444  # Red
+                icon = "🚨"
+                verdict_text = "CRITICAL Deliverability Issues (SPF / DKIM Failure)"
+
+            fields: list[dict[str, Any]] = [
+                {
+                    "name": "📊 Fleet Health Summary",
+                    "value": (
+                        f"• **Fleet Status:** `{fleet_status}`\n"
+                        f"• **Average Score:** `{avg_score}%`\n"
+                        f"• **Inboxes Audited:** `{inbox_count}` ({healthy} Healthy, {warning} Warnings, {critical} Critical)"
+                    ),
+                    "inline": False,
+                }
+            ]
+
+            for acc in inbox_reports[:10]:
+                addr = acc.get("email_address", "Unknown Address")
+                st = acc.get("status", "UNKNOWN")
+                st_badge = "✅ PASS" if st == "HEALTHY" else "⚠️ WARN" if st == "WARNING" else "🛑 CRIT"
+                spf = acc.get("spf", "unknown").upper()
+                dkim = acc.get("dkim", "none").upper()
+                spam = acc.get("spam_score", 0.0)
+                diag = acc.get("diagnostic", "")
+
+                fields.append({
+                    "name": f"{st_badge} {addr}",
+                    "value": (
+                        f"• **SPF:** `{spf}` | **DKIM:** `{dkim}`\n"
+                        f"• **Spam Score:** `{spam:+.1f}`\n"
+                        f"• *{diag}*"
+                    ),
+                    "inline": True,
+                })
+
+            if self.discord:
+                self.discord.send_embed(
+                    title=f"{icon} Morning Deliverability & Spam Report — {fleet_status}",
+                    description=(
+                        f"### {icon} TestMail Cold Email Fleet Assessment\n"
+                        f"*{verdict_text}*\n"
+                        f"────────────────────────────────────────"
+                    ),
+                    fields=fields,
+                    color=color,
+                    author={
+                        "name": "LEADOPS DELIVERABILITY SHIELD",
+                        "icon_url": "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
+                    },
+                    footer="LeadOps Swarm • TestMail Integration Engine",
+                    footer_icon_url="https://cdn-icons-png.flaticon.com/512/906/906334.png",
+                    username="LeadOps Deliverability Shield",
+                    avatar_url="https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
+                    channel="alerts",
+                )
+
+            if self.telegram:
+                tg_lines = [
+                    f"{icon} <b>LEADOPS DELIVERABILITY AUDIT</b>",
+                    f"Status: <code>{fleet_status}</code> (Avg: <code>{avg_score}%</code>)",
+                    f"Inboxes: {inbox_count} ({healthy} H / {warning} W / {critical} C)\n",
+                ]
+                for acc in inbox_reports[:5]:
+                    addr = acc.get("email_address", "")
+                    st = acc.get("status", "")
+                    spf = acc.get("spf", "").upper()
+                    dkim = acc.get("dkim", "").upper()
+                    tg_lines.append(f"• <b>{addr}</b>: [{st}] SPF:{spf} DKIM:{dkim}")
+                self.telegram.send_message("\n".join(tg_lines))
+
+        self._dispatch(_send)
+
 
 # Global notification manager singleton
 notification_manager = NotificationManager()

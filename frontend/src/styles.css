@@ -269,6 +269,39 @@ a {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 18px 20px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-light);
+}
+
+.stat-card.stat-green {
+  border-left: 4px solid var(--green);
+  box-shadow: 0 4px 20px -4px var(--green-glow);
+}
+
+.stat-card.stat-cyan {
+  border-left: 4px solid var(--cyan);
+  box-shadow: 0 4px 20px -4px var(--cyan-glow);
+}
+
+.stat-card.stat-purple {
+  border-left: 4px solid var(--purple);
+  box-shadow: 0 4px 20px -4px var(--purple-glow);
+}
+
+.stat-card.stat-yellow {
+  border-left: 4px solid var(--yellow);
+  box-shadow: 0 4px 20px -4px var(--yellow-glow);
+}
+
+.stat-card.stat-red {
+  border-left: 4px solid var(--red);
+  box-shadow: 0 4px 20px -4px var(--red-glow);
 }
 
 .stat-label {
@@ -358,17 +391,148 @@ table.data-table tr:hover td {
 .badge-green {
   background: var(--green-glow);
   color: var(--green);
+  border: 1px solid rgba(16, 185, 129, 0.35);
 }
 
 .badge-cyan {
   background: var(--cyan-glow);
   color: var(--cyan);
+  border: 1px solid rgba(56, 189, 248, 0.35);
 }
 
 .badge-yellow {
   background: var(--yellow-glow);
   color: var(--yellow);
+  border: 1px solid rgba(245, 158, 11, 0.35);
 }
+
+.badge-purple {
+  background: var(--purple-glow);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.35);
+}
+
+.badge-red {
+  background: var(--red-glow);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.badge-orange {
+  background: rgba(249, 115, 22, 0.15);
+  color: #fb923c;
+  border: 1px solid rgba(249, 115, 22, 0.35);
+}
+
+.badge-blue {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+
+/* Pulsing Status Indicators */
+.pulse-dot-green {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: pulse-dot 2s infinite;
+  display: inline-block;
+}
+
+.pulse-dot-cyan {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 8px var(--cyan);
+  animation: pulse-dot 2s infinite;
+  display: inline-block;
+}
+
+.pulse-dot-amber {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f59e0b;
+  box-shadow: 0 0 8px #f59e0b;
+  animation: pulse-dot 2s infinite;
+  display: inline-block;
+}
+
+.pulse-dot-red {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 8px #ef4444;
+  animation: pulse-dot 2s infinite;
+  display: inline-block;
+}
+
+@keyframes pulse-dot {
+  0% { transform: scale(0.95); opacity: 0.7; }
+  50% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(0.95); opacity: 0.7; }
+}
+
+/* Swarm Live Cockpit Card */
+.swarm-cockpit-card {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.96) 0%, rgba(10, 19, 36, 0.98) 100%);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.45);
+  border-radius: var(--radius-md);
+  padding: 20px 24px;
+  margin-bottom: 24px;
+}
+
+.swarm-agent-tile {
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: all 0.2s ease;
+}
+
+.swarm-agent-tile:hover {
+  background: rgba(22, 34, 60, 0.75);
+  border-color: rgba(56, 189, 248, 0.35);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+}
+
+/* Inbox Filter Button */
+.inbox-filter-chip {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--card-alt);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inbox-filter-chip:hover {
+  color: #fff;
+  border-color: var(--border-light);
+}
+
+.inbox-filter-chip.active {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: var(--cyan);
+  color: #fff;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.2);
+}
+
 
 /* Tabs */
 .tab-list {

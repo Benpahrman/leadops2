@@ -80,7 +80,16 @@ def run_daily_automation(
             log.info(f"💾 [DATABASE BACKUP] Successfully created daily snapshot: {backup_path}")
     except Exception as e:
         log.warning(f"Database backup error: {e}")
-    
+
+    # 7:30 AM CST: Daily Morning Deliverability & TestMail Spam Assessment
+    try:
+        from agents.email.deliverability_tester import DeliverabilityTester
+        tester = DeliverabilityTester(storage_backend=storage)
+        tester.run_fleet_audit(force=False)
+        log.info("🛡️ [DELIVERABILITY AUDIT] Daily morning TestMail spam & deliverability audit completed")
+    except Exception as e:
+        log.warning(f"Deliverability audit daily sweep notice: {e}")
+
     leads = storage.list_leads()
     
     # Send operator morning briefing across Discord, Telegram, and Email
@@ -544,6 +553,21 @@ def main():
         daemon=True,
     )
     automation_thread.start()
+
+    # 4. Morning Deliverability & Spam Shield (probes TestMail from all active Zoho inboxes)
+    if os.environ.get("DELIVERABILITY_AUDIT_ON_STARTUP", "true").lower() in ("true", "1", "yes"):
+        def _startup_deliverability_check():
+            try:
+                time.sleep(3)
+                from agents.email.deliverability_tester import DeliverabilityTester
+                tester = DeliverabilityTester(storage_backend=storage)
+                tester.run_fleet_audit(force=False)
+            except Exception as audit_err:
+                server_logger.warning(f"Startup deliverability audit error: {audit_err}")
+
+        startup_audit_thread = threading.Thread(target=_startup_deliverability_check, daemon=True)
+        startup_audit_thread.start()
+        print("✓ Deliverability & Spam Shield: Active (audits TestMail probes on startup)")
 
     print("------------------------------------------------------------------")
     print(" 🔗 Clickable Live Production Endpoints:")

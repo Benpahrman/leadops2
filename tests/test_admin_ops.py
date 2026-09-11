@@ -394,3 +394,40 @@ def test_archival_isolation_and_jitter_cadence(test_setup):
     assert inboxes_data["fleet_summary"]["min_jitter_seconds"] == 300
     assert inboxes_data["fleet_summary"]["max_jitter_seconds"] == 1200
     assert "jitter_wait_seconds" in inboxes_data["inboxes"][0]
+
+
+def test_admin_scout_trigger_web_scout_endpoint(test_setup, monkeypatch):
+    """Verify that the trigger-web-scout endpoint passes niche and run_until_found to worker."""
+    from unittest.mock import MagicMock
+    from agents.scout_runner import B2BWebScoutWorker
+    storage, admin_service, client = test_setup
+
+    admin_headers = {
+        "Authorization": "Bearer test-admin-token",
+        "X-Admin-Role": "founder",
+    }
+    monkeypatch.setattr("agents.routes.admin.require_admin", lambda: ClerkUser("user_admin", ["admin@example.com"]))
+
+    mock_discover = MagicMock(return_value={
+        "ok": True,
+        "lead_id": "lead-austin-roofing-123",
+        "company_name": "Austin Premier Roofing",
+        "slug": "austin-premier-roofing-lead-123",
+    })
+    monkeypatch.setattr(B2BWebScoutWorker, "discover_next_candidate", mock_discover)
+
+    res = client.post(
+        "/api/admin/scout/trigger-web-scout",
+        json={"niche": "Austin Roofing", "run_until_found": True, "max_attempts": 10},
+        headers=admin_headers,
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert data["company_name"] == "Austin Premier Roofing"
+
+    mock_discover.assert_called_once_with(
+        custom_niche="Austin Roofing",
+        run_until_found=True,
+        max_attempts=10,
+    )

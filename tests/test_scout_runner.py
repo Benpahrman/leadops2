@@ -148,5 +148,87 @@ class ScoutRunnerTests(unittest.TestCase):
         self.assertEqual(lead.contact_name, "Marcus Vance")
         self.assertEqual(lead.niche, "Roofing contractors in Austin")
 
+    @patch("agents.tools.web_search.search_web")
+    @patch("agents.tools.web_fetcher.extract_contact_info_from_url")
+    @patch("agents.tools.web_fetcher.extract_portal_sample_data")
+    def test_b2b_web_scout_worker_runs_until_new_lead_found(self, mock_extract_portal, mock_extract_contact, mock_search_web):
+        """Verify that B2BWebScoutWorker skips existing duplicate leads and continues until finding a new lead."""
+        from agents.domain import Lead
+        storage = InMemoryStorageBackend()
+        portal = PortalService(storage=storage)
+
+        # Pre-seed an existing lead
+        existing = Lead(
+            lead_id="lead-existing-roofing-llc",
+            tier_key="weekly",
+            company_name="Existing Roofing LLC",
+            website="https://existingroofing.com",
+            contact_email="sales@existingroofing.com",
+            state=State.OUTREACH_SENT,
+        )
+        storage.save_lead(existing)
+
+        # Search returns the existing duplicate first, followed by a brand-new firm
+        mock_search_web.side_effect = [
+            [
+                {"title": "Existing Roofing LLC", "url": "https://existingroofing.com", "snippet": "Already in DB"},
+                {"title": "Lone Star State Roofing", "url": "https://lonestarstateroofing.com", "snippet": "Fresh candidate"},
+            ],
+            [{"title": "City of Austin Issued Construction Permits", "url": "https://data.austintexas.gov/permits", "snippet": "Official permits portal"}],
+        ]
+
+        mock_extract_contact.return_value = {
+            "website": "https://lonestarstateroofing.com",
+            "verified_email": "hello@lonestarstateroofing.com",
+            "verified_phone": "512-555-0999",
+            "title": "Lone Star State Roofing",
+        }
+
+        mock_extract_portal.return_value = {
+            "ok": True,
+            "records": [{"permit_id": "P-9999", "issue_date": "2026-09-01", "valuation": "$250,000"}],
+            "fields": ["permit_id", "issue_date", "valuation"],
+        }
+
+        mock_llm_engine = MagicMock()
+        mock_llm_engine.run_web_scout_brainstorm_agent.return_value = {
+            "niche": "Roofing in Austin",
+            "company_search_query": "top commercial roofing Austin Texas",
+            "portal_search_query": "Austin Travis County building permits portal gov",
+            "jurisdiction": "Austin, TX",
+        }
+        mock_llm_engine.run_web_scout_dossier_agent.return_value = {
+            "company_name": "Lone Star State Roofing",
+            "contact_name": "David Miller",
+            "contact_role": "Managing Director",
+            "contact_email": "hello@lonestarstateroofing.com",
+            "contact_phone": "512-555-0999",
+            "website": "https://lonestarstateroofing.com",
+            "niche": "Roofing in Austin",
+            "pain_point": "Needs automated tracking of new permits",
+            "target_url": "https://data.austintexas.gov/permits",
+            "portal_name": "City of Austin Issued Construction Permits",
+            "jurisdiction": "Austin, TX",
+            "suggested_fields": ["permit_id", "issue_date", "valuation"],
+            "tier_key": "weekly",
+            "pitch_subject": "permits feed for lone star",
+            "pitch_body": "Hi David, live data feed ready for review.",
+        }
+
+        worker = B2BWebScoutWorker(storage=storage, portal=portal, llm_engine=mock_llm_engine)
+
+        # Trigger run with run_until_found=True
+        result = worker.discover_next_candidate(custom_niche="Roofing", run_until_found=True)
+
+        # Verify that it bypassed Existing Roofing LLC and successfully created Lone Star State Roofing
+        self.assertTrue(result.get("ok"))
+        self.assertEqual(result.get("company_name"), "Lone Star State Roofing")
+
+        new_lead = storage.get_lead(result["lead_id"])
+        self.assertIsNotNone(new_lead)
+        self.assertEqual(new_lead.company_name, "Lone Star State Roofing")
+        self.assertEqual(new_lead.contact_email, "hello@lonestarstateroofing.com")
+
+
 if __name__ == "__main__":
     unittest.main()

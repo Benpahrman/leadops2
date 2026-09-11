@@ -205,6 +205,8 @@ def toggle_auto_outreach(
 class TriggerWebScoutRequest(BaseModel):
     niche: Optional[str] = None
     channel: Optional[str] = None
+    run_until_found: Optional[bool] = True
+    max_attempts: Optional[int] = 12
 
 
 @router.post("/api/admin/scout/trigger-web-scout", tags=["Admin Operations"])
@@ -214,19 +216,39 @@ def trigger_web_scout_run(
     storage_backend=Depends(get_storage),
     portal_service=Depends(get_portal_service),
 ):
-    niche = req.niche if req else None
-    channel = req.channel if req else None
+    niche = req.niche.strip() if req and req.niche and req.niche.strip() else None
+    channel = req.channel.strip() if req and req.channel and req.channel.strip() else None
+    run_until_found = req.run_until_found if req and req.run_until_found is not None else True
+    max_attempts = req.max_attempts if req and req.max_attempts else 12
+
     # High-ROI structured channels (county_filing_party, state_bar, sos_entity,
     # local_business) are handled by ScoutBackgroundWorker which has the full
-    # multi-channel dispatch logic.  The generic B2BWebScoutWorker is only used
-    # when no specific channel is requested.
+    # multi-channel dispatch logic. If niche/search is provided, B2BWebScoutWorker is used.
     HIGH_ROI_CHANNELS = {"county_filing_party", "state_bar", "sos_entity", "local_business"}
+    if niche:
+        # User specified an explicit search query or niche -> hunt with B2BWebScoutWorker until found
+        web_worker = B2BWebScoutWorker(storage=storage_backend, portal=portal_service)
+        return web_worker.discover_next_candidate(
+            custom_niche=niche,
+            run_until_found=run_until_found,
+            max_attempts=max_attempts,
+        )
+
     if channel in HIGH_ROI_CHANNELS or (channel is None and not niche):
         worker = ScoutBackgroundWorker(storage=storage_backend, portal=portal_service)
-        return worker.discover_next_candidate(channel=channel)
+        return worker.discover_next_candidate(
+            channel=channel,
+            run_until_found=run_until_found,
+            max_attempts=max_attempts,
+        )
+
     # Explicit niche brainstorm path — use B2B web scout
     web_worker = B2BWebScoutWorker(storage=storage_backend, portal=portal_service)
-    return web_worker.discover_next_candidate(custom_niche=niche)
+    return web_worker.discover_next_candidate(
+        custom_niche=niche,
+        run_until_found=run_until_found,
+        max_attempts=max_attempts,
+    )
 
 @router.post("/api/admin/leads/{lead_id}/override-transition", tags=["Admin Operations"])
 def override_lead_transition(
@@ -1943,6 +1965,105 @@ def disconnect_microsoft_oauth(
     client = get_microsoft_graph_client()
     client.disconnect()
     return {"ok": True, "message": "Microsoft Outlook account disconnected successfully."}
+
+
+# =====================================================================
+# Fleet Deliverability & TestMail Spam Assessment Endpoints
+# =====================================================================
+
+@router.get("/api/admin/deliverability/status", tags=["Admin Deliverability"])
+def get_deliverability_status(
+    storage_backend=Depends(get_storage),
+    user: ClerkUser = Depends(require_admin),
+):
+    """Retrieve the latest fleet-wide deliverability and SpamAssassin assessment."""
+    latest = None
+    if hasattr(storage_backend, "get_latest_deliverability_audit"):
+        latest = storage_backend.get_latest_deliverability_audit()
+
+    if latest:
+        return {"ok": True, "report": latest, "cached": True}
+
+    from ..email.config import EmailSettings
+    settings = EmailSettings.from_environment()
+    inbox_addrs = [acc.email_address for acc in settings.inbox_pool if acc.is_active] or ([settings.user] if settings.user else [])
+
+    return {
+        "ok": True,
+        "report": {
+            "fleet_status": "PENDING_AUDIT",
+            "average_score": 0.0,
+            "inbox_count": len(inbox_addrs),
+            "healthy_count": 0,
+            "warning_count": 0,
+            "critical_count": 0,
+            "audited_at": None,
+            "inboxes": [
+                {
+                    "inbox_id": addr.replace("@", "_").replace(".", "_"),
+                    "email_address": addr,
+                    "status": "PENDING",
+                    "score": 0,
+                    "spf": "untested",
+                    "dkim": "untested",
+                    "spam_score": 0.0,
+                    "diagnostic": "Awaiting initial morning audit run",
+                }
+                for addr in inbox_addrs
+            ],
+            "testmail_namespace": os.environ.get("TESTMAIL_NAMESPACE", "KGDDJ"),
+        },
+        "cached": False,
+    }
+
+
+class RunDeliverabilityAuditRequest(BaseModel):
+    inbox_id: Optional[str] = None
+    force: bool = True
+    wait: bool = False
+
+
+@router.post("/api/admin/deliverability/run-audit", tags=["Admin Deliverability"])
+def run_deliverability_audit_endpoint(
+    req: RunDeliverabilityAuditRequest = RunDeliverabilityAuditRequest(),
+    storage_backend=Depends(get_storage),
+    user: ClerkUser = Depends(require_admin),
+):
+    """Trigger on-demand multi-inbox deliverability and spam assessment against TestMail."""
+    import threading
+    from ..email.deliverability_tester import DeliverabilityTester
+    from ..email.config import EmailSettings
+
+    settings = EmailSettings.from_environment()
+    target_inboxes = None
+    if req.inbox_id:
+        target_inboxes = [acc for acc in settings.inbox_pool if acc.id == req.inbox_id]
+        if not target_inboxes:
+            raise HTTPException(status_code=404, detail=f"Inbox '{req.inbox_id}' not found in configuration.")
+
+    tester = DeliverabilityTester(
+        settings=settings,
+        storage_backend=storage_backend,
+    )
+
+    if req.wait:
+        report = tester.run_fleet_audit(inboxes=target_inboxes, force=req.force)
+        return {"ok": True, "report": report}
+
+    def _background_audit():
+        try:
+            tester.run_fleet_audit(inboxes=target_inboxes, force=req.force)
+        except Exception as err:
+            logger.error(f"Background deliverability audit error: {err}")
+
+    t = threading.Thread(target=_background_audit, daemon=True)
+    t.start()
+
+    return {
+        "ok": True,
+        "message": "Deliverability and spam audit initiated across active inboxes.",
+        "status": "RUNNING",
+    }
 
 
 
