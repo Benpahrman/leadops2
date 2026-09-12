@@ -15,9 +15,10 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
-from typing import Any
-
-import httpx
+try:
+    import httpx
+except ImportError:
+    httpx = None
 
 from .client import EmailClient
 from .config import EmailSettings, InboxAccountConfig
@@ -153,9 +154,26 @@ class DeliverabilityTester:
 
         for attempt in range(1, max_retries + 1):
             try:
-                resp = httpx.get(url, timeout=15.0)
-                if resp.status_code == 200:
-                    data = resp.json()
+                if httpx is not None:
+                    resp = httpx.get(url, timeout=15.0)
+                    status_code = resp.status_code
+                    data = resp.json() if status_code == 200 else {}
+                    resp_text = resp.text
+                else:
+                    import json
+                    import urllib.request
+                    req = urllib.request.Request(url, headers={"User-Agent": "LeadOps-Deliverability/1.0"})
+                    try:
+                        with urllib.request.urlopen(req, timeout=15.0) as u_resp:
+                            status_code = u_resp.status
+                            resp_text = u_resp.read().decode()
+                            data = json.loads(resp_text)
+                    except urllib.error.HTTPError as h_err:
+                        status_code = h_err.code
+                        resp_text = h_err.read().decode()
+                        data = {}
+
+                if status_code == 200:
                     emails = data.get("emails", [])
                     if emails:
                         # Return the latest email received under this tag
@@ -163,11 +181,11 @@ class DeliverabilityTester:
                             f"✅ [TESTMAIL RECEIVED] Found {len(emails)} email(s) for tag '{tag}' (attempt {attempt})"
                         )
                         return emails[0]
-                elif resp.status_code == 404:
+                elif status_code == 404:
                     logger.debug(f"TestMail tag '{tag}' not yet found (attempt {attempt})")
                 else:
                     logger.warning(
-                        f"TestMail API HTTP {resp.status_code} for tag '{tag}': {resp.text[:150]}"
+                        f"TestMail API HTTP {status_code} for tag '{tag}': {resp_text[:150]}"
                     )
             except Exception as exc:
                 logger.warning(f"TestMail API poll error for tag '{tag}': {exc}")
