@@ -188,6 +188,17 @@ class DeliverabilityTester:
         email_addr = inbox.email_address
 
         if not send_result.get("ok"):
+            err_msg = str(send_result.get("error", "Unknown send error"))
+            diag = "SMTP connection or authentication failed. Check credentials in .env."
+            if "5.1.8" in err_msg or "Outgoing Blocked" in err_msg:
+                diag = "Zoho Outgoing Blocked (554 5.1.8). Unblock organization in Zoho Admin Console: https://mailadmin.zoho.com"
+            elif "5.7.139" in err_msg or "SmtpClientAuthentication" in err_msg:
+                diag = "Microsoft 365 Authenticated SMTP is disabled. Enable SMTP AUTH in M365 Admin Center."
+            elif "5.7.9" in err_msg or "WebLoginRequired" in err_msg:
+                diag = "Gmail WebLoginRequired. Generate new 16-character App Password at myaccount.google.com/apppasswords."
+            elif "535" in err_msg or "Authentication failed" in err_msg:
+                diag = "SMTP credentials invalid (535 Authentication failed). Check user and app password in .env."
+
             return {
                 "inbox_id": inbox.id,
                 "email_address": email_addr,
@@ -198,8 +209,8 @@ class DeliverabilityTester:
                 "dkim": "fail",
                 "spam_score": 99.0,
                 "spam_verdict": "send_error",
-                "spam_report": f"SMTP transmission failed: {send_result.get('error', 'Unknown send error')}",
-                "diagnostic": f"SMTP connection or authentication failed. Check credentials in .env.",
+                "spam_report": f"SMTP transmission failed: {err_msg}",
+                "diagnostic": diag,
                 "audited_at": datetime.now(timezone.utc).isoformat(),
                 "latency_ms": send_result.get("latency_ms", 0),
                 "received_in_testmail": False,
