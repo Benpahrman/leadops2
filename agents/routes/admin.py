@@ -2432,6 +2432,98 @@ def delete_warmup_target_endpoint(
     return {"ok": True, "message": f"Warm receiver ID {target_id} removed."}
 
 
+@router.post("/api/admin/warmup/dispatch-batch", tags=["Admin Inboxes"])
+def dispatch_warmup_batch(
+    count: int = 3,
+    storage_backend=Depends(get_storage),
+    user: ClerkUser = Depends(require_admin),
+):
+    """Trigger an immediate batch of peer warmup emails dispatched across available inboxes."""
+    from ..email.engine import EmailEngineQueue, WarmupAgent
+    from ..email.warmup import WarmupManager
+    from ..email.client import EmailClient
+    from ..email.config import EmailSettings
+
+    settings = EmailSettings.from_environment()
+    client = EmailClient(settings)
+    warmup_mgr = WarmupManager(settings=settings, storage_backend=storage_backend)
+    queue = EmailEngineQueue()
+    agent = WarmupAgent()
+
+    targets = queue.get_all_warmup_targets()
+    if not targets:
+        targets = [{"id": 1, "email": "christopher.ben.pahrman@gmail.com", "first_name": "Ben", "target_daily": 5}]
+
+    dispatched = []
+    errors = []
+
+    target_count = max(1, min(count, 20))
+    for i in range(target_count):
+        acc = warmup_mgr.get_available_inbox_account(check_jitter=False)
+        target = targets[i % len(targets)]
+        target_email = target.get("email")
+        if not target_email:
+            continue
+
+        subj, body = agent.generate_warmup_email(sender_name=acc.from_name if acc else "Alex")
+        try:
+            res = client.send_email(
+                to_email=target_email,
+                to_name=target.get("first_name") or "Peer",
+                subject=subj,
+                text_body=body,
+                inbox=acc,
+            )
+            inbox_id = acc.id if acc else "primary"
+            warmup_mgr.record_send(inbox_id=inbox_id, recipient=target_email)
+            queue.log_dispatch(
+                recipient=target_email,
+                sender=acc.email_address if acc else settings.smtp_user,
+                subject=subj,
+                dispatch_type="warmup",
+                status=res.get("status", "sent"),
+                jitter_seconds=0.0,
+                message_id=res.get("message_id", ""),
+            )
+            if target.get("id"):
+                queue.record_warmup_sent(target["id"])
+            dispatched.append({
+                "inbox_id": inbox_id,
+                "sender": acc.email_address if acc else settings.smtp_user,
+                "recipient": target_email,
+                "subject": subj,
+                "status": res.get("status", "sent"),
+            })
+        except Exception as e:
+            errors.append({"recipient": target_email, "error": str(e)})
+
+    return {
+        "ok": True,
+        "dispatched_count": len(dispatched),
+        "dispatched": dispatched,
+        "errors": errors,
+        "message": f"Dispatched {len(dispatched)} warmup peer emails across available inboxes.",
+    }
+
+
+@router.post("/api/admin/warmup/run-inbox-monitoring", tags=["Admin Inboxes"])
+def trigger_inbox_monitoring(
+    user: ClerkUser = Depends(require_admin),
+):
+    """Run the peer inbox monitoring cycle (unspam, star, and mark engagement on peer receivers)."""
+    from ..email.engine import EmailEngineQueue, WarmupAgent, PeerInboxWarmupWatcher
+
+    queue = EmailEngineQueue()
+    agent = WarmupAgent()
+    watcher = PeerInboxWarmupWatcher(queue, agent)
+    stats = watcher.run_monitoring_cycle()
+    return {
+        "ok": True,
+        "stats": stats,
+        "message": f"Peer inbox monitoring cycle completed. Processed: {stats.get('processed_inboxes', 0)} inboxes | Unspammed: {stats.get('unspammed', 0)} | Replied: {stats.get('replied', 0)}.",
+    }
+
+
 @router.get("/api/admin/inboxes/warmup-activity", tags=["Admin Inboxes"])
 def get_warmup_activity(
     limit: int = 50,
@@ -2448,8 +2540,6 @@ def get_warmup_activity(
         "cold_sent_today": cold_today,
         "warmup_sent_today": warmup_today,
     }
-
-
 
 
 @router.post("/api/admin/auto-outreach/flush", tags=["Admin Operations"])

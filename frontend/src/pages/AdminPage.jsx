@@ -34,6 +34,8 @@ import {
   deleteWarmupTarget,
   fetchWarmupActivity,
   startWarmupCycle,
+  dispatchWarmupBatch,
+  runWarmupMonitoring,
   upsertAdminInbox,
   testAdminInbox,
   deleteAdminInbox,
@@ -276,6 +278,8 @@ export default function AdminPage() {
   const [fleetSummary, setFleetSummary] = useState(null);
   const [warmupCycle, setWarmupCycle] = useState(null);
   const [startingWarmup, setStartingWarmup] = useState(false);
+  const [dispatchingWarmup, setDispatchingWarmup] = useState(false);
+  const [monitoringWarmup, setMonitoringWarmup] = useState(false);
   const [inboxFilter, setInboxFilter] = useState('ALL');
   const [inboxesLoading, setInboxesLoading] = useState(false);
   const [testingInboxId, setTestingInboxId] = useState(null);
@@ -376,6 +380,41 @@ export default function AdminPage() {
       showToast(`Failed to initialize warmup: ${err.message}`, 'error');
     } finally {
       setStartingWarmup(false);
+    }
+  };
+
+  const handleDispatchWarmupBatch = async (count = 3) => {
+    setDispatchingWarmup(true);
+    try {
+      const token = await resolveToken();
+      showToast(`🔥 Dispatching ${count} peer warmup emails across available inboxes...`, 'info');
+      const res = await dispatchWarmupBatch(count, token);
+      showToast(`🎉 ${res.message || `Dispatched ${res.dispatched_count || count} warmup emails!`}`, 'success');
+      await loadInboxes();
+      if (inboxSubTab === 'activity') {
+        loadWarmupActivity();
+      }
+    } catch (err) {
+      showToast(`Failed to dispatch warmup batch: ${err.message}`, 'error');
+    } finally {
+      setDispatchingWarmup(false);
+    }
+  };
+
+  const handleRunWarmupMonitoring = async () => {
+    setMonitoringWarmup(true);
+    try {
+      const token = await resolveToken();
+      showToast('🛡️ Scanning peer warm receiver inboxes for unspam and reply signals...', 'info');
+      const res = await runWarmupMonitoring(token);
+      showToast(res.message || 'Peer inbox monitoring completed!', 'success');
+      if (inboxSubTab === 'receivers') {
+        loadWarmupTargets();
+      }
+    } catch (err) {
+      showToast(`Monitoring failed: ${err.message}`, 'error');
+    } finally {
+      setMonitoringWarmup(false);
     }
   };
 
@@ -3666,6 +3705,43 @@ export default function AdminPage() {
                   {inboxesLoading ? '🔄 Refreshing...' : '🔄 Refresh Telemetry'}
                 </button>
                 <button
+                  className="btn btn-primary"
+                  style={{
+                    fontSize: '12px',
+                    padding: '8px 16px',
+                    background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                    border: '1px solid #fbbf24',
+                    boxShadow: '0 0 12px rgba(245, 158, 11, 0.3)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                  onClick={handleStartWarmup}
+                  disabled={startingWarmup}
+                  title="Initialize Day 1 warmup schedule and synchronize across all inboxes"
+                >
+                  <span>🔥</span>
+                  <span>{startingWarmup ? '⏳ Starting Warmup...' : 'Start / Re-sync Warmup'}</span>
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  style={{
+                    fontSize: '12px',
+                    padding: '8px 14px',
+                    borderColor: '#38bdf8',
+                    color: '#38bdf8',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                  onClick={() => handleDispatchWarmupBatch(3)}
+                  disabled={dispatchingWarmup}
+                  title="Immediately dispatch a batch of 3 peer warmup emails across available inboxes"
+                >
+                  <span>⚡</span>
+                  <span>{dispatchingWarmup ? '⏳ Dispatching...' : 'Run Warmup Batch (3)'}</span>
+                </button>
+                <button
                   className="btn btn-secondary"
                   style={{ fontSize: '12px', padding: '8px 14px', borderColor: 'var(--accent)' }}
                   onClick={handleFlushOutreachQueue}
@@ -3880,21 +3956,61 @@ export default function AdminPage() {
 
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                       <button
-                        className="btn btn-outline"
-                        style={{ fontSize: '12px', padding: '6px 12px' }}
-                        onClick={() => {
-                          setStartingWarmup(true);
-                          startWarmupCycle().then(() => {
-                            showToast('🔥 Warmup schedule reset & synchronized across all olfmailer.com inboxes!', 'success');
-                            loadInboxes();
-                          }).catch((err) => {
-                            showToast(`Failed: ${err.message}`, 'error');
-                          }).finally(() => setStartingWarmup(false));
+                        className="btn btn-primary"
+                        style={{
+                          fontSize: '12px',
+                          padding: '6px 14px',
+                          background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                          border: '1px solid #fbbf24',
+                          boxShadow: '0 0 10px rgba(245, 158, 11, 0.3)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
                         }}
+                        onClick={handleStartWarmup}
                         disabled={startingWarmup}
                         title="Sync and initialize Day 1 warmup timestamp for all sending inboxes"
                       >
-                        {startingWarmup ? '⏳ Syncing...' : '🔄 Re-sync Warmup Day 1'}
+                        <span>🔥</span>
+                        <span>{startingWarmup ? '⏳ Starting...' : 'Start / Re-sync Warmup'}</span>
+                      </button>
+
+                      <button
+                        className="btn btn-secondary"
+                        style={{
+                          fontSize: '12px',
+                          padding: '6px 12px',
+                          borderColor: '#38bdf8',
+                          color: '#38bdf8',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                        }}
+                        onClick={() => handleDispatchWarmupBatch(3)}
+                        disabled={dispatchingWarmup}
+                        title="Immediately dispatch a batch of 3 peer warmup emails across available inboxes"
+                      >
+                        <span>⚡</span>
+                        <span>{dispatchingWarmup ? '⏳ Dispatching...' : 'Run Warmup Batch (3)'}</span>
+                      </button>
+
+                      <button
+                        className="btn btn-outline"
+                        style={{
+                          fontSize: '12px',
+                          padding: '6px 12px',
+                          borderColor: '#a78bfa',
+                          color: '#c4b5fd',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                        }}
+                        onClick={handleRunWarmupMonitoring}
+                        disabled={monitoringWarmup}
+                        title="Scan peer receiver inboxes for unspam, star, and reply actions"
+                      >
+                        <span>🛡️</span>
+                        <span>{monitoringWarmup ? '⏳ Scanning...' : 'Scan Receivers'}</span>
                       </button>
                     </div>
                   </div>

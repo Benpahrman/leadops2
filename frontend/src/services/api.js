@@ -638,6 +638,7 @@ export async function startWarmupCycle(token = '') {
   const res = await fetch(`${API_BASE}/api/admin/warmup/start`, {
     method: 'POST',
     headers,
+    body: JSON.stringify({}),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -645,6 +646,40 @@ export async function startWarmupCycle(token = '') {
   }
   return res.json();
 }
+
+export async function dispatchWarmupBatch(count = 3, token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/warmup/dispatch-batch?count=${count}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ count }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function runWarmupMonitoring(token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/warmup/run-inbox-monitoring`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 
 
 export async function upsertAdminInbox(inboxData, token = '') {
