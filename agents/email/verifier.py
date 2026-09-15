@@ -115,6 +115,13 @@ class DeliverabilityVerifier:
         if not clean_domain:
             return False, "Empty domain name"
 
+        # 0. Cloud Deliverability Suite validation (smart cached 30 days)
+        if self.knowlez_client and self.knowlez_client.is_configured:
+            kz_dom = self.knowlez_client.validate_domain(clean_domain)
+            if not kz_dom.get("unverified_fallback") and kz_dom.get("valid") is False:
+                reason = kz_dom.get("reason") or kz_dom.get("error") or "Domain rejected by deliverability suite"
+                return False, f"Domain deliverability validation failed: {reason}"
+
         # 1. DNS A/AAAA record host resolution
         try:
             socket.getaddrinfo(clean_domain, 80, socket.AF_UNSPEC, socket.SOCK_STREAM)

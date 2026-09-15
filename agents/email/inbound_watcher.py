@@ -3,13 +3,13 @@
 import asyncio
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
 from .ai_review import InboundReplyAgent
 from .client import EmailClient
 from .config import EmailSettings, InboxAccountConfig
-from agents.domain import State, Lead
+from agents.domain import State, Lead, SequenceState
 from agents.notifications import NotificationManager
 
 logger = logging.getLogger("leadops.email.inbound")
@@ -102,14 +102,107 @@ class InboundEmailWatcher:
             "security alert",
             "undeliverable",
             "automatic reply",
-            "out of office",
             "auto-reply",
-            "vacation response",
+            "out of office",
         )
         if any(phrase in subject_lower for phrase in bounce_phrases):
             return True
 
         return False
+
+    @staticmethod
+    def is_ooo_notification(subject: str = "", body: str = "") -> bool:
+        """Detect whether an inbound email is an Out-of-Office or vacation auto-reply."""
+        text = f"{subject} {body}".lower()
+        ooo_phrases = (
+            "out of office",
+            "out of the office",
+            "away from the office",
+            "away from my email",
+            "automatic reply",
+            "auto-reply",
+            "autoreply",
+            "vacation response",
+            "on leave until",
+            "back in the office",
+            "limited access to email",
+        )
+        return any(phrase in text for phrase in ooo_phrases)
+
+    @staticmethod
+    def parse_ooo_return_date(text: str, reference_date: datetime | None = None) -> datetime | None:
+        """Parse return date from Out-of-Office vacation responders."""
+        if not text:
+            return None
+
+        ref = reference_date or datetime.now(timezone.utc)
+        clean_text = text.lower()
+
+        month_map = {
+            "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
+            "apr": 4, "april": 4, "may": 5, "jun": 6, "june": 6, "jul": 7, "july": 7,
+            "aug": 8, "august": 8, "sep": 9, "sept": 9, "september": 9, "oct": 10, "october": 10,
+            "nov": 11, "november": 11, "dec": 12, "december": 12,
+        }
+
+        # 1. Month name pattern: (until|returning|back|through) (?:on|by)? (Jan|Feb|...) \d{1,2}(?:st|nd|rd|th)?(?:, \d{4})?
+        m_month = re.search(
+            r"(?:until|returning|back|through)\s+(?:on\s+|by\s+)?([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,\s*(\d{4}))?",
+            clean_text,
+        )
+        if m_month:
+            m_name = m_month.group(1).lower()
+            if m_name in month_map:
+                month_num = month_map[m_name]
+                day_num = int(m_month.group(2))
+                year_num = int(m_month.group(3)) if m_month.group(3) else ref.year
+                if year_num == ref.year and (month_num < ref.month or (month_num == ref.month and day_num < ref.day)):
+                    year_num += 1
+                try:
+                    return datetime(year_num, month_num, day_num, 14, 0, tzinfo=timezone.utc)
+                except ValueError:
+                    pass
+
+        # 2. Numeric pattern: (until|returning|back|through) (?:on|by)? (\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?
+        m_numeric = re.search(
+            r"(?:until|returning|back|through)\s+(?:on\s+|by\s+)?(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?",
+            clean_text,
+        )
+        if m_numeric:
+            month_num = int(m_numeric.group(1))
+            day_num = int(m_numeric.group(2))
+            raw_yr = m_numeric.group(3)
+            year_num = (int(raw_yr) if len(raw_yr) == 4 else int(f"20{raw_yr}")) if raw_yr else ref.year
+            if year_num == ref.year and (month_num < ref.month or (month_num == ref.month and day_num < ref.day)):
+                year_num += 1
+            try:
+                return datetime(year_num, month_num, day_num, 14, 0, tzinfo=timezone.utc)
+            except ValueError:
+                pass
+
+        # 3. Weekday pattern: back (?:on|next)? (monday|tuesday|wednesday|thursday|friday)
+        weekday_map = {
+            "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6
+        }
+        m_day = re.search(
+            r"(?:until|returning|back)\s+(?:on\s+|next\s+)?(monday|tuesday|wednesday|thursday|friday)",
+            clean_text,
+        )
+        if m_day:
+            target_wd = weekday_map[m_day.group(1).lower()]
+            cur_wd = ref.weekday()
+            days_ahead = (target_wd - cur_wd) % 7
+            if days_ahead == 0:
+                days_ahead = 7
+            target_dt = ref + timedelta(days=days_ahead)
+            return target_dt.replace(hour=14, minute=0, second=0, microsecond=0)
+
+        # 4. Relative "tomorrow"
+        if "until tomorrow" in clean_text or "back tomorrow" in clean_text:
+            target_dt = ref + timedelta(days=1)
+            return target_dt.replace(hour=14, minute=0, second=0, microsecond=0)
+
+        return None
 
     @staticmethod
     def extract_bounced_email(text: str) -> str | None:
@@ -217,17 +310,58 @@ class InboundEmailWatcher:
 
         logger.info(f"📥 [INBOUND EMAIL RECEIVED] From: {sender} | Subject: '{subject}'")
 
-        # 0. Early filter: Do not respond to Google system emails (googlemail.com, google.com), daemons, bounces, or noreply
+        # 0. Early filter A: Check for Out-of-Office / vacation responders and snooze sequence
+        if self.is_ooo_notification(subject, body):
+            lead = None
+            if self.storage and hasattr(self.storage, "list_leads"):
+                for l in self.storage.list_leads():
+                    if l.contact_email and l.contact_email.lower().strip() == sender:
+                        lead = l
+                        break
+
+            return_date = self.parse_ooo_return_date(f"{subject} {body}")
+            now = datetime.now(timezone.utc)
+            if return_date:
+                rescheduled_dt = (return_date + timedelta(days=1)).replace(hour=14, minute=0, second=0, microsecond=0)
+                reason_msg = f"Out-of-office auto-reply parsed with return date {return_date.strftime('%Y-%m-%d')}. Sequence snoozed until {rescheduled_dt.strftime('%Y-%m-%d %H:%M UTC')}."
+            else:
+                rescheduled_dt = (now + timedelta(days=7)).replace(hour=14, minute=0, second=0, microsecond=0)
+                reason_msg = f"Out-of-office auto-reply detected without date. Sequence snoozed for 7 days until {rescheduled_dt.strftime('%Y-%m-%d %H:%M UTC')}."
+
+            if lead:
+                lead.sequence_state = SequenceState.PAUSED.value
+                lead.next_outreach_at = rescheduled_dt.isoformat()
+                lead.log_event("OOO_SNOOZED", reason_msg)
+                if hasattr(self.storage, "save_lead"):
+                    self.storage.save_lead(lead)
+                logger.info(f"⏸️ [OOO SNOOZED] Lead {lead.lead_id} ({sender}) snoozed until {rescheduled_dt.isoformat()}.")
+
+            return {
+                "ok": True,
+                "sender": sender,
+                "subject": subject,
+                "intent": "OOO_AUTO_REPLY",
+                "lead_id": lead.lead_id if lead else None,
+                "rescheduled_at": rescheduled_dt.isoformat(),
+                "reply_dispatched": False,
+                "status": "OOO_SNOOZED",
+                "received_at": now.isoformat(),
+            }
+
+        # 0. Early filter B: Do not respond to Google system emails (googlemail.com, google.com), daemons, bounces, or noreply
         if self.should_ignore_inbound(sender, subject):
             # Check if this ignored system message is a bounce / delivery failure notification
             bounced_recipient = self.extract_bounced_email(f"{subject} {body}")
             archived_lead_id = None
             company_name_for_bounce = ""
             if bounced_recipient and self.storage and hasattr(self.storage, "list_leads"):
+                if hasattr(self.storage, "add_to_global_suppression"):
+                    self.storage.add_to_global_suppression(bounced_recipient)
                 for l in self.storage.list_leads():
                     if l.contact_email and l.contact_email.lower().strip() == bounced_recipient.lower().strip():
                         archived_lead_id = l.lead_id
                         company_name_for_bounce = getattr(l, "company_name", "") or ""
+                        l.sequence_state = SequenceState.BOUNCED.value
                         l.transition(State.ARCHIVED, f"Delivery bounce received: {subject}")
                         if hasattr(self.storage, "save_lead"):
                             self.storage.save_lead(l)
@@ -366,12 +500,21 @@ class InboundEmailWatcher:
         draft_reply = ai_eval.get("draft_reply_text", "")
         draft_subj = ai_eval.get("draft_subject", f"Re: {subject}")
 
-        # 3. Handle Lead State Machine Transitions
+        # 3. Handle Lead State Machine Transitions & Sequencer Auto-Stop
         if lead:
+            lead.outreach_replied = True
+            lead.next_outreach_at = ""
             if intent == "OPT_OUT":
+                lead.opt_out = True
+                lead.sequence_state = SequenceState.SUPPRESSED.value
+                if self.storage and hasattr(self.storage, "add_to_global_suppression"):
+                    self.storage.add_to_global_suppression(sender)
                 lead.transition(State.ARCHIVED, f"Opt-out received via email from {sender}")
             elif lead.state == State.OUTREACH_SENT and intent in {"INTERESTED", "QUESTION"}:
+                lead.sequence_state = SequenceState.REPLIED.value
                 lead.transition(State.CONVERSATIONAL_INTAKE, f"Prospect replied to outreach: {ai_eval.get('summary')}")
+            elif intent in {"INTERESTED", "QUESTION"}:
+                lead.sequence_state = SequenceState.REPLIED.value
             
             if hasattr(self.storage, "save_lead"):
                 self.storage.save_lead(lead)

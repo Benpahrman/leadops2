@@ -81,7 +81,7 @@ def is_office_hours(
 from .domain import State
 from .portal import PortalService
 from .scout_pipeline import ScoutCandidate, ScoutPortalPipeline
-from .storage import StorageBackend
+from .storage import StorageBackend, normalize_company_name, normalize_domain
 from .tools.dom_pruner import prune_dom
 from .tools.waf_prober import generate_browser_headers, probe_waf_signatures
 
@@ -291,10 +291,20 @@ class ScoutBackgroundWorker:
             (getattr(l, "company_name", "") or "").lower().strip()
             for l in existing_leads
         }
+        existing_companies.update({
+            normalize_company_name(getattr(l, "company_name", "") or "")
+            for l in existing_leads
+            if getattr(l, "company_name", "")
+        })
         existing_domains = {
-            getattr(l, "website", "").lower().replace("https://", "").replace("http://", "").replace("www.", "").strip("/ ").split("/")[0]
+            normalize_domain(getattr(l, "website", "") or "")
             for l in existing_leads
             if getattr(l, "website", "")
+        }
+        existing_emails = {
+            (getattr(l, "contact_email", "") or "").lower().strip()
+            for l in existing_leads
+            if getattr(l, "contact_email", "")
         }
 
         # Multi-Channel Priority Dispatch
@@ -789,8 +799,22 @@ class ScoutBackgroundWorker:
         company_website = target.get("website", "")
         discovered_name = target.get("company_name", "")
 
-        # Deduplication check against persistent contact history
-        if self.storage and hasattr(self.storage, "is_recipient_or_domain_contacted"):
+        # Deduplication check against persistent contact history and universal suppression
+        if self.storage and hasattr(self.storage, "check_prospect_deduplication"):
+            is_dup, dedup_reason = self.storage.check_prospect_deduplication(
+                company_name=target["company_name"],
+                domain=target.get("website", ""),
+                email=target.get("contact_email", ""),
+            )
+            if is_dup:
+                logger.info(f"⏭️ [SCOUT DEDUPLICATION] Prospect '{target['company_name']}' / '{target.get('contact_email')}' blocked ({dedup_reason}). Skipping duplicate.")
+                return {
+                    "ok": False,
+                    "status": "DUPLICATE_COMPANY" if "COMPANY" in dedup_reason else "DUPLICATE_PROSPECT",
+                    "reason": f"Prospect '{target['company_name']}' is a duplicate or suppressed ({dedup_reason}).",
+                    "dedup_reason": dedup_reason,
+                }
+        elif self.storage and hasattr(self.storage, "is_recipient_or_domain_contacted"):
             if self.storage.is_recipient_or_domain_contacted(
                 email=target.get("contact_email"),
                 domain=target.get("website", ""),
@@ -802,6 +826,7 @@ class ScoutBackgroundWorker:
                     "ok": False,
                     "status": "DUPLICATE_COMPANY",
                     "reason": f"Company '{target['company_name']}' already contacted within 45 days.",
+                    "dedup_reason": "RECENTLY_CONTACTED_45D",
                 }
 
         # Strip trailing timestamps and numeric IDs from company name
@@ -1425,8 +1450,10 @@ class ScoutBackgroundWorker:
                 lead.transition(State.REVIEW, "Scout discovery and enrichment completed")
             if lead.state == State.REVIEW:
                 lead.transition(State.PITCH_PENDING_APPROVAL, "Enriched pitch prepared for founder review")
+            lead.outreach_status = getattr(lead, "outreach_status", None) or "BACKLOG_VETTED"
+            lead.vetted_at = getattr(lead, "vetted_at", None) or datetime.now(timezone.utc).isoformat()
             self.storage.save_lead(lead)
-            logger.info(f"📋 [OUTREACH PENDING REVIEW] Copy prepared for {target['company_name']} | State: {lead.state.value}")
+            logger.info(f"📋 [OUTREACH PENDING REVIEW] Copy prepared for {target['company_name']} | State: {lead.state.value} | Status: {lead.outreach_status}")
 
             # Push mobile notification to Discord & Telegram with 1-tap controls & 3-minute grace countdown
             try:

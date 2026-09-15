@@ -33,6 +33,19 @@ class ScoutPortalPipeline:
             raise ValueError("source_url must be present in Scout evidence")
         lead = Lead(lead_id, tier_key)
         lead.jurisdiction = str(research.get("jurisdiction", ""))
+        lead.city = str(research.get("city", ""))
+        lead.state_code = str(research.get("state_code", "") or research.get("state", ""))
+        lead.county = str(research.get("county", ""))
+        lead.county_fips = str(research.get("county_fips", ""))
+
+        if not lead.county and (lead.city or lead.jurisdiction):
+            from .tools.geo_county_resolver import GeoCountyResolver
+            loc = GeoCountyResolver.resolve_location(address=lead.jurisdiction, city=lead.city, state=lead.state_code)
+            lead.city = lead.city or loc.city
+            lead.state_code = lead.state_code or loc.state_code
+            lead.county = loc.county
+            lead.county_fips = loc.county_fips
+
         slug = self.portal.publish_sandbox(lead, company_name, sample_rows, source_url)
         intake = self.portal.build_intake_form(slug, research)
         return ScoutCandidate(lead_id, slug, source_url, intake)

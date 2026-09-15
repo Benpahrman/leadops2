@@ -90,6 +90,8 @@ class PortalService:
                 base_url=os.environ.get("LEADOPS_PUBLIC_BASE_URL", "https://omnileadfeeder.tech"),
                 contact_name=(getattr(lead, "contact_name", "") or "there").split()[0],
                 contact_role=getattr(lead, "contact_role", "Operations"),
+                sample_rows=rows[:2] if rows else None,
+                county_name=getattr(lead, "county", ""),
             )
             lead.outreach_subject = pitch.subject
             lead.outreach_body = pitch.body_text

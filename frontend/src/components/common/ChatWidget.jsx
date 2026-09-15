@@ -6,7 +6,7 @@ export default function ChatWidget({ slug = 'lead-apex-roofing' }) {
   const [messages, setMessages] = useState([
     {
       sender: 'alex',
-      text: "Hi! I'm Alex, Lead Automation Architect. Need custom county fields, webhook specs, or escrow details? Ask me anything!",
+      text: "Hi! I'm Alex, Lead Automation Architect. Need custom county fields, webhook specs, or 3-day free trial details? Ask me anything!",
     },
   ]);
   const [inputVal, setInputVal] = useState('');
@@ -216,9 +216,9 @@ export default function ChatWidget({ slug = 'lead-apex-roofing' }) {
             <button
               className="btn btn-outline"
               style={{ fontSize: '11px', padding: '3px 8px', whiteSpace: 'nowrap' }}
-              onClick={() => handleSend('How does the $250 escrow deposit work?')}
+              onClick={() => handleSend('How does the $99 Setup Sprint and 3-day trial work?')}
             >
-              How does escrow work?
+              $99 Sprint & 3-Day Trial?
             </button>
             <button
               className="btn btn-outline"

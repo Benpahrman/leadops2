@@ -1,5 +1,7 @@
 """Durable persistence layer for LeadOps domain and portal state."""
 
+from __future__ import annotations
+
 import json
 import sqlite3
 import threading
@@ -14,8 +16,42 @@ from .logging_config import get_logger
 logger = get_logger("storage")
 
 
+def normalize_company_name(name: str) -> str:
+    """Normalize company name by stripping punctuation, whitespace, trailing digits, and corporate entity suffixes."""
+    if not name:
+        return ""
+    import re
+    s = str(name).lower().strip()
+    s = re.sub(r"\s+\d{3,}.*$", "", s).strip()
+    s = s.replace(".", "").replace(",", " ")
+    pattern = r"\b(llc|inc|incorporated|corp|corporation|co|company|ltd|limited|pllc|pc|llp|lp|group|holdings|associates|partners|services|enterprise|enterprises)\b"
+    s = re.sub(pattern, "", s)
+    s = re.sub(r"[^a-z0-9]", "", s)
+    return s
+
+
+def normalize_domain(domain_or_url: str) -> str:
+    """Normalize domain by stripping protocol, www., paths, ports, query strings."""
+    if not domain_or_url:
+        return ""
+    import re
+    d = str(domain_or_url).lower().strip()
+    d = re.sub(r"^https?://", "", d)
+    d = re.sub(r"^www\.", "", d)
+    d = d.split("/")[0].split("?")[0].split(":")[0].strip()
+    return d
+
+
 class StorageBackend(Protocol):
     """Protocol for persisting leads, sandboxes, and webhook idempotency records."""
+
+    def check_prospect_deduplication(
+        self,
+        company_name: str = "",
+        domain: str = "",
+        email: str = "",
+        exclude_lead_id: str = "",
+    ) -> tuple[bool, str]: ...
 
     def save_lead(self, lead: Lead) -> None: ...
 
@@ -123,6 +159,50 @@ class InMemoryStorageBackend:
         self.tickets: dict[str, Any] = {}
         self.cancellation_requests: dict[str, Any] = {}
         self.email_templates: dict[str, Any] = {}
+        self.sequence_dispatch_log: dict[str, dict[str, Any]] = {}
+        self.global_suppression_list: set[str] = set()
+
+    def record_sequence_dispatch(
+        self,
+        idempotency_key: str,
+        lead_id: str,
+        touch_number: int,
+        recipient_email: str,
+        status: str = "DISPATCHED",
+        metadata: dict | None = None,
+    ) -> bool:
+        if idempotency_key in self.sequence_dispatch_log:
+            return False
+        self.sequence_dispatch_log[idempotency_key] = {
+            "idempotency_key": idempotency_key,
+            "lead_id": lead_id,
+            "touch_number": touch_number,
+            "dispatched_at": datetime.now(timezone.utc).isoformat(),
+            "recipient_email": recipient_email,
+            "status": status,
+            "metadata": metadata or {},
+        }
+        return True
+
+    def has_sequence_dispatch(self, idempotency_key: str) -> bool:
+        return idempotency_key in self.sequence_dispatch_log
+
+    def add_to_global_suppression(self, identifier: str, reason: str = "") -> None:
+        if identifier:
+            self.global_suppression_list.add(identifier.strip().lower())
+
+    def is_globally_suppressed(self, email: str = "", domain: str = "") -> bool:
+        email_clean = (email or "").strip().lower()
+        domain_clean = (domain or (email_clean.split("@")[-1] if "@" in email_clean else "")).strip().lower()
+        if email_clean and email_clean in self.global_suppression_list:
+            return True
+        if domain_clean and domain_clean in self.global_suppression_list:
+            return True
+        for l in self.leads.values():
+            if getattr(l, "opt_out", False):
+                if (l.contact_email or "").strip().lower() == email_clean:
+                    return True
+        return False
 
     def save_lead(self, lead: Lead) -> None:
         self.leads[lead.lead_id] = lead
@@ -246,6 +326,61 @@ class InMemoryStorageBackend:
                     return True
 
         return False
+
+    def check_prospect_deduplication(
+        self,
+        company_name: str = "",
+        domain: str = "",
+        email: str = "",
+        exclude_lead_id: str = "",
+    ) -> tuple[bool, str]:
+        """Strict multi-key deduplication against universal suppression, 45-day contact logs, and existing leads."""
+        email_clean = (email or "").lower().strip()
+        domain_clean = normalize_domain(domain or (email_clean.split("@")[-1] if "@" in email_clean else ""))
+        comp_norm = normalize_company_name(company_name)
+
+        # 1. Universal Global Suppression Check
+        if email_clean and self.is_globally_suppressed(email=email_clean, domain=domain_clean):
+            return True, "GLOBAL_SUPPRESSION"
+
+        # 2. Sent Logs & Recent Contact History Check (45-Day window)
+        if self.is_recipient_or_domain_contacted(
+            email=email_clean,
+            domain=domain_clean,
+            company_name=company_name,
+            within_days=45,
+            exclude_lead_id=exclude_lead_id,
+        ):
+            return True, "RECENTLY_CONTACTED_45D"
+
+        # 3. Check All Existing Leads in Storage
+        PUBLIC_MAIL_DOMAINS = {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com", "aol.com"}
+        for lead in self.leads.values():
+            if exclude_lead_id and getattr(lead, "lead_id", "") == exclude_lead_id:
+                continue
+
+            l_email = (getattr(lead, "contact_email", "") or "").lower().strip()
+            l_comp = getattr(lead, "company_name", "") or ""
+            l_comp_norm = normalize_company_name(l_comp)
+            l_website = normalize_domain(getattr(lead, "website", "") or "")
+
+            # A. Exact Email Match
+            if email_clean and l_email and email_clean == l_email:
+                return True, "DUPLICATE_EMAIL"
+
+            # B. Company Name Match
+            if comp_norm and len(comp_norm) >= 4 and l_comp_norm and len(l_comp_norm) >= 4:
+                if comp_norm == l_comp_norm or (len(comp_norm) >= 6 and (comp_norm in l_comp_norm or l_comp_norm in comp_norm)):
+                    return True, "DUPLICATE_COMPANY"
+
+            # C. Domain Match
+            if domain_clean and domain_clean not in PUBLIC_MAIL_DOMAINS:
+                if l_website and domain_clean == l_website:
+                    return True, "DUPLICATE_DOMAIN"
+                if l_email and l_email.endswith(f"@{domain_clean}"):
+                    return True, "DUPLICATE_DOMAIN"
+
+        return False, "UNIQUE"
 
     def record_inbound_email(
         self,
@@ -397,6 +532,21 @@ class SqliteStorageBackend:
             self._local.conn = conn
         return self._local.conn
 
+    def close(self) -> None:
+        """Close any thread-local connection for this storage instance."""
+        if hasattr(self._local, "conn"):
+            try:
+                self._local.conn.close()
+            except Exception:
+                pass
+            delattr(self._local, "conn")
+
+    def __enter__(self) -> SqliteStorageBackend:
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
+
     def _init_db(self) -> None:
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -472,11 +622,53 @@ class SqliteStorageBackend:
                 ("deliverability_checked_at", "TEXT DEFAULT ''"),
                 ("email_provider", "TEXT DEFAULT ''"),
                 ("email_mx_hosts", "TEXT DEFAULT '[]'"),
+                ("city", "TEXT DEFAULT ''"),
+                ("state_code", "TEXT DEFAULT ''"),
+                ("county", "TEXT DEFAULT ''"),
+                ("county_fips", "TEXT DEFAULT ''"),
+                ("outreach_touch_count", "INTEGER DEFAULT 0"),
+                ("last_outreach_at", "TEXT DEFAULT ''"),
+                ("next_outreach_at", "TEXT DEFAULT ''"),
+                ("outreach_replied", "INTEGER DEFAULT 0"),
+                ("outreach_thread_id", "TEXT DEFAULT ''"),
+                ("sequence_state", "TEXT DEFAULT 'NOT_ENROLLED'"),
+                ("recipient_timezone", "TEXT DEFAULT 'America/Chicago'"),
             ]:
                 try:
                     cursor.execute(f"ALTER TABLE leads ADD COLUMN {col} {col_def}")
                 except sqlite3.OperationalError:
                     pass
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sequence_dispatch_log (
+                    idempotency_key TEXT PRIMARY KEY,
+                    lead_id TEXT NOT NULL,
+                    touch_number INTEGER NOT NULL,
+                    dispatched_at TEXT NOT NULL,
+                    recipient_email TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    metadata TEXT DEFAULT '{}'
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_seq_dispatch_lead_id ON sequence_dispatch_log (lead_id)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS universal_suppression (
+                    identifier TEXT PRIMARY KEY,
+                    suppressed_at TEXT NOT NULL,
+                    reason TEXT DEFAULT ''
+                )
+                """
+            )
+            try:
+                cursor.execute("ALTER TABLE universal_suppression ADD COLUMN reason TEXT DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS sandboxes (
@@ -517,13 +709,19 @@ class SqliteStorageBackend:
                     winback_stage, heartbeat_count, referred_by, claimed_by, is_paused, paused_until, paypal_vault_id, subscription_id, decision_maker_linkedin,
                     automation_opportunity_score, purchase_probability, pain_severity, qualification_verdict, research,
                     deposit_amount_usd, unlocked_30d_backlog, updated_at,
-                    deliverability_score, deliverability_status, deliverability_checked_at, email_provider, email_mx_hosts
+                    deliverability_score, deliverability_status, deliverability_checked_at, email_provider, email_mx_hosts,
+                    city, state_code, county, county_fips,
+                    outreach_touch_count, last_outreach_at, next_outreach_at, outreach_replied, outreach_thread_id,
+                    sequence_state, recipient_timezone
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
+                    ?, ?
                 )
                 ON CONFLICT(lead_id) DO UPDATE SET
                     tier_key=excluded.tier_key,
@@ -575,6 +773,17 @@ class SqliteStorageBackend:
                     deliverability_checked_at=excluded.deliverability_checked_at,
                     email_provider=excluded.email_provider,
                     email_mx_hosts=excluded.email_mx_hosts,
+                    city=excluded.city,
+                    state_code=excluded.state_code,
+                    county=excluded.county,
+                    county_fips=excluded.county_fips,
+                    outreach_touch_count=excluded.outreach_touch_count,
+                    last_outreach_at=excluded.last_outreach_at,
+                    next_outreach_at=excluded.next_outreach_at,
+                    outreach_replied=excluded.outreach_replied,
+                    outreach_thread_id=excluded.outreach_thread_id,
+                    sequence_state=excluded.sequence_state,
+                    recipient_timezone=excluded.recipient_timezone,
                     updated_at=excluded.updated_at
                 """,
                 (
@@ -607,8 +816,8 @@ class SqliteStorageBackend:
                     getattr(lead, "created_at", "") or "",
                     1 if getattr(lead, "upsell_sent", False) else 0,
                     1 if getattr(lead, "referral_sent", False) else 0,
-                    getattr(lead, "winback_stage", 0),
-                    getattr(lead, "heartbeat_count", 0),
+                    getattr(lead, "winback_stage", 0) or 0,
+                    getattr(lead, "heartbeat_count", 0) or 0,
                     getattr(lead, "referred_by", "") or "",
                     getattr(lead, "claimed_by", "") or "",
                     1 if getattr(lead, "is_paused", False) else 0,
@@ -634,6 +843,17 @@ class SqliteStorageBackend:
                     getattr(lead, "deliverability_checked_at", "") or "",
                     getattr(lead, "email_provider", "") or "",
                     json.dumps(getattr(lead, "email_mx_hosts", []) or []),
+                    getattr(lead, "city", "") or "",
+                    getattr(lead, "state_code", "") or "",
+                    getattr(lead, "county", "") or "",
+                    getattr(lead, "county_fips", "") or "",
+                    int(getattr(lead, "outreach_touch_count", 0) or 0),
+                    getattr(lead, "last_outreach_at", "") or "",
+                    getattr(lead, "next_outreach_at", "") or "",
+                    1 if getattr(lead, "outreach_replied", False) else 0,
+                    getattr(lead, "outreach_thread_id", "") or "",
+                    getattr(lead, "sequence_state", "NOT_ENROLLED") or "NOT_ENROLLED",
+                    getattr(lead, "recipient_timezone", "America/Chicago") or "America/Chicago",
                 ),
             )
             conn.commit()
@@ -1182,6 +1402,65 @@ class SqliteStorageBackend:
 
         return False
 
+    def check_prospect_deduplication(
+        self,
+        company_name: str = "",
+        domain: str = "",
+        email: str = "",
+        exclude_lead_id: str = "",
+    ) -> tuple[bool, str]:
+        """Strict multi-key deduplication against universal suppression, 45-day contact logs, and existing database leads."""
+        email_clean = (email or "").lower().strip()
+        domain_clean = normalize_domain(domain or (email_clean.split("@")[-1] if "@" in email_clean else ""))
+        comp_norm = normalize_company_name(company_name)
+
+        # 1. Universal Global Suppression Check
+        if email_clean and self.is_globally_suppressed(email=email_clean, domain=domain_clean):
+            return True, "GLOBAL_SUPPRESSION"
+
+        # 2. Sent Logs & Recent Contact History Check (45-Day window)
+        if self.is_recipient_or_domain_contacted(
+            email=email_clean,
+            domain=domain_clean,
+            company_name=company_name,
+            within_days=45,
+            exclude_lead_id=exclude_lead_id,
+        ):
+            return True, "RECENTLY_CONTACTED_45D"
+
+        # 3. Check All Existing Leads in Database
+        PUBLIC_MAIL_DOMAINS = {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com", "aol.com"}
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT lead_id, company_name, contact_email, website FROM leads")
+            rows = cursor.fetchall()
+            for r in rows:
+                if exclude_lead_id and r["lead_id"] == exclude_lead_id:
+                    continue
+
+                l_email = (r["contact_email"] or "").lower().strip()
+                l_comp = r["company_name"] or ""
+                l_comp_norm = normalize_company_name(l_comp)
+                l_website = normalize_domain(r["website"] or "")
+
+                # A. Exact Email Match
+                if email_clean and l_email and email_clean == l_email:
+                    return True, "DUPLICATE_EMAIL"
+
+                # B. Company Name Match
+                if comp_norm and len(comp_norm) >= 4 and l_comp_norm and len(l_comp_norm) >= 4:
+                    if comp_norm == l_comp_norm or (len(comp_norm) >= 6 and (comp_norm in l_comp_norm or l_comp_norm in comp_norm)):
+                        return True, "DUPLICATE_COMPANY"
+
+                # C. Domain Match
+                if domain_clean and domain_clean not in PUBLIC_MAIL_DOMAINS:
+                    if l_website and domain_clean == l_website:
+                        return True, "DUPLICATE_DOMAIN"
+                    if l_email and l_email.endswith(f"@{domain_clean}"):
+                        return True, "DUPLICATE_DOMAIN"
+
+        return False, "UNIQUE"
+
     def record_inbound_email(
         self,
         message_id: str,
@@ -1388,6 +1667,109 @@ class SqliteStorageBackend:
                     pass
             return results
 
+    # Sequence dispatch idempotency & fail-closed universal suppression
+    def record_sequence_dispatch(
+        self,
+        idempotency_key: str,
+        lead_id: str,
+        touch_number: int,
+        recipient_email: str,
+        status: str = "DISPATCHED",
+        metadata: dict | None = None,
+    ) -> bool:
+        """Record an outbound sequence dispatch event with durable idempotency key."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO sequence_dispatch_log (
+                        idempotency_key, lead_id, touch_number, dispatched_at, recipient_email, status, metadata
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        idempotency_key,
+                        lead_id,
+                        touch_number,
+                        datetime.now(timezone.utc).isoformat(),
+                        recipient_email,
+                        status,
+                        json.dumps(metadata or {}),
+                    ),
+                )
+                conn.commit()
+                return True
+            except sqlite3.IntegrityError:
+                return False
+
+    def has_sequence_dispatch(self, idempotency_key: str) -> bool:
+        """Check if a specific sequence touch was already dispatched."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT 1 FROM sequence_dispatch_log WHERE idempotency_key = ?",
+                (idempotency_key,),
+            )
+            return cursor.fetchone() is not None
+
+    def add_to_global_suppression(self, identifier: str, reason: str = "") -> None:
+        """Add an email or domain to the universal suppression database."""
+        ident = (identifier or "").strip().lower()
+        if not ident:
+            return
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS universal_suppression (
+                    identifier TEXT PRIMARY KEY,
+                    suppressed_at TEXT NOT NULL,
+                    reason TEXT DEFAULT ''
+                )
+                """
+            )
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO universal_suppression (identifier, suppressed_at, reason)
+                VALUES (?, ?, ?)
+                """,
+                (ident, datetime.now(timezone.utc).isoformat(), reason or ""),
+            )
+            conn.commit()
+
+    def is_globally_suppressed(self, email: str = "", domain: str = "") -> bool:
+        """Millisecond fail-closed suppression check against global suppression list and opted-out leads."""
+        email_clean = (email or "").strip().lower()
+        domain_clean = (domain or (email_clean.split("@")[-1] if "@" in email_clean else "")).strip().lower()
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS universal_suppression (
+                    identifier TEXT PRIMARY KEY,
+                    suppressed_at TEXT NOT NULL,
+                    reason TEXT DEFAULT ''
+                )
+                """
+            )
+            if email_clean:
+                cursor.execute("SELECT 1 FROM universal_suppression WHERE identifier = ?", (email_clean,))
+                if cursor.fetchone() is not None:
+                    return True
+            if domain_clean:
+                cursor.execute("SELECT 1 FROM universal_suppression WHERE identifier = ?", (domain_clean,))
+                if cursor.fetchone() is not None:
+                    return True
+
+            # Also check leads table
+            if email_clean:
+                cursor.execute("SELECT 1 FROM leads WHERE LOWER(contact_email) = ? AND state = 'ARCHIVED'", (email_clean,))
+                if cursor.fetchone() is not None:
+                    return True
+
+        return False
+
 
     @staticmethod
     def _row_to_ticket(row: sqlite3.Row):
@@ -1529,6 +1911,17 @@ class SqliteStorageBackend:
                 if isinstance(get_col("email_mx_hosts", "[]"), str) and get_col("email_mx_hosts", "[]").strip().startswith("[")
                 else (get_col("email_mx_hosts", []) if isinstance(get_col("email_mx_hosts", []), list) else [])
             ),
+            city=str(get_col("city", "") or ""),
+            state_code=str(get_col("state_code", "") or ""),
+            county=str(get_col("county", "") or ""),
+            county_fips=str(get_col("county_fips", "") or ""),
+            outreach_touch_count=int(get_col("outreach_touch_count", 0) or 0),
+            last_outreach_at=str(get_col("last_outreach_at", "") or ""),
+            next_outreach_at=str(get_col("next_outreach_at", "") or ""),
+            outreach_replied=bool(get_col("outreach_replied", 0)),
+            outreach_thread_id=str(get_col("outreach_thread_id", "") or ""),
+            sequence_state=str(get_col("sequence_state", "NOT_ENROLLED") or "NOT_ENROLLED"),
+            recipient_timezone=str(get_col("recipient_timezone", "America/Chicago") or "America/Chicago"),
         )
 
     def backup_db(self, target_path: str | None = None) -> str:
@@ -2303,6 +2696,66 @@ class PostgresStorageBackend:
                         return True
 
         return False
+
+    def check_prospect_deduplication(
+        self,
+        company_name: str = "",
+        domain: str = "",
+        email: str = "",
+        exclude_lead_id: str = "",
+    ) -> tuple[bool, str]:
+        """Strict multi-key deduplication against universal suppression, 45-day contact logs, and existing PostgreSQL leads."""
+        email_clean = (email or "").lower().strip()
+        domain_clean = normalize_domain(domain or (email_clean.split("@")[-1] if "@" in email_clean else ""))
+        comp_norm = normalize_company_name(company_name)
+
+        # 1. Universal Global Suppression Check
+        if email_clean and self.is_globally_suppressed(email=email_clean, domain=domain_clean):
+            return True, "GLOBAL_SUPPRESSION"
+
+        # 2. Sent Logs & Recent Contact History Check (45-Day window)
+        if self.is_recipient_or_domain_contacted(
+            email=email_clean,
+            domain=domain_clean,
+            company_name=company_name,
+            within_days=45,
+            exclude_lead_id=exclude_lead_id,
+        ):
+            return True, "RECENTLY_CONTACTED_45D"
+
+        # 3. Check Database Leads
+        PUBLIC_MAIL_DOMAINS = {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com", "aol.com"}
+        from sqlalchemy import text
+        with self.engine.connect() as conn:
+            query = text("SELECT lead_id, company_name, contact_email, website FROM leads")
+            result = conn.execute(query)
+            rows = result.mappings().fetchall()
+            for r in rows:
+                if exclude_lead_id and r["lead_id"] == exclude_lead_id:
+                    continue
+
+                l_email = (r["contact_email"] or "").lower().strip()
+                l_comp = r["company_name"] or ""
+                l_comp_norm = normalize_company_name(l_comp)
+                l_website = normalize_domain(r["website"] or "")
+
+                # A. Exact Email Match
+                if email_clean and l_email and email_clean == l_email:
+                    return True, "DUPLICATE_EMAIL"
+
+                # B. Company Name Match
+                if comp_norm and len(comp_norm) >= 4 and l_comp_norm and len(l_comp_norm) >= 4:
+                    if comp_norm == l_comp_norm or (len(comp_norm) >= 6 and (comp_norm in l_comp_norm or l_comp_norm in comp_norm)):
+                        return True, "DUPLICATE_COMPANY"
+
+                # C. Domain Match
+                if domain_clean and domain_clean not in PUBLIC_MAIL_DOMAINS:
+                    if l_website and domain_clean == l_website:
+                        return True, "DUPLICATE_DOMAIN"
+                    if l_email and l_email.endswith(f"@{domain_clean}"):
+                        return True, "DUPLICATE_DOMAIN"
+
+        return False, "UNIQUE"
 
     def record_inbound_email(
         self,

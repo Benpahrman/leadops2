@@ -6,6 +6,16 @@ import EscrowCheckoutModal from '../components/sandbox/EscrowCheckoutModal';
 
 const PACKAGES = [
   {
+    id: 'trial',
+    name: '3-Day Free Trial',
+    tierKey: 'trial',
+    price: '$0 Free Trial',
+    badge: '3 DAYS FREE',
+    cadence: 'Daily Morning (06:00 UTC)',
+    records: 'Full Feed Access',
+    desc: 'Test-drive daily morning extraction in your Google Sheet or webhook for 3 days. Zero upfront deposit or card required.',
+  },
+  {
     id: 'starter',
     name: 'Starter Docket Feed',
     tierKey: 'weekly',
@@ -173,6 +183,16 @@ export default function PipelineIntakePage() {
         setCheckoutTargetUrl(formData.targetUrl.trim() || result.source_url || '');
 
         // Route selection behavior
+        if (selectedPlanId === 'trial') {
+          // Free Trial: No payment required upfront! Navigate directly to Sandbox / Dashboard
+          setTimeout(() => {
+            setIsSubmitting(false);
+            showToast('✓ 3-Day Free Trial Activated! 5–10 verified live records loaded. Daily feed starts tomorrow at 06:00 UTC.', 'success', 8000);
+            navigate(`/p/${result.slug}?trial=true`);
+          }, 900);
+          return;
+        }
+
         if (onboardingRoute === 'portal') {
           // Option 2: Open PayPal directly — after payment, takes user straight to Customer Portal!
           setTimeout(() => {
@@ -553,23 +573,40 @@ export default function PipelineIntakePage() {
               </div>
             </div>
 
-            {/* Refundable Deposit Callout */}
-            <div style={{
-              background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(56, 189, 248, 0.08))',
-              border: '1px solid #1e3a5f',
-              borderRadius: 'var(--radius-md)',
-              padding: '18px 20px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '14px',
-            }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-              </svg>
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                <b style={{ color: '#fff' }}>100% Refundable Deposit Guarantee:</b> Your setup sprint requires only a <b>$99 down payment</b>, 100% credited toward your first month. The net balance ($151 on Production) activates only after you inspect 25 live government filings passing &ge;95% schema accuracy.
+            {/* Refundable Deposit Callout or 3-Day Free Trial Banner */}
+            {selectedPlanId === 'trial' ? (
+              <div style={{
+                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(56, 189, 248, 0.12))',
+                border: '1px solid rgba(16, 185, 129, 0.4)',
+                borderRadius: 'var(--radius-md)',
+                padding: '18px 20px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '14px',
+              }}>
+                <div style={{ fontSize: '26px', flexShrink: 0 }}>🎁</div>
+                <div style={{ fontSize: '13px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                  <b style={{ color: '#fff' }}>3-Day Free Trial Active ($0 Due Today):</b> No credit card required. You'll receive real, verified daily feeds for 3 days directly into your preferred destination ({formData.preferredDestination || 'Google Sheets'}). Experience our 06:00 UTC morning delivery risk-free before making any financial commitment.
+                </div>
               </div>
-            </div>
+            ) : (
+              <div style={{
+                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(56, 189, 248, 0.08))',
+                border: '1px solid #1e3a5f',
+                borderRadius: 'var(--radius-md)',
+                padding: '18px 20px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '14px',
+              }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                </svg>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                  <b style={{ color: '#fff' }}>100% Refundable Deposit Guarantee:</b> Your setup sprint requires only a <b>$99 down payment</b>, 100% credited toward your first month. The net balance ($151 on Production) activates only after you inspect 25 live government filings passing &ge;95% schema accuracy.
+                </div>
+              </div>
+            )}
 
             {/* Submit CTA */}
             <div>
@@ -582,22 +619,34 @@ export default function PipelineIntakePage() {
                   fontWeight: 800,
                   fontSize: '15px',
                   padding: '16px',
-                  boxShadow: onboardingRoute === 'portal' ? '0 4px 24px rgba(16, 185, 129, 0.35)' : '0 4px 24px rgba(56, 189, 248, 0.35)',
-                  background: onboardingRoute === 'portal' ? 'linear-gradient(135deg, #10b981, #059669)' : 'linear-gradient(135deg, #0284c7, #2563eb)',
+                  boxShadow: selectedPlanId === 'trial'
+                    ? '0 4px 24px rgba(16, 185, 129, 0.45)'
+                    : onboardingRoute === 'portal'
+                    ? '0 4px 24px rgba(16, 185, 129, 0.35)'
+                    : '0 4px 24px rgba(56, 189, 248, 0.35)',
+                  background: selectedPlanId === 'trial'
+                    ? 'linear-gradient(135deg, #10b981, #047857)'
+                    : onboardingRoute === 'portal'
+                    ? 'linear-gradient(135deg, #10b981, #059669)'
+                    : 'linear-gradient(135deg, #0284c7, #2563eb)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: '8px',
                 }}
               >
-                {onboardingRoute === 'portal' ? (
+                {selectedPlanId === 'trial' ? (
+                  <span>🎁 Harvest 5–10 Live Records &amp; Start 3-Day Free Trial ($0 Due) ➔</span>
+                ) : onboardingRoute === 'portal' ? (
                   <span>⚡ Gather 5–10 Live Records &amp; Authorize $99 Setup Sprint ➔</span>
                 ) : (
                   <span>🔍 Gather 5–10 Live Records &amp; Preview Sandbox ➔</span>
                 )}
               </button>
               <div style={{ textAlign: 'center', marginTop: '10px', fontSize: '11px', color: 'var(--text-dim)' }}>
-                🔒 256-Bit Encrypted • Real Data Over Promises • Zero Mock Data • 100% Refundable Guarantee
+                {selectedPlanId === 'trial'
+                  ? '🎁 Zero Credit Card Required • Authentic Government Filings • 1-Click Verification'
+                  : '🔒 256-Bit Encrypted • Real Data Over Promises • Zero Mock Data • 100% Refundable Guarantee'}
               </div>
             </div>
           </div>

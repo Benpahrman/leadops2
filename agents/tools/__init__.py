@@ -11,6 +11,8 @@ from .specialist_handlers import (
     systems_architect_handler,
 )
 
+from .geo_county_resolver import GeoCountyResolver, ResolvedLocation
+
 __all__ = [
     "prune_dom",
     "generate_browser_headers",
@@ -23,4 +25,6 @@ __all__ = [
     "systems_architect_handler",
     "junior_developer_handler",
     "get_default_specialist_handlers",
+    "GeoCountyResolver",
+    "ResolvedLocation",
 ]

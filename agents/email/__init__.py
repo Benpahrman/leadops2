@@ -12,6 +12,7 @@ from .verifier import DeliverabilityVerifier, DeliverabilityStatus, Verification
 from .warmup import WarmupManager, WarmupTier
 from .inbound_watcher import InboundEmailWatcher
 from .quality_gate import OutreachQualityGatekeeper, QualityGateResult
+from .sequencer import ColdOutreachSequencer
 
 __all__ = [
     "EmailSettings",
@@ -24,4 +25,5 @@ __all__ = [
     "InboundEmailWatcher",
     "OutreachQualityGatekeeper",
     "QualityGateResult",
+    "ColdOutreachSequencer",
 ]

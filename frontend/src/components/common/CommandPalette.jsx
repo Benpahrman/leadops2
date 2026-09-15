@@ -26,7 +26,7 @@ export default function CommandPalette({
     { id: 'tab-deals', label: 'Go to Deals & Customers', tabKey: 'deals', icon: '📊', category: 'Navigation' },
     { id: 'tab-kanban', label: 'Go to Stage Kanban', tabKey: 'kanban', icon: '📌', category: 'Navigation' },
     { id: 'tab-swarm', label: 'Go to Dev Swarms & QA Gate', tabKey: 'swarm', icon: '🤖', category: 'Navigation' },
-    { id: 'tab-accounting', label: 'Go to Accounting & Escrow Vault', tabKey: 'accounting', icon: '💰', category: 'Navigation' },
+    { id: 'tab-accounting', label: 'Go to Accounting & Financial Vault', tabKey: 'accounting', icon: '💰', category: 'Navigation' },
     { id: 'tab-scrapers', label: 'Go to Scrapers & Datasets', tabKey: 'scrapers', icon: '⚡', category: 'Navigation' },
     { id: 'tab-daily', label: 'Go to Automated Daily Feeds', tabKey: 'daily', icon: '📅', category: 'Navigation' },
   ];

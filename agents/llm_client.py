@@ -1364,8 +1364,8 @@ class LLMAgentEngine:
         lead_info: dict[str, Any],
         sandbox_url: str = "",
     ) -> dict[str, Any]:
-        """AI Pitcher Agent: ZERO-LINK PERMISSION-FIRST OUTREACH ENGINE (35-55 words, high reply-intent)."""
         import random
+        import re
 
         # Dynamic Variation Engine rotations
         angles = [
@@ -1438,7 +1438,6 @@ class LLMAgentEngine:
                 raw_body = pitch_data.get("body") or pitch_data.get("body_text", "")
                 
                 # Sanitize: Strip any accidental URLs, markdown links, or banned words
-                import re
                 clean_body = re.sub(r"https?://\S+", "", raw_body).strip()
                 clean_body = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", clean_body).strip()
                 clean_body = re.sub(r"(?i)\bquick\s+", "", clean_body).strip()
@@ -1475,8 +1474,156 @@ class LLMAgentEngine:
                 }
             except (json.JSONDecodeError, ValueError):
                 pass
-        return {}
 
+        # Robust zero-link Touch 1 fallback matching brand & persona guidelines
+        clean_portal = re.sub(r"(?i)\s*(portal|registry|court|system|division|clerk|records)\s*", "", str(lead_info.get('portal_name', ''))).strip() or "public records"
+        clean_fn = (lead_info.get("contact_name") or "there").split()[0].strip() or "there"
+        comp = lead_info.get("company_name") or "your team"
+        fallback_subject = f"records for {comp}" if len(comp) < 20 else f"{clean_portal.lower()} records"
+        fallback_body = (
+            f"Hi {clean_fn},\n\n"
+            f"We pulled this morning's new filings for {comp} from the local registry and formatted them cleanly into a spreadsheet.\n\n"
+            f"Mind if I send the link over to review?\n\n"
+            f"{selected_sign_off}"
+        )
+        html_paragraphs = "".join(f"<p style='margin: 0 0 14px 0;'>{p.strip()}</p>" for p in fallback_body.split("\n\n") if p.strip())
+        return {
+            "subject": fallback_subject,
+            "body_text": fallback_body,
+            "body_html": (
+                f"<div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Inter', Segoe UI, sans-serif; "
+                f"color: #15251F; max-width: 580px; line-height: 1.55; font-size: 15px;\">"
+                f"{html_paragraphs}"
+                f"</div>"
+            ),
+            "word_count": len(fallback_body.split()),
+            "angle_used": selected_angle,
+        }
+
+    def run_sequencer_agent(
+        self,
+        lead_info: dict[str, Any],
+        touch_number: int,
+        prior_subject: str = "",
+        prior_body: str = "",
+    ) -> dict[str, Any]:
+        """AI Sequencer Agent: Generates authentic, humanized, peer-to-peer follow-up copy for Touch 2 (bump) and Touch 3 (breakup).
+        
+        Strict Rules:
+        - Written from Alex (Technical Solutions at LeadOps) speaking to an operations peer.
+        - Strictly 18 to 32 words max (excluding sign-off). Never exceed 34 words.
+        - ZERO links, zero attachments, 100% plaintext.
+        - Banned vocabulary: NEVER use 'quick' ('quick bump', 'quick question', 'quick follow up').
+        - Natural in-thread reply subject: Re: <prior_subject>.
+        """
+        import random
+        import re
+
+        clean_co = re.sub(r"(?i)\s+(inc\.?|llc|corp\.?|ltd\.?|co\.?|pllc)$", "", str(lead_info.get("company_name", "your team"))).strip()
+        first_name = (lead_info.get("contact_name") or "there").split()[0].strip() or "there"
+        county = lead_info.get("county") or lead_info.get("jurisdiction") or "local"
+        if county and "County" not in county and county.lower() != "local":
+            county = f"{county} County"
+
+        sign_offs = [
+            "Best,\nAlex | LeadOps",
+            "Cheers,\nAlex | LeadOps",
+            "Best,\nAlex",
+        ]
+        selected_sign_off = random.choice(sign_offs)
+
+        if touch_number == 2:
+            touch_context = (
+                f"TOUCH 2 (Day 4 In-Thread Fresh Filings Bump):\n"
+                f"- Purpose: Casual follow-up from an engineer/operator.\n"
+                f"- Context: We freshly indexed this morning's new {county} filings for {clean_co}.\n"
+                f"- Low-friction offer: Ask if they'd like today's updated spreadsheet or if they already have docket lookups handled in-house.\n"
+                f"- Target length: 20–28 words."
+            )
+        elif touch_number == 3:
+            touch_context = (
+                f"TOUCH 3 (Day 8 In-Thread Breakup & Standing Resource):\n"
+                f"- Purpose: Low-pressure, respectful close.\n"
+                f"- Context: Assume they already have docket extraction handled in-house.\n"
+                f"- Standing resource: If they ever need automated morning {county} filings before 8 AM, reach out anytime.\n"
+                f"- Target length: 20–28 words."
+            )
+        else:
+            return {}
+
+        system_prompt = (
+            "SYSTEM DIRECTIVE: HUMANIZED PEER-TO-PEER SEQUENCE ENGINE (ALEX @ LEADOPS)\n\n"
+            "You write authentic, humanized 1-on-1 follow-up cold emails for an automated public records feed service. "
+            "You write as Alex, a systems engineer, chatting with an operations peer. "
+            "You are direct, casual, pragmatic, and helpful. Never sound like an SDR, a marketer, or an AI.\n\n"
+            "STRICT RULES (NON-NEGOTIABLE):\n"
+            "1. LENGTH: Strictly 18 to 32 words max (excluding sign-off). Never exceed 34 words.\n"
+            "2. ZERO LINKS: No URLs, no domains, no tracking links.\n"
+            "3. ZERO JARGON: No corporate buzzwords ('streamline', 'synergy', 'transform', 'unlock', 'game-changer').\n"
+            "4. BANNED WORD: NEVER use the word 'quick' anywhere ('quick question', 'quick bump', 'quick follow up', 'quick note').\n"
+            "5. 100% PLAINTEXT: No markdown, bolding, bullet points, or HTML.\n"
+            f"6. SIGN-OFF: End exactly with:\n{selected_sign_off}\n\n"
+            f"{touch_context}\n\n"
+            "OUTPUT FORMAT: Emit ONLY valid JSON:\n"
+            "{\n"
+            '  "body": "Exact plaintext email body"\n'
+            "}"
+        )
+
+        user_prompt = (
+            f"Prospect Details:\n"
+            f"- Contact First Name: {first_name}\n"
+            f"- Company Name: {clean_co}\n"
+            f"- County / Jurisdiction: {county}\n"
+            f"- Prior Touch Subject: {prior_subject}\n\n"
+            f"Generate the exact Touch {touch_number} email JSON now:"
+        )
+
+        res = self.generate_completion(system_prompt, user_prompt, temperature=0.35, max_tokens=180)
+        if res and "{" in res and "}" in res:
+            try:
+                start = res.find("{")
+                end = res.rfind("}") + 1
+                data = json.loads(res[start:end])
+                raw_body = data.get("body") or data.get("body_text", "")
+                
+                # Sanitize: Strip links, markdown, and banned words
+                clean_body = re.sub(r"https?://\S+", "", raw_body).strip()
+                clean_body = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", clean_body).strip()
+                clean_body = re.sub(r"(?i)\bquick\s*", "", clean_body).strip()
+                
+                # Clean in-thread reply subject
+                clean_subj = re.sub(r"(?i)^(re:\s*)+", "", (prior_subject or "update").strip()).strip()
+                reply_subj = f"Re: {clean_subj}" if clean_subj else "Re: update"
+                
+                words = clean_body.split()
+                if len(words) > 35:
+                    if touch_number == 2:
+                        clean_body = (
+                            f"Hi {first_name},\n\n"
+                            f"Following up — we indexed this morning's new {county} filings. "
+                            f"Want me to send the updated spreadsheet, or are you all set in-house?\n\n"
+                            f"{selected_sign_off}"
+                        )
+                    else:
+                        clean_body = (
+                            f"Hi {first_name},\n\n"
+                            f"Assuming you have this handled in-house. "
+                            f"If you ever need daily {county} filings before 8 AM, reach out anytime.\n\n"
+                            f"{selected_sign_off}"
+                        )
+                    words = clean_body.split()
+
+                return {
+                    "touch_number": touch_number,
+                    "subject": reply_subj,
+                    "body_text": clean_body,
+                    "word_count": len(words),
+                    "is_humanized_peer": True,
+                }
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return {}
 
     def run_lead_enrichment_agent(
         self,

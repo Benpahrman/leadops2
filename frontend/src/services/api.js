@@ -630,6 +630,23 @@ export async function fetchAdminInboxes(token = '') {
   return res.json();
 }
 
+export async function startWarmupCycle(token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/warmup/start`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+
 export async function upsertAdminInbox(inboxData, token = '') {
   const headers = { 'Content-Type': 'application/json' };
   const resolved = resolveAdminAuth(token);
@@ -791,5 +808,98 @@ export async function disconnectMicrosoftOAuth(token = '') {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
+
+// ─── 14-Day High-Volume Prospector & Freshness Gate ─────────────────────────
+
+export async function fetchProspectorStatus(token = '') {
+  const headers = {};
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/prospector/status`, { headers });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function startProspectorCampaign(durationDays = 14, volumePerCycle = 3, channels = null, token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/prospector/start`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ duration_days: durationDays, volume_per_cycle: volumePerCycle, channels }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function pauseProspectorCampaign(token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/prospector/pause`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function resumeProspectorCampaign(token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/prospector/resume`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function triggerProspectorBurst(count = 3, channel = null, token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/prospector/trigger-burst`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ count, channel }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function refreshLeadFreshness(leadId, token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/prospector/refresh-freshness/${leadId}`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function batchRefreshStaleBacklog(token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/prospector/batch-refresh-stale`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 
 

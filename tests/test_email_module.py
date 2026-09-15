@@ -97,35 +97,32 @@ def test_deliverability_verifier_syntax_and_disposable():
 
 
 def test_warmup_tier_progression():
-    settings = EmailSettings(
-        warmup_week1_limit=25,
-        warmup_week2_limit=50,
-        warmup_week3_limit=75,
-        warmup_week4_limit=100,
-    )
-    warmup = WarmupManager(settings=settings)
-
+    warmup = WarmupManager()
     now = datetime.now(timezone.utc)
 
-    # Day 0 (Week 1): 25 limit
+    # Stage 1: Days 1–4 (3–5 emails/day)
     t1 = warmup.get_warmup_tier(warmup_start=now)
-    assert t1.week_number == 1
-    assert t1.daily_quota == 25
+    assert t1.daily_quota == 5
 
-    # Day 8 (Week 2): 50 limit (+25)
-    t2 = warmup.get_warmup_tier(warmup_start=now - timedelta(days=8))
-    assert t2.week_number == 2
-    assert t2.daily_quota == 50
+    # Stage 2: Days 5–8 (8–12 emails/day)
+    t2 = warmup.get_warmup_tier(warmup_start=now - timedelta(days=6))
+    assert t2.daily_quota == 12
 
-    # Day 16 (Week 3): 75 limit (+25)
-    t3 = warmup.get_warmup_tier(warmup_start=now - timedelta(days=16))
-    assert t3.week_number == 3
-    assert t3.daily_quota == 75
+    # Stage 3: Days 9–14 (15–20 emails/day)
+    t3 = warmup.get_warmup_tier(warmup_start=now - timedelta(days=10))
+    assert t3.daily_quota == 20
 
-    # Day 24 (Week 4): 100 limit (Max)
-    t4 = warmup.get_warmup_tier(warmup_start=now - timedelta(days=24))
-    assert t4.week_number == 4
-    assert t4.daily_quota == 100
+    # Stage 4: Days 15–21 (25 emails/day)
+    t4 = warmup.get_warmup_tier(warmup_start=now - timedelta(days=18))
+    assert t4.daily_quota == 25
+
+    # Stage 5: Days 22–30 (35 emails/day)
+    t5 = warmup.get_warmup_tier(warmup_start=now - timedelta(days=25))
+    assert t5.daily_quota == 35
+
+    # Stage 6: Day 31+ (40–50 emails/day)
+    t6 = warmup.get_warmup_tier(warmup_start=now - timedelta(days=32))
+    assert t6.daily_quota == 50
 
 
 def test_warmup_quota_enforcement_with_storage():
@@ -182,7 +179,10 @@ def test_cold_email_link_mode_permission_first_vs_direct():
         link_mode="permission_first",
     )
     assert pitch_pf.word_count < 60
-    assert "Would it be helpful to see the live feed sandbox" in pitch_pf.body_text
+    assert (
+        "Would it be helpful to see the rest of today's spreadsheet" in pitch_pf.body_text
+        or "Would it be helpful to see the live feed sandbox" in pitch_pf.body_text
+    )
     assert "http" not in pitch_pf.body_text
     # Still provides sandbox URL on PitchMessage for reply agent
     assert "/p/lone-star-pf" in pitch_pf.sandbox_url

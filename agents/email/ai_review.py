@@ -185,6 +185,30 @@ Inspect this email and return JSON:
         return res
 
 
+class SequencerVoiceAgent:
+    """Specialized LLM Agent that generates and humanizes multi-touch follow-up sequence messages (Touch 2 & 3)."""
+
+    def __init__(self, llm_engine: LLMAgentEngine | None = None):
+        self.llm = llm_engine or LLMAgentEngine()
+
+    def generate_touch(
+        self,
+        touch_number: int,
+        lead_info: dict[str, Any],
+        prior_subject: str = "",
+        prior_body: str = "",
+    ) -> dict[str, Any]:
+        """Generate humanized peer-to-peer sequence touch via LLM."""
+        if hasattr(self.llm, "run_sequencer_agent"):
+            return self.llm.run_sequencer_agent(
+                lead_info=lead_info,
+                touch_number=touch_number,
+                prior_subject=prior_subject,
+                prior_body=prior_body,
+            )
+        return {}
+
+
 class InboundReplyAgent:
     """Analyzes incoming prospect email replies and formulates contextual responses."""
 

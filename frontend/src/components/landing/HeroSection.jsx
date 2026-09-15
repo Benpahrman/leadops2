@@ -28,15 +28,28 @@ export default function HeroSection() {
         <div style={{ display: 'flex', justifyContent: 'center', gap: '14px', flexWrap: 'wrap' }}>
           <button
             className="btn btn-primary btn-lg"
+            style={{
+              background: 'linear-gradient(135deg, var(--green) 0%, #059669 100%)',
+              border: '1px solid #34d399',
+              boxShadow: '0 0 20px rgba(16, 185, 129, 0.35)',
+              color: '#022c22',
+              fontWeight: 800,
+            }}
+            onClick={() => navigate('/get-started?plan=trial')}
+          >
+            🎁 Start 3-Day Free Trial ➔
+          </button>
+          <button
+            className="btn btn-outline btn-lg"
             onClick={() => navigate('/get-started?plan=production')}
           >
-            Build Custom Pipeline ➔
+            Build $99 Setup Sprint
           </button>
           <button
             className="btn btn-outline btn-lg"
             onClick={() => navigate('/p/lead-apex-roofing')}
           >
-            Explore Sample Sandbox
+            Explore Live Sandbox
           </button>
           <a href="#roi-calculator" className="btn btn-outline btn-lg" style={{ borderColor: 'rgba(255,255,255,0.15)', color: 'var(--text-muted)' }}>
             Calculate ROI
@@ -53,7 +66,7 @@ export default function HeroSection() {
           <div className="stat-card">
             <div className="stat-label">Milestone Guarantee</div>
             <div className="stat-value" style={{ color: 'var(--cyan)', fontSize: '20px' }}>$99 Sprint</div>
-            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>100% credited to Month 1 in escrow</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>100% credited to Month 1 • 3-Day Trial</div>
           </div>
           <div className="stat-card">
             <div className="stat-label">Delivery Target</div>

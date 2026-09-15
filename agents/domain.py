@@ -24,6 +24,17 @@ class State(str, Enum):
     ARCHIVED = "ARCHIVED"
 
 
+class SequenceState(str, Enum):
+    NOT_ENROLLED = "NOT_ENROLLED"
+    ENROLLED = "ENROLLED"
+    IN_PROGRESS = "IN_PROGRESS"
+    PAUSED = "PAUSED"
+    COMPLETED = "COMPLETED"
+    REPLIED = "REPLIED"
+    BOUNCED = "BOUNCED"
+    SUPPRESSED = "SUPPRESSED"
+
+
 class PaymentEvent(str, Enum):
     DEPOSIT_PAID = "deposit.paid"
     FINAL_PAID = "final.paid"
@@ -165,6 +176,19 @@ class Lead:
     deliverability_checked_at: str = ""
     email_provider: str = ""  # google, microsoft, other
     email_mx_hosts: list[str] = field(default_factory=list)
+    # Location & County tracking fields
+    city: str = ""
+    state_code: str = ""
+    county: str = ""
+    county_fips: str = ""
+    # Multi-touch sequencer tracking fields
+    outreach_touch_count: int = 0  # 0=uncontacted, 1=touch 1 sent, 2=touch 2 bump, 3=touch 3 breakup
+    last_outreach_at: str = ""
+    next_outreach_at: str = ""
+    outreach_replied: bool = False
+    outreach_thread_id: str = ""
+    sequence_state: str = "NOT_ENROLLED"
+    recipient_timezone: str = "America/Chicago"
 
     def __post_init__(self) -> None:
         now_str = datetime.now(timezone.utc).isoformat()

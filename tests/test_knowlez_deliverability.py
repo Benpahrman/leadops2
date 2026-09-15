@@ -369,3 +369,53 @@ def test_pitcher_preflight_auto_check_blocks_bad_lead():
         assert lead.deliverability_status == "UNDELIVERABLE"
         mock_client.send_email.assert_not_called()
 
+
+def test_knowlez_validate_domain_with_caching(tmp_path):
+    db_file = tmp_path / "test_domain_cache.db"
+    client = KnowlezDeliverabilityClient(api_key="ik_live_domain_test", db_path=db_file)
+
+    mock_resp = {
+        "domain": "olfmailer.com",
+        "valid": True,
+        "tld": "com",
+        "normalized": "olfmailer.com",
+    }
+
+    with patch("httpx.Client.post") as mock_post:
+        mock_res = MagicMock()
+        mock_res.status_code = 200
+        mock_res.json.return_value = mock_resp
+        mock_post.return_value = mock_res
+
+        # Call 1: calls remote API
+        res1 = client.validate_domain("olfmailer.com")
+        assert res1["valid"] is True
+        assert res1["cached"] is False
+        assert mock_post.call_count == 1
+
+        # Call 2: hits SQLite cache, 0 API calls burned
+        res2 = client.validate_domain("olfmailer.com")
+        assert res2["valid"] is True
+        assert res2["cached"] is True
+        assert mock_post.call_count == 1  # Unchanged!
+
+
+def test_deliverability_verifier_blocks_invalid_domain():
+    mock_knowlez = MagicMock()
+    mock_knowlez.is_configured = True
+    mock_knowlez.validate_domain.return_value = {
+        "domain": "broken-fake-tld.invalid999",
+        "valid": False,
+        "reason": "invalid_tld",
+    }
+
+    verifier = DeliverabilityVerifier(
+        probe_smtp=False,
+        probe_web=False,
+        knowlez_client=mock_knowlez,
+    )
+    is_live, reason = verifier.check_domain_active("broken-fake-tld.invalid999")
+    assert is_live is False
+    assert "Domain deliverability validation failed" in reason
+
+

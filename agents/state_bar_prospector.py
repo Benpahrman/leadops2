@@ -145,19 +145,37 @@ class StateBarProspector:
                 if not attorney_name:
                     continue
 
+                atty_city = self._parse_attorney_city(snippet)
                 clean_name = attorney_name.strip().title()
                 if clean_name.lower() in seen_names or is_disallowed_buyer(clean_name, "", ""):
                     continue
 
                 seen_names.add(clean_name.lower())
+
+                # Resolve specific county portal if city was detected in listing
+                from .tools.geo_county_resolver import GeoCountyResolver
+                target_portal = cfg["default_portal"]
+                if atty_city:
+                    loc = GeoCountyResolver.resolve_location(city=atty_city, state=state_code.upper(), llm_engine=self.llm_engine)
+                    target_portal = {
+                        "portal_name": loc.portal_name,
+                        "target_url": loc.portal_url,
+                        "jurisdiction": f"{loc.city}, {loc.county}, {loc.state_code}",
+                        "city": loc.city,
+                        "state_code": loc.state_code,
+                        "county": loc.county,
+                        "fips": loc.county_fips,
+                    }
+
                 discovered.append(DiscoveredBarAttorney(
                     attorney_name=clean_name,
                     firm_name=firm_name or f"{clean_name} Law Group",
                     state=state_code.upper(),
                     practice_area=practice_area,
                     bar_number=bar_no,
+                    city=atty_city,
                     profile_url=url,
-                    target_portal=cfg["default_portal"],
+                    target_portal=target_portal,
                 ))
 
         logger.info(f"✓ [STATE BAR PROSPECTOR] Found {len(discovered)} verified attorneys from {cfg['bar_name']}")
@@ -191,6 +209,12 @@ class StateBarProspector:
                 attorney_name = parts[0]
 
         return attorney_name, firm_name, bar_no
+
+    def _parse_attorney_city(self, text: str) -> str:
+        """Parse city from listing text using GeoCountyResolver."""
+        from .tools.geo_county_resolver import GeoCountyResolver
+        parsed = GeoCountyResolver.parse_address_string(text)
+        return parsed.get("city", "")
 
     def enrich_bar_prospect(
         self,
@@ -261,6 +285,10 @@ class StateBarProspector:
             "target_url": portal_url,
             "portal_name": portal_name,
             "jurisdiction": jurisdiction,
+            "city": target_portal.get("city", attorney.city),
+            "state_code": target_portal.get("state_code", attorney.state),
+            "county": target_portal.get("county", target_portal.get("jurisdiction", "").split(",")[0] if "County" in target_portal.get("jurisdiction", "") else ""),
+            "county_fips": target_portal.get("fips", ""),
             "bar_number": attorney.bar_number,
             "suggested_fields": ["case_number", "filing_date", "matter_title", "status", "source_url"],
             "tier_key": "daily",

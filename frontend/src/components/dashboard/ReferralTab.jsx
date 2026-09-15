@@ -12,7 +12,7 @@ export default function ReferralTab({ leadId, dashState }) {
 
   const shareLinkedIn = () => {
     const text = encodeURIComponent(
-      `We automated our county public records extractions using OmniLeadFeeder. Zero manual portal searches, automated daily feed delivery, and escrow-protected crawlers. Explore a live sandbox here (includes $50 setup discount):`
+      `We automated our county public records extractions using LeadOps. Zero manual portal searches, automated daily feed delivery, and production-grade crawlers. Explore a live sandbox here (includes $50 setup discount):`
     );
     const url = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(referralLink)}&summary=${text}`;
     window.open(url, '_blank', 'width=600,height=500');

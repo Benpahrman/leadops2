@@ -67,11 +67,17 @@ class LocalBusinessProspector:
         """Search local directories and map indexes for active commercial operators in a target city."""
         logger.info(f"📍 [LOCAL MAP SCOUT] Searching local directories for '{category}' in {city}, {state}...")
 
-        # Match metro config if available
-        matched_metro = next(
-            (m for m in TARGET_METROS if m["city"].lower() == city.lower() and m["state"].lower() == state.lower()),
-            {"city": city, "state": state, "county": f"{city} County", "portal_name": f"{city} County Public Records", "portal_url": "https://data.gov"}
-        )
+        # Match metro config and county via GeoCountyResolver
+        from .tools.geo_county_resolver import GeoCountyResolver
+        loc = GeoCountyResolver.resolve_location(city=city, state=state, llm_engine=self.llm_engine)
+        matched_metro = {
+            "city": loc.city,
+            "state": loc.state_code,
+            "county": loc.county,
+            "fips": loc.county_fips,
+            "portal_name": loc.portal_name,
+            "portal_url": loc.portal_url,
+        }
 
         queries = [
             f'"{category}" "{city}" "{state}" local business directory phone address',
@@ -105,17 +111,32 @@ class LocalBusinessProspector:
                     continue
 
                 seen_names.add(norm_b)
+
+                # Refine county if address provides a more specific city or township
+                specific_metro = matched_metro
+                if b_addr:
+                    specific_loc = GeoCountyResolver.resolve_location(address=b_addr, city=city, state=state, llm_engine=self.llm_engine)
+                    if specific_loc.confidence >= 0.85:
+                        specific_metro = {
+                            "city": specific_loc.city,
+                            "state": specific_loc.state_code,
+                            "county": specific_loc.county,
+                            "fips": specific_loc.county_fips,
+                            "portal_name": specific_loc.portal_name,
+                            "portal_url": specific_loc.portal_url,
+                        }
+
                 discovered.append(DiscoveredLocalBusiness(
                     business_name=b_name,
-                    city=city,
-                    state=state,
-                    county=matched_metro.get("county", f"{city} County"),
+                    city=specific_metro.get("city", city),
+                    state=specific_metro.get("state", state),
+                    county=specific_metro.get("county", f"{city} County"),
                     category=category,
                     website=url if "http" in url and not any(d in url for d in ["yelp.com", "yellowpages.com", "google.com", "bing.com"]) else "",
                     phone=b_phone,
                     address=b_addr,
                     source_query=q,
-                    portal_info=matched_metro,
+                    portal_info=specific_metro,
                 ))
 
         logger.info(f"✓ [LOCAL MAP SCOUT] Discovered {len(discovered)} local operators in {city}, {state}")
@@ -205,6 +226,10 @@ class LocalBusinessProspector:
             "target_url": portal_url,
             "portal_name": portal_name,
             "jurisdiction": f"{business.city}, {business.county}, {business.state}",
+            "city": business.city,
+            "state_code": business.state,
+            "county": business.county,
+            "county_fips": portal.get("fips", ""),
             "local_address": business.address,
             "suggested_fields": ["document_id", "recording_date", "grantor", "grantee", "document_type", "source_url"],
             "tier_key": "daily",

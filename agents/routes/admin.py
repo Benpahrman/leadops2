@@ -159,6 +159,11 @@ class BatchVerifyDeliverabilityRequest(BaseModel):
     limit: int = 50
 
 
+class ValidateDomainRequest(BaseModel):
+    domain: str
+    force: bool = False
+
+
 @router.post("/api/admin/leads/{lead_id}/verify-deliverability", tags=["Admin Operations"])
 def verify_lead_deliverability(
     lead_id: str,
@@ -297,6 +302,29 @@ def batch_verify_leads_deliverability(
         "cached_count": cached_count,
         "api_called_count": api_called_count,
         "results": updated_leads,
+    }
+
+
+@router.post("/api/admin/deliverability/validate-domain", tags=["Admin Operations"])
+def validate_domain_endpoint(
+    req: ValidateDomainRequest,
+    _: ClerkUser = Depends(require_admin),
+):
+    """Validate sending or prospect domain MX, syntax, and format via Knowlez with 30-day cache."""
+    clean_domain = (req.domain or "").strip().lower().replace("https://", "").replace("http://", "").split("/")[0]
+    if not clean_domain:
+        raise HTTPException(status_code=400, detail="Domain cannot be empty")
+
+    from ..email.knowlez_client import get_knowlez_client
+    client = get_knowlez_client()
+    res = client.validate_domain(clean_domain, force=req.force)
+    return {
+        "ok": True,
+        "domain": clean_domain,
+        "valid": res.get("valid", False),
+        "tld": res.get("tld"),
+        "cached": res.get("cached", False),
+        "details": res,
     }
 
 
@@ -450,6 +478,146 @@ def trigger_batch_scout_run(
             "message": f"Batch scout error: {str(exc)}",
             "reason": str(exc),
         }
+
+
+class StartProspectorRequest(BaseModel):
+    duration_days: Optional[int] = 14
+    volume_per_cycle: Optional[int] = 3
+    channels: Optional[list[str]] = None
+
+
+class TriggerProspectorBurstRequest(BaseModel):
+    count: Optional[int] = 3
+    channel: Optional[str] = None
+
+
+@router.get("/api/admin/prospector/status", tags=["High-Volume Prospector"])
+def get_prospector_status_endpoint(
+    _: ClerkUser = Depends(require_admin),
+    storage_backend=Depends(get_storage),
+    portal_service=Depends(get_portal_service),
+):
+    """Retrieve 14-day campaign status, office hours telemetry, and deduplication statistics."""
+    from ..high_volume_prospector import get_high_volume_prospector
+    engine = get_high_volume_prospector(storage=storage_backend, portal=portal_service)
+    return engine.get_status()
+
+
+@router.post("/api/admin/prospector/start", tags=["High-Volume Prospector"])
+def start_prospector_campaign_endpoint(
+    req: Optional[StartProspectorRequest] = None,
+    _: ClerkUser = Depends(require_admin),
+    storage_backend=Depends(get_storage),
+    portal_service=Depends(get_portal_service),
+):
+    """Start or restart the 14-day high-volume autonomous prospecting campaign."""
+    from ..high_volume_prospector import get_high_volume_prospector
+    engine = get_high_volume_prospector(storage=storage_backend, portal=portal_service)
+    duration = req.duration_days if req and req.duration_days else 14
+    volume = req.volume_per_cycle if req and req.volume_per_cycle else 3
+    channels = req.channels if req and req.channels else None
+    return engine.start_campaign(duration_days=duration, volume_per_cycle=volume, channels=channels)
+
+
+@router.post("/api/admin/prospector/pause", tags=["High-Volume Prospector"])
+def pause_prospector_campaign_endpoint(
+    _: ClerkUser = Depends(require_admin),
+    storage_backend=Depends(get_storage),
+    portal_service=Depends(get_portal_service),
+):
+    """Pause the continuous high-volume prospecting campaign loop."""
+    from ..high_volume_prospector import get_high_volume_prospector
+    engine = get_high_volume_prospector(storage=storage_backend, portal=portal_service)
+    return engine.pause_campaign()
+
+
+@router.post("/api/admin/prospector/resume", tags=["High-Volume Prospector"])
+def resume_prospector_campaign_endpoint(
+    _: ClerkUser = Depends(require_admin),
+    storage_backend=Depends(get_storage),
+    portal_service=Depends(get_portal_service),
+):
+    """Resume the 14-day high-volume prospecting campaign loop."""
+    from ..high_volume_prospector import get_high_volume_prospector
+    engine = get_high_volume_prospector(storage=storage_backend, portal=portal_service)
+    return engine.resume_campaign()
+
+
+@router.post("/api/admin/prospector/trigger-burst", tags=["High-Volume Prospector"])
+async def trigger_prospector_burst_endpoint(
+    req: Optional[TriggerProspectorBurstRequest] = None,
+    _: ClerkUser = Depends(require_admin),
+    storage_backend=Depends(get_storage),
+    portal_service=Depends(get_portal_service),
+):
+    """Execute an immediate high-volume discovery pass with real-time audit journey."""
+    from ..high_volume_prospector import get_high_volume_prospector
+    engine = get_high_volume_prospector(storage=storage_backend, portal=portal_service)
+    count = req.count if req and req.count else 3
+    channel = req.channel if req and req.channel else None
+    return await engine.trigger_burst(count=count, channel=channel)
+
+
+@router.post("/api/admin/prospector/refresh-freshness/{lead_id}", tags=["High-Volume Prospector"])
+def refresh_lead_freshness_endpoint(
+    lead_id: str,
+    _: ClerkUser = Depends(require_admin),
+    storage_backend=Depends(get_storage),
+    portal_service=Depends(get_portal_service),
+):
+    """Pre-outreach same-day freshness verification gate: Re-scrapes and injects fresh same-day filings."""
+    lead = storage_backend.get_lead(lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail=f"Lead {lead_id} not found")
+    from ..pitcher import ensure_fresh_records_for_lead
+    return ensure_fresh_records_for_lead(
+        lead=lead,
+        portal_service=portal_service,
+        storage_backend=storage_backend,
+        max_age_hours=24,
+    )
+
+
+@router.post("/api/admin/prospector/batch-refresh-stale", tags=["High-Volume Prospector"])
+def batch_refresh_stale_backlog_endpoint(
+    _: ClerkUser = Depends(require_admin),
+    storage_backend=Depends(get_storage),
+    portal_service=Depends(get_portal_service),
+):
+    """Sweep all vetted backlog leads and refresh any stale sandbox records before outreach launch."""
+    from ..pitcher import ensure_fresh_records_for_lead
+    leads = storage_backend.list_leads()
+    backlog = [
+        l for l in leads
+        if l.state in (State.REVIEW, State.PITCH_PENDING_APPROVAL, State.PROSPECTING)
+    ]
+    refreshed = 0
+    checked = 0
+    results = []
+    for l in backlog:
+        checked += 1
+        res = ensure_fresh_records_for_lead(
+            lead=l,
+            portal_service=portal_service,
+            storage_backend=storage_backend,
+            max_age_hours=24,
+        )
+        if res.get("refreshed"):
+            refreshed += 1
+        results.append({
+            "lead_id": l.lead_id,
+            "company_name": l.company_name,
+            "refreshed": res.get("refreshed", False),
+            "record_count": res.get("record_count", 0),
+        })
+
+    return {
+        "ok": True,
+        "checked_count": checked,
+        "refreshed_count": refreshed,
+        "results": results,
+        "message": f"Freshness sweep complete: {refreshed}/{checked} stale sandboxes refreshed with same-day filings.",
+    }
 
 
 @router.post("/api/admin/leads/{lead_id}/enrich", tags=["Admin Operations"])
@@ -1870,6 +2038,10 @@ class InboxUpsertRequest(BaseModel):
     is_active: Optional[bool] = True
 
 
+class WarmupStartRequest(BaseModel):
+    start_date: Optional[str] = None
+
+
 @router.get("/api/admin/inboxes", tags=["Admin Inboxes"])
 def list_admin_inboxes(
     storage_backend=Depends(get_storage),
@@ -1918,6 +2090,103 @@ def list_admin_inboxes(
     fleet_summary["earliest_jitter_wait"] = round(warmup.get_earliest_jitter_wait(), 1)
     fleet_summary["available_inbox"] = warmup.get_available_inbox(check_jitter=True)
 
+    # Compute Fleet Warmup Progression Roadmap
+    warmup_start_raw = settings.warmup_start_date or os.environ.get("WARMUP_START_DATE", "")
+    now = datetime.now(timezone.utc)
+    if warmup_start_raw:
+        try:
+            start_dt = datetime.fromisoformat(warmup_start_raw.replace("Z", "+00:00"))
+            days_elapsed = max(0, (now - start_dt).days)
+        except Exception:
+            start_dt = now
+            days_elapsed = 0
+    else:
+        start_dt = now
+        days_elapsed = 0
+
+    fleet_tier = warmup.get_warmup_tier(start_dt)
+    next_increase_days = max(0, (fleet_tier.week_number * 7) - days_elapsed)
+    active_inboxes_count = len([i for i in inbox_list if i["is_active"]])
+
+    warmup_cycle = {
+        "started": bool(warmup_start_raw),
+        "start_date": start_dt.isoformat(),
+        "days_elapsed": days_elapsed + 1,
+        "current_week": fleet_tier.week_number,
+        "current_name": fleet_tier.name,
+        "per_inbox_daily_limit": fleet_tier.daily_quota,
+        "fleet_daily_quota": fleet_tier.daily_quota * max(1, active_inboxes_count),
+        "next_tier_days": max(0, 4 - (days_elapsed + 1)) if days_elapsed < 4 else max(0, 8 - (days_elapsed + 1)) if days_elapsed < 8 else max(0, 14 - (days_elapsed + 1)),
+        "schedule": [
+            {
+                "stage": 1,
+                "name": "Stage 1: Initial Peer Warmup",
+                "days": "Days 1–4",
+                "daily_volume": "3–5/day",
+                "daily_per_inbox": 5,
+                "composition": "100% Peer Warm-up (Test Inboxes)",
+                "jitter": "300–600s delay",
+                "active": (days_elapsed + 1) <= 4,
+                "completed": (days_elapsed + 1) > 4,
+            },
+            {
+                "stage": 2,
+                "name": "Stage 2: Gradual Step Up",
+                "days": "Days 5–8",
+                "daily_volume": "8–12/day",
+                "daily_per_inbox": 12,
+                "composition": "100% Peer Warm-up",
+                "jitter": "240–480s delay",
+                "active": 4 < (days_elapsed + 1) <= 8,
+                "completed": (days_elapsed + 1) > 8,
+            },
+            {
+                "stage": 3,
+                "name": "Stage 3: Pre-Outreach Baseline",
+                "days": "Days 9–14",
+                "daily_volume": "15–20/day",
+                "daily_per_inbox": 20,
+                "composition": "100% Peer Warm-up",
+                "jitter": "180–360s delay",
+                "active": 8 < (days_elapsed + 1) <= 14,
+                "completed": (days_elapsed + 1) > 14,
+            },
+            {
+                "stage": 4,
+                "name": "Stage 4: Initial Live Outbound",
+                "days": "Days 15–21",
+                "daily_volume": "25/day",
+                "daily_per_inbox": 25,
+                "composition": "5 Cold Outreach + 20 Warm-up",
+                "jitter": "180–420s delay (9:00 AM – 4:30 PM)",
+                "active": 14 < (days_elapsed + 1) <= 21,
+                "completed": (days_elapsed + 1) > 21,
+            },
+            {
+                "stage": 5,
+                "name": "Stage 5: Production Expansion",
+                "days": "Days 22–30",
+                "daily_volume": "35/day",
+                "daily_per_inbox": 35,
+                "composition": "15 Cold Outreach + 20 Warm-up",
+                "jitter": "180–420s delay (Business hours)",
+                "active": 21 < (days_elapsed + 1) <= 30,
+                "completed": (days_elapsed + 1) > 30,
+            },
+            {
+                "stage": 6,
+                "name": "Stage 6: Steady State Fleet Velocity",
+                "days": "Day 31+",
+                "daily_volume": "40–50/day",
+                "daily_per_inbox": 50,
+                "composition": "30 Cold Outreach + 15–20 Warm-up",
+                "jitter": "Continuous permanent background warm-up",
+                "active": (days_elapsed + 1) > 30,
+                "completed": False,
+            },
+        ],
+    }
+
     return {
         "ok": True,
         "inboxes": inbox_list,
@@ -1926,6 +2195,23 @@ def list_admin_inboxes(
         "fleet_sent_today": fleet_summary["fleet_sent_today"],
         "fleet_capacity": fleet_summary["fleet_daily_quota"],
         "fleet_summary": fleet_summary,
+        "warmup_cycle": warmup_cycle,
+    }
+
+
+@router.post("/api/admin/warmup/start", tags=["Admin Inboxes"])
+def set_warmup_cycle_start(
+    req: WarmupStartRequest,
+    storage_backend=Depends(get_storage),
+    user: ClerkUser = Depends(require_admin),
+):
+    """Officially initialize or reset the email fleet warmup start date."""
+    target_date = req.start_date or datetime.now(timezone.utc).isoformat()
+    os.environ["WARMUP_START_DATE"] = target_date
+    return {
+        "ok": True,
+        "warmup_start_date": target_date,
+        "message": f"Warmup cycle started with baseline date {target_date}.",
     }
 
 
@@ -2046,6 +2332,63 @@ def trigger_outreach_flush(
     return {
         "ok": True,
         "message": "Outreach dispatch worker triggered. Processing pending pitches with anti-spam human jitter.",
+    }
+
+
+@router.get("/api/admin/outreach/sequencer/status", tags=["Admin Operations"])
+def get_sequencer_status(
+    storage_backend=Depends(get_storage),
+    user: ClerkUser = Depends(require_admin),
+):
+    """Retrieve telemetry on multi-touch cold outreach sequencer."""
+    from ..email.sequencer import ColdOutreachSequencer
+    from ..domain import State
+
+    sequencer = ColdOutreachSequencer(storage_backend=storage_backend)
+    eligible = sequencer.find_eligible_leads()
+    all_leads = storage_backend.list_leads() if hasattr(storage_backend, "list_leads") else []
+
+    touch_1_count = sum(1 for l in all_leads if getattr(l, "outreach_touch_count", 0) == 1)
+    touch_2_count = sum(1 for l in all_leads if getattr(l, "outreach_touch_count", 0) == 2)
+    touch_3_count = sum(1 for l in all_leads if getattr(l, "outreach_touch_count", 0) >= 3)
+    replied_count = sum(1 for l in all_leads if getattr(l, "outreach_replied", False))
+
+    return {
+        "ok": True,
+        "active_sequences": touch_1_count + touch_2_count,
+        "touch_1_count": touch_1_count,
+        "touch_2_count": touch_2_count,
+        "touch_3_completed_count": touch_3_count,
+        "replied_count": replied_count,
+        "eligible_for_dispatch_now": [
+            {
+                "lead_id": item["lead"].lead_id,
+                "company_name": getattr(item["lead"], "company_name", ""),
+                "contact_email": getattr(item["lead"], "contact_email", ""),
+                "target_touch": item["target_touch"],
+                "next_outreach_at": getattr(item["lead"], "next_outreach_at", ""),
+                "county": getattr(item["lead"], "county", ""),
+                "city": getattr(item["lead"], "city", ""),
+            }
+            for item in eligible
+        ],
+    }
+
+
+@router.post("/api/admin/outreach/sequencer/tick", tags=["Admin Operations"])
+def trigger_sequencer_tick(
+    storage_backend=Depends(get_storage),
+    user: ClerkUser = Depends(require_admin),
+):
+    """Manually advance multi-touch cold outreach sequences for eligible leads."""
+    from ..email.sequencer import ColdOutreachSequencer
+
+    sequencer = ColdOutreachSequencer(storage_backend=storage_backend)
+    dispatches = sequencer.tick_sequence()
+    return {
+        "ok": True,
+        "dispatches_count": len(dispatches),
+        "dispatches": dispatches,
     }
 
 

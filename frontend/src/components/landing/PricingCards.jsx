@@ -77,10 +77,10 @@ export default function PricingCards() {
             Predictable Institutional Pricing
           </div>
           <h2 style={{ fontSize: '36px', fontWeight: 800, color: '#fff', letterSpacing: '-0.8px', lineHeight: 1.2 }}>
-            Zero-Risk Escrow. Pay Balance Only After QA Verification.
+            Zero-Risk Setup Sprint. Pay Balance Only After QA Verification.
           </h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '15px', marginTop: '12px', maxWidth: '720px', margin: '12px auto 0', lineHeight: 1.6 }}>
-            Every custom extractor begins with a <b style={{ color: '#fff' }}>$99 Setup Sprint deposit</b> protected in third-party escrow and credited 100% toward Month 1. The net balance ($151 on Production) activates only after you inspect 25 live government filings with &ge;95% schema conformance.
+            Every custom extractor begins with a <b style={{ color: '#fff' }}>$99 Setup Sprint deposit</b>, 100% credited toward Month 1. Plus, test-drive your jurisdiction with our <b style={{ color: 'var(--green)' }}>3-Day Free Trial</b> — zero commitment, no credit card required. The net balance ($151 on Production) activates only after you inspect 25 live government filings with &ge;95% schema conformance.
           </p>
         </div>
 
@@ -266,8 +266,8 @@ export default function PricingCards() {
               <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
             <div>
-              <div style={{ fontSize: '12px', fontWeight: 700, color: '#fff' }}>Stripe Escrow Protected</div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>$99 held until QA certification</div>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: '#fff' }}>100% Credited Setup Sprint</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>$99 deposit credited to Month 1</div>
             </div>
           </div>
 

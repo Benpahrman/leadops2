@@ -25,7 +25,7 @@ export default function PrivacyPage() {
             </p>
             <ul style={{ paddingLeft: '20px', marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <li><b>Account Information:</b> Company name, contact email, and delivery destination URLs (Google Sheets or Webhooks).</li>
-              <li><b>Payment Telemetry:</b> Transaction IDs and escrow verification tokens managed securely via PayPal or Stripe. We never store raw credit card numbers.</li>
+              <li><b>Payment Telemetry:</b> Transaction IDs and payment verification tokens managed securely via PayPal. We never store raw credit card numbers.</li>
               <li><b>Audit Telemetry:</b> Client IP address, browser signature, and timestamp recorded during digital Statement of Work (SOW) clickwrap acceptance for mutual legal verification.</li>
             </ul>
           </section>

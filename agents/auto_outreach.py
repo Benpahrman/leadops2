@@ -431,43 +431,61 @@ class AutoOutreachScheduler:
             and not getattr(l, "opt_out", False)
         ]
 
-        if not pending:
-            return []
+        dispatched_ids: list[str] = []
 
-        logger.info(
-            f"☀️ [OFFICE HOURS FLUSH] Found {len(pending)} pending pitch(es) queued for dispatch. "
-            f"Dispatching with human anti-spam jitter ({self.min_jitter_seconds}-{self.max_jitter_seconds}s)..."
-        )
-        dispatched_ids = []
-        for lead in pending:
-            with self._lock:
-                entry = self._scheduled.get(lead.lead_id)
-                if entry and entry.get("cancelled"):
-                    logger.info(f"Skipping cancelled lead {lead.lead_id} during queue flush.")
-                    continue
+        if pending:
+            logger.info(
+                f"☀️ [OFFICE HOURS FLUSH] Found {len(pending)} pending pitch(es) queued for dispatch. "
+                f"Dispatching with human anti-spam jitter ({self.min_jitter_seconds}-{self.max_jitter_seconds}s)..."
+            )
+            for lead in pending:
+                with self._lock:
+                    entry = self._scheduled.get(lead.lead_id)
+                    if entry and entry.get("cancelled"):
+                        logger.info(f"Skipping cancelled lead {lead.lead_id} during queue flush.")
+                        continue
 
-            # Verify office hours remain open before sending each successive email
-            is_still_open, _, _ = is_office_hours()
-            if not is_still_open:
-                logger.info("Office hours closed during queue flush. Pausing remainder until next window.")
-                break
+                # Verify office hours remain open before sending each successive email
+                is_still_open, _, _ = is_office_hours()
+                if not is_still_open:
+                    logger.info("Office hours closed during queue flush. Pausing remainder until next window.")
+                    break
 
-            # Verify remaining daily quota across inboxes
-            from .email.warmup import WarmupManager
-            from .email.config import EmailSettings
-            warmup_mgr = WarmupManager(settings=EmailSettings.from_environment(), storage_backend=storage_backend)
-            if not warmup_mgr.get_available_inbox():
-                logger.info("Daily send quota reached across all inboxes during queue flush. Pausing remainder until tomorrow.")
-                break
+                # Verify remaining daily quota across inboxes
+                from .email.warmup import WarmupManager
+                from .email.config import EmailSettings
+                warmup_mgr = WarmupManager(settings=EmailSettings.from_environment(), storage_backend=storage_backend)
+                if not warmup_mgr.get_available_inbox():
+                    logger.info("Daily send quota reached across all inboxes during queue flush. Pausing remainder until tomorrow.")
+                    break
 
-            self._enforce_sequential_jitter()
-            try:
-                self._execute_dispatch(lead, storage_backend, notifier)
-                dispatched_ids.append(lead.lead_id)
-            except Exception as exc:
-                logger.warning(f"Error during office hours queue flush for {lead.lead_id}: {exc}")
+                self._enforce_sequential_jitter()
+                try:
+                    self._execute_dispatch(lead, storage_backend, notifier)
+                    dispatched_ids.append(lead.lead_id)
+                except Exception as exc:
+                    logger.warning(f"Error during office hours queue flush for {lead.lead_id}: {exc}")
+
+        # Advance multi-touch sequencer follow-ups (Day 4 Touch 2 / Day 8 Touch 3) during office hours
+        try:
+            seq_dispatched = self.tick_sequencer(storage_backend)
+            if seq_dispatched:
+                logger.info(f"📬 [SEQUENCER TICK] Dispatched {len(seq_dispatched)} multi-touch follow-up(s).")
+                for item in seq_dispatched:
+                    lid = item.get("lead_id")
+                    if lid and lid not in dispatched_ids:
+                        dispatched_ids.append(lid)
+        except Exception as seq_err:
+            logger.debug(f"Sequencer tick follow-up error in queue flush: {seq_err}")
 
         return dispatched_ids
+
+    def tick_sequencer(self, storage_backend: Any, email_engine: Any = None) -> list[dict[str, Any]]:
+        """Advance multi-touch cold outreach sequence for all eligible leads."""
+        from .email.sequencer import ColdOutreachSequencer
+        sequencer = ColdOutreachSequencer(storage_backend=storage_backend, email_engine=email_engine)
+        res = sequencer.tick_sequence()
+        return res.get("dispatches", []) if isinstance(res, dict) else (res or [])
 
     def auto_prepare_review_pitches(
         self,

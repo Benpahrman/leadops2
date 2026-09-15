@@ -108,6 +108,26 @@ class EmailClient:
                 "attachments": attachments,
                 "is_transactional": is_transactional,
             })
+
+        if self.http_requester is not None:
+            import json
+            payload = {
+                "email": {
+                    "subject": email_subject,
+                    "text": text_body,
+                    "html": html_body or f"<p>{text_body.replace(chr(10), '<br>')}</p>",
+                    "from": {"name": sender_name, "email": sender_email},
+                    "to": [{"name": actual_name, "email": actual_recipient}],
+                }
+            }
+            status, data = self.http_requester(
+                "https://api.sendpulse.com/smtp/emails",
+                {"Content-Type": "application/json"},
+                json.dumps(payload).encode(),
+                "POST",
+            )
+            return data
+
         # Route outbound dispatches via Azure Communication Services when targeting olfmailer domains or when ACS is active
         if (
             sender_email.endswith("@olfmailer.com")
@@ -132,25 +152,6 @@ class EmailClient:
                 "status": acs_res.get("status", "Succeeded"),
                 "sender": sender_email,
             }
-
-        if self.http_requester is not None:
-            import json
-            payload = {
-                "email": {
-                    "subject": email_subject,
-                    "text": text_body,
-                    "html": html_body or f"<p>{text_body.replace(chr(10), '<br>')}</p>",
-                    "from": {"name": sender_name, "email": sender_email},
-                    "to": [{"name": actual_name, "email": actual_recipient}],
-                }
-            }
-            status, data = self.http_requester(
-                "https://api.sendpulse.com/smtp/emails",
-                {"Content-Type": "application/json"},
-                json.dumps(payload).encode(),
-                "POST",
-            )
-            return data
 
         # Build RFC 5322 MIME Message
         if attachments:

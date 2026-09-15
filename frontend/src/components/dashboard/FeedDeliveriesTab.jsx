@@ -187,7 +187,7 @@ export default function FeedDeliveriesTab({ leadId, dashState, onRefresh, token 
         </div>
 
         <div className="stat-card">
-          <div className="stat-label">Escrow Milestone Status</div>
+          <div className="stat-label">Sprint Milestone Status</div>
           <div className="stat-value" style={{ color: dashState?.deposit_paid ? 'var(--green)' : 'var(--yellow)', fontSize: '20px' }}>
             {dashState?.deposit_paid ? '$250.00 LOCKED' : 'ACTIVE FEED'}
           </div>

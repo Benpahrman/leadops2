@@ -28,6 +28,7 @@ import {
   deepEnrichLead,
   cancelAutoOutreach,
   fetchAdminInboxes,
+  startWarmupCycle,
   upsertAdminInbox,
   testAdminInbox,
   deleteAdminInbox,
@@ -40,6 +41,13 @@ import {
   disconnectMicrosoftOAuth,
   fetchDeliverabilityStatus,
   runDeliverabilityAudit,
+  fetchProspectorStatus,
+  startProspectorCampaign,
+  pauseProspectorCampaign,
+  resumeProspectorCampaign,
+  triggerProspectorBurst,
+  refreshLeadFreshness,
+  batchRefreshStaleBacklog,
 } from '../services/api';
 import { useToast } from '../context/ToastContext';
 import ConfirmModal from '../components/common/ConfirmModal';
@@ -96,6 +104,21 @@ export default function AdminPage() {
   const [stateFilter, setStateFilter] = useState(() => getInitialParam('state', 'ALL'));
   const [paymentFilter, setPaymentFilter] = useState(() => getInitialParam('payment', 'ALL'));
   const [scoreFilter, setScoreFilter] = useState(() => getInitialParam('score', 'ALL'));
+  const [channelFilter, setChannelFilter] = useState(() => getInitialParam('channel', 'ALL'));
+
+  // 14-Day High-Volume Prospector & Freshness State
+  const [prospectorStatus, setProspectorStatus] = useState(null);
+  const [prospectorLoading, setProspectorLoading] = useState(false);
+  const [freshnessRefreshingLeadId, setFreshnessRefreshingLeadId] = useState(null);
+  const [sweepingStaleRecords, setSweepingStaleRecords] = useState(false);
+  const [burstLeadCount, setBurstLeadCount] = useState(3);
+  const [selectedProspectorChannel, setSelectedProspectorChannel] = useState('ALL');
+
+  // Pagination for Deals & Backlog
+  const [dealsPage, setDealsPage] = useState(1);
+  const [dealsPageSize, setDealsPageSize] = useState(20);
+  const [backlogPage, setBacklogPage] = useState(1);
+  const [backlogPageSize, setBacklogPageSize] = useState(15);
 
   // Pipeline & Data
   const [pipeline, setPipeline] = useState([]);
@@ -245,6 +268,8 @@ export default function AdminPage() {
   // Inboxes & Email Infrastructure State
   const [inboxes, setInboxes] = useState([]);
   const [fleetSummary, setFleetSummary] = useState(null);
+  const [warmupCycle, setWarmupCycle] = useState(null);
+  const [startingWarmup, setStartingWarmup] = useState(false);
   const [inboxFilter, setInboxFilter] = useState('ALL');
   const [inboxesLoading, setInboxesLoading] = useState(false);
   const [testingInboxId, setTestingInboxId] = useState(null);
@@ -313,6 +338,24 @@ export default function AdminPage() {
     }
   };
 
+  const handleStartWarmup = async () => {
+    setStartingWarmup(true);
+    try {
+      const token = await resolveToken();
+      const res = await startWarmupCycle(token);
+      if (res && res.warmup_cycle) {
+        setWarmupCycle(res.warmup_cycle);
+      }
+      showToast(res.message || 'Domain warming cycle initialized!', 'success');
+      await loadInboxes();
+    } catch (err) {
+      showToast(`Failed to initialize warmup: ${err.message}`, 'error');
+    } finally {
+      setStartingWarmup(false);
+    }
+  };
+
+
   // Listen for OAuth callback query parameters on redirect
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -342,13 +385,14 @@ export default function AdminPage() {
     setLoading(true);
     try {
       const token = await resolveToken();
-      const [pipeData, metricData, buildsData, scoutData, autoData, inboxesData] = await Promise.allSettled([
+      const [pipeData, metricData, buildsData, scoutData, autoData, inboxesData, prospectorData] = await Promise.allSettled([
         fetchAdminPipeline(token),
         fetchAdminMetrics(token),
         fetchActiveBuilds(token),
         fetchScoutStatus(token),
         fetchAutoOutreachStatus(token),
         fetchAdminInboxes(token),
+        fetchProspectorStatus(token),
       ]);
 
       if (pipeData.status === 'fulfilled') {
@@ -380,6 +424,10 @@ export default function AdminPage() {
         const iVal = inboxesData.value || {};
         if (iVal.inboxes) setInboxes(iVal.inboxes);
         if (iVal.fleet_summary) setFleetSummary(iVal.fleet_summary);
+        if (iVal.warmup_cycle) setWarmupCycle(iVal.warmup_cycle);
+      }
+      if (prospectorData.status === 'fulfilled' && prospectorData.value) {
+        setProspectorStatus(prospectorData.value);
       }
     } catch (err) {
       console.warn('Admin load note:', err);
@@ -425,6 +473,9 @@ export default function AdminPage() {
       }
       if (res && res.fleet_summary) {
         setFleetSummary(res.fleet_summary);
+      }
+      if (res && res.warmup_cycle) {
+        setWarmupCycle(res.warmup_cycle);
       }
       loadMsOAuthStatus();
       loadDeliverabilityStatus();
@@ -642,9 +693,137 @@ export default function AdminPage() {
         matchesScore = opp < 65;
       }
 
-      return matchesSearch && matchesState && matchesPayment && matchesScore;
+      let matchesChannel = true;
+      if (channelFilter !== 'ALL') {
+        const chan = (l.discovery_channel || '').toUpperCase();
+        matchesChannel = chan === channelFilter.toUpperCase();
+      }
+
+      return matchesSearch && matchesState && matchesPayment && matchesScore && matchesChannel;
     });
-  }, [pipeline, searchQuery, stateFilter, paymentFilter, scoreFilter]);
+  }, [pipeline, searchQuery, stateFilter, paymentFilter, scoreFilter, channelFilter]);
+
+  // Vetted Backlog Leads (for 14-Day High-Volume Prospector)
+  const backlogLeads = useMemo(() => {
+    return pipeline.filter((l) => {
+      if (l.state === 'ARCHIVED') return false;
+      const isBacklog = (
+        l.outreach_status === 'BACKLOG_VETTED' ||
+        l.state === 'REVIEW' ||
+        l.state === 'PITCH_PENDING_APPROVAL' ||
+        l.state === 'PROSPECTING'
+      );
+      if (!isBacklog) return false;
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch =
+        !q ||
+        (l.company_name && l.company_name.toLowerCase().includes(q)) ||
+        (l.contact_email && l.contact_email.toLowerCase().includes(q)) ||
+        (l.jurisdiction && l.jurisdiction.toLowerCase().includes(q)) ||
+        (l.lead_id && l.lead_id.toLowerCase().includes(q));
+
+      let matchesChannel = true;
+      if (selectedProspectorChannel !== 'ALL') {
+        const chan = (l.discovery_channel || '').toUpperCase();
+        matchesChannel = chan === selectedProspectorChannel.toUpperCase();
+      }
+      return matchesSearch && matchesChannel;
+    });
+  }, [pipeline, searchQuery, selectedProspectorChannel]);
+
+  // 14-Day Prospector Campaign Action Handlers
+  const handleStartProspector = async (days = 14, volume = 3) => {
+    setProspectorLoading(true);
+    showToast(`Starting 14-Day High-Volume Prospecting Campaign (${volume} leads/burst)...`, 'info');
+    try {
+      const token = await resolveToken();
+      const res = await startProspectorCampaign(days, volume, null, token);
+      setProspectorStatus(res);
+      showToast(res.status_message || '14-Day Campaign started successfully!', 'success');
+      await loadAdminData();
+    } catch (err) {
+      showToast(`Campaign start error: ${err.message}`, 'error');
+    } finally {
+      setProspectorLoading(false);
+    }
+  };
+
+  const handlePauseProspector = async () => {
+    setProspectorLoading(true);
+    try {
+      const token = await resolveToken();
+      const res = await pauseProspectorCampaign(token);
+      setProspectorStatus(res);
+      showToast('14-Day High-Volume Campaign paused.', 'info');
+    } catch (err) {
+      showToast(`Pause error: ${err.message}`, 'error');
+    } finally {
+      setProspectorLoading(false);
+    }
+  };
+
+  const handleResumeProspector = async () => {
+    setProspectorLoading(true);
+    try {
+      const token = await resolveToken();
+      const res = await resumeProspectorCampaign(token);
+      setProspectorStatus(res);
+      showToast('14-Day High-Volume Campaign resumed.', 'success');
+    } catch (err) {
+      showToast(`Resume error: ${err.message}`, 'error');
+    } finally {
+      setProspectorLoading(false);
+    }
+  };
+
+  const handleTriggerBurst = async (count = 3, channel = null) => {
+    setProspectorLoading(true);
+    showToast(`Executing high-volume discovery pass (${count} candidates)...`, 'info');
+    try {
+      const token = await resolveToken();
+      const chan = channel && channel !== 'ALL' ? channel : null;
+      const res = await triggerProspectorBurst(count, chan, token);
+      if (res && res.metrics) {
+        setProspectorStatus((prev) => ({ ...prev, metrics: res.metrics }));
+      }
+      showToast(`Discovery burst complete: +${res.qualified_count} vetted leads added to backlog.`, 'success');
+      await loadAdminData();
+    } catch (err) {
+      showToast(`Burst error: ${err.message}`, 'error');
+    } finally {
+      setProspectorLoading(false);
+    }
+  };
+
+  const handleRefreshFreshness = async (leadId) => {
+    setFreshnessRefreshingLeadId(leadId);
+    showToast(`Pulling live same-day filings for ${leadId}...`, 'info');
+    try {
+      const token = await resolveToken();
+      const res = await refreshLeadFreshness(leadId, token);
+      showToast(res.message || 'Records refreshed with today’s filings!', 'success');
+      await loadAdminData();
+    } catch (err) {
+      showToast(`Freshness refresh error: ${err.message}`, 'error');
+    } finally {
+      setFreshnessRefreshingLeadId(null);
+    }
+  };
+
+  const handleBatchRefreshStale = async () => {
+    setSweepingStaleRecords(true);
+    showToast('Sweeping all backlog leads for same-day freshness...', 'info');
+    try {
+      const token = await resolveToken();
+      const res = await batchRefreshStaleBacklog(token);
+      showToast(res.message || 'Freshness sweep complete!', 'success');
+      await loadAdminData();
+    } catch (err) {
+      showToast(`Sweep error: ${err.message}`, 'error');
+    } finally {
+      setSweepingStaleRecords(false);
+    }
+  };
 
   // Actions
   const handleAdvance = async (leadId) => {
@@ -1190,7 +1369,7 @@ export default function AdminPage() {
               )}
             </div>
             <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
-              Autonomous 7-Agent Dev Swarms, Live Municipal Extractors, QA Gate &amp; Escrow Vault
+              Autonomous 7-Agent Dev Swarms, Live Municipal Extractors, QA Gate &amp; Setup Sprint Vault
             </p>
           </div>
 
@@ -1389,7 +1568,7 @@ export default function AdminPage() {
           <div className="stat-card stat-green">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div className="stat-label" style={{ color: 'var(--green)' }}>🏦 Down Payments Held</div>
-              <span className="pulse-dot-green" title="Milestone #1 deposits secured in escrow" />
+              <span className="pulse-dot-green" title="Milestone #1 deposits credited to Month 1" />
             </div>
             <div className="stat-value" style={{ color: 'var(--green)' }}>
               ${depositTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}
@@ -1496,345 +1675,19 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* =========================================================
-            ⚡ AUTONOMOUS AI SWARM LIVE OPERATIONS COCKPIT & HUD
-           ========================================================= */}
-        <div className="swarm-cockpit-card">
-          {/* Header Row & Quick Controls */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px', marginBottom: '18px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <span style={{ fontSize: '24px', background: 'rgba(56, 189, 248, 0.12)', padding: '8px', borderRadius: '10px', border: '1px solid rgba(56, 189, 248, 0.25)' }}>⚡</span>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                  <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#fff', margin: 0, letterSpacing: '-0.3px' }}>
-                    Autonomous AI Swarm Operations Cockpit
-                  </h3>
-                  <span className="badge-tag badge-green" style={{ fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                    <span className="pulse-dot-green" /> 6 Swarms Active &amp; Governed
-                  </span>
-                  <span className="badge-tag badge-cyan" style={{ fontSize: '11px' }}>
-                    ⏱️ 5 – 20m Jitter Stagger
-                  </span>
-                </div>
-                <p style={{ fontSize: '12px', color: 'var(--text-dim)', margin: '4px 0 0' }}>
-                  Autonomous swarm telemetry with live anti-spam jitter rotation, AST self-healing, and ≥95% schema release gates.
-                </p>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <button
-                className="btn btn-outline"
-                style={{
-                  fontSize: '11px',
-                  padding: '7px 14px',
-                  borderColor: 'rgba(56, 189, 248, 0.35)',
-                  color: 'var(--cyan)',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  fontWeight: 600,
-                }}
-                onClick={handleFlushOutreachQueue}
-                disabled={flushingQueue}
-                title="Immediately process queued pitches adhering to anti-burst human stagger"
-              >
-                <span>{flushingQueue ? '⏳ Flushing...' : '⚡ Flush Outreach Queue'}</span>
-              </button>
-              <button
-                className="btn btn-outline"
-                style={{
-                  fontSize: '11px',
-                  padding: '7px 14px',
-                  borderColor: 'rgba(168, 85, 247, 0.35)',
-                  color: '#c084fc',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  fontWeight: 600,
-                }}
-                onClick={() => handleTriggerWebScout()}
-                disabled={scoutingInProgress}
-                title="Prospect next qualified B2B lead immediately via autonomous Scout"
-              >
-                <span>{scoutingInProgress ? '⏳ Scouting...' : '🔎 Scout Lead'}</span>
-              </button>
-              <button
-                className="btn btn-outline"
-                style={{
-                  fontSize: '11px',
-                  padding: '7px 14px',
-                  borderColor: 'rgba(99, 102, 241, 0.35)',
-                  color: '#818cf8',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  fontWeight: 600,
-                }}
-                onClick={handleRunDeliverabilityAudit}
-                disabled={auditingDeliverability}
-                title="Send test emails to TestMail and verify SPF/DKIM/SpamAssassin scores"
-              >
-                <span>{auditingDeliverability ? '⏳ Probing...' : '🛡️ TestMail Audit'}</span>
-              </button>
-              <button
-                className="btn btn-outline"
-                style={{
-                  fontSize: '11px',
-                  padding: '7px 12px',
-                  borderColor: 'var(--border)',
-                  color: 'var(--text-muted)',
-                }}
-                onClick={loadAdminData}
-                title="Refresh all swarm telemetry from PostgreSQL and server logs"
-              >
-                🔄
-              </button>
-            </div>
-          </div>
-
-          {/* 6-Agent Live Telemetry HUD Grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '10px', marginBottom: '18px' }}>
-            {/* Agent 1: Scout */}
-            <div className="swarm-agent-tile">
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <span style={{ fontSize: '16px' }}>🔍</span>
-                  <span className={`badge-tag ${scoutingInProgress ? 'badge-yellow' : 'badge-green'}`} style={{ fontSize: '10px' }}>
-                    {scoutingInProgress ? '⏳ SCOUTING' : '🟢 ACTIVE'}
-                  </span>
-                </div>
-                <div style={{ fontSize: '12px', fontWeight: 800, color: '#fff' }}>Scout Agent</div>
-                <div style={{ fontSize: '11px', color: 'var(--cyan)', marginTop: '2px' }}>Travis/Harris Dockets</div>
-              </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
-                Same-Day Freshness (&lt;24h cache)
-              </div>
-            </div>
-
-            {/* Agent 2: Pitcher */}
-            {(() => {
-              const earliestWait = fleetSummary?.earliest_jitter_wait ?? Math.min(...inboxes.map((i) => i.jitter_wait_seconds || 0));
-              const isOnWait = earliestWait > 0;
-              return (
-                <div className="swarm-agent-tile">
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                      <span style={{ fontSize: '16px' }}>💬</span>
-                      <span className={`badge-tag ${isOnWait ? 'badge-yellow' : 'badge-green'}`} style={{ fontSize: '10px' }}>
-                        {isOnWait ? `⏳ ~${(earliestWait / 60).toFixed(0)}m WAIT` : '🟢 PRIMED'}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: '12px', fontWeight: 800, color: '#fff' }}>Pitcher (Alex)</div>
-                    <div style={{ fontSize: '11px', color: '#c084fc', marginTop: '2px' }}>5 Zoho Sequential</div>
-                  </div>
-                  <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
-                    Sub-55w Zero-Link Plaintext
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Agent 3: Dev Swarm */}
-            <div className="swarm-agent-tile">
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <span style={{ fontSize: '16px' }}>⚙️</span>
-                  <span className={`badge-tag ${activeBuilds.length > 0 ? 'badge-cyan' : 'badge-green'}`} style={{ fontSize: '10px' }}>
-                    {activeBuilds.length > 0 ? `⚡ ${activeBuilds.length} BUILDING` : '🟢 STANDBY'}
-                  </span>
-                </div>
-                <div style={{ fontSize: '12px', fontWeight: 800, color: '#fff' }}>Dev Swarm</div>
-                <div style={{ fontSize: '11px', color: 'var(--cyan)', marginTop: '2px' }}>AST Selector Pruner</div>
-              </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
-                Docker Sandbox (≤4k tokens)
-              </div>
-            </div>
-
-            {/* Agent 4: QA Gatekeeper */}
-            <div className="swarm-agent-tile">
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <span style={{ fontSize: '16px' }}>🧪</span>
-                  <span className="badge-tag badge-green" style={{ fontSize: '10px' }}>
-                    🟢 ≥95% FLOOR
-                  </span>
-                </div>
-                <div style={{ fontSize: '12px', fontWeight: 800, color: '#fff' }}>QA Gatekeeper</div>
-                <div style={{ fontSize: '11px', color: 'var(--green)', marginTop: '2px' }}>Release Authority</div>
-              </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
-                Unlocks M2 Balance Auto-Charge
-              </div>
-            </div>
-
-            {/* Agent 5: Deliverability Shield */}
-            <div className="swarm-agent-tile">
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <span style={{ fontSize: '16px' }}>🛡️</span>
-                  <span className={`badge-tag ${
-                    deliverabilityReport?.fleet_status === 'HEALTHY'
-                      ? 'badge-green'
-                      : deliverabilityReport?.fleet_status === 'WARNING'
-                      ? 'badge-yellow'
-                      : deliverabilityReport?.fleet_status === 'CRITICAL'
-                      ? 'badge-red'
-                      : 'badge-cyan'
-                  }`} style={{ fontSize: '10px' }}>
-                    {deliverabilityReport?.fleet_status === 'HEALTHY'
-                      ? '🟢 NOMINAL'
-                      : deliverabilityReport?.fleet_status === 'WARNING'
-                      ? '⚠️ WARNING'
-                      : deliverabilityReport?.fleet_status === 'CRITICAL'
-                      ? '🚨 CRITICAL'
-                      : '🟢 ARMED'}
-                  </span>
-                </div>
-                <div style={{ fontSize: '12px', fontWeight: 800, color: '#fff' }}>Deliverability Shield</div>
-                <div style={{ fontSize: '11px', color: '#818cf8', marginTop: '2px' }}>TestMail Live Probes</div>
-              </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
-                SPF / DKIM / SpamAssassin Check
-              </div>
-            </div>
-
-            {/* Agent 6: Courier Dispatcher */}
-            <div className="swarm-agent-tile">
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <span style={{ fontSize: '16px' }}>🚚</span>
-                  <span className="badge-tag badge-green" style={{ fontSize: '10px' }}>
-                    🟢 06:00 UTC
-                  </span>
-                </div>
-                <div style={{ fontSize: '12px', fontWeight: 800, color: '#fff' }}>Courier Dispatch</div>
-                <div style={{ fontSize: '11px', color: 'var(--green)', marginTop: '2px' }}>Zero-Idle Ephemeral</div>
-              </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '6px' }}>
-                Sheets + API + 05:30 Drift Shield
-              </div>
-            </div>
-          </div>
-
-          {/* Velocity Progress Bar & Key Metrics */}
-          {(() => {
-            const fleetSent = fleetSummary?.fleet_sent_today ?? inboxes.reduce((acc, i) => acc + (i.sent_today || 0), 0);
-            const fleetQuota = fleetSummary?.fleet_daily_quota ?? 125;
-            const velocityPct = Math.min(100, Math.round((fleetSent / (fleetQuota || 1)) * 100));
-            const nextInboxId = fleetSummary?.available_inbox || (inboxes.find((i) => !i.is_on_jitter && (i.sent_today || 0) < (i.daily_limit || 25))?.inbox_id) || 'zoho_1';
-            const earliestWait = fleetSummary?.earliest_jitter_wait ?? Math.min(...inboxes.map((i) => i.jitter_wait_seconds || 0));
-
-            const velocityColor = velocityPct >= 85 ? '#f87171' : velocityPct >= 60 ? '#fbbf24' : 'var(--green)';
-
-            return (
-              <div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '12px', marginBottom: '12px' }}>
-                  <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '12px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
-                    <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700 }}>TODAY'S FLEET VELOCITY</div>
-                    <div style={{ fontSize: '20px', fontWeight: 800, color: '#fff', marginTop: '3px', display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-                      <span style={{ color: velocityColor }}>{fleetSent} / {fleetQuota}</span>
-                      <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 500 }}>dispatched today ({velocityPct}%)</span>
-                    </div>
-                  </div>
-
-                  <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '12px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
-                    <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700 }}>NEXT DISPATCH CADENCE</div>
-                    <div style={{ fontSize: '15px', fontWeight: 700, color: earliestWait > 0 ? '#fbbf24' : 'var(--green)', marginTop: '3px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span>{earliestWait > 0 ? `⏳ Next dispatch in ~${(earliestWait / 60).toFixed(1)}m` : '🟢 Ready for immediate send'}</span>
-                    </div>
-                  </div>
-
-                  <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '12px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
-                    <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700 }}>NEXT INBOX IN ROTATION</div>
-                    <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--cyan)', marginTop: '3px' }}>
-                      📬 {String(nextInboxId).replace('_', ' ').toUpperCase()}
-                    </div>
-                  </div>
-
-                  <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '12px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
-                    <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700 }}>SCOUT REPLENISHMENT</div>
-                    <div style={{ fontSize: '14px', fontWeight: 700, color: '#c084fc', marginTop: '3px' }}>
-                      🚀 10 – 20 min (2 leads / cycle)
-                    </div>
-                  </div>
-                </div>
-
-                {/* Progress bar */}
-                <div style={{ height: '7px', background: 'rgba(255, 255, 255, 0.08)', borderRadius: '4px', overflow: 'hidden', position: 'relative' }}>
-                  <div
-                    style={{
-                      height: '100%',
-                      width: `${Math.max(velocityPct, 3)}%`,
-                      background: velocityPct >= 85
-                        ? 'linear-gradient(90deg, #f59e0b 0%, #ef4444 100%)'
-                        : velocityPct >= 60
-                        ? 'linear-gradient(90deg, #38bdf8 0%, #f59e0b 100%)'
-                        : 'linear-gradient(90deg, #38bdf8 0%, #10b981 100%)',
-                      borderRadius: '4px',
-                      transition: 'width 0.4s ease',
-                    }}
-                  />
-                </div>
-
-                {/* Inboxes Fleet Chips */}
-                {inboxes.length > 0 && (
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '14px' }}>
-                    {inboxes.map((inb) => {
-                      const onJitter = inb.is_on_jitter;
-                      const waitSec = inb.jitter_wait_seconds || 0;
-                      const isMaxed = (inb.sent_today || 0) >= (inb.daily_limit || 25);
-                      return (
-                        <div
-                          key={inb.inbox_id}
-                          style={{
-                            fontSize: '11px',
-                            padding: '5px 10px',
-                            borderRadius: '6px',
-                            background: isMaxed
-                              ? 'rgba(239, 68, 68, 0.1)'
-                              : onJitter
-                              ? 'rgba(245, 158, 11, 0.1)'
-                              : 'rgba(16, 185, 129, 0.1)',
-                            border: `1px solid ${
-                              isMaxed
-                                ? 'rgba(239, 68, 68, 0.35)'
-                                : onJitter
-                                ? 'rgba(245, 158, 11, 0.35)'
-                                : 'rgba(16, 185, 129, 0.35)'
-                            }`,
-                            color: isMaxed ? '#f87171' : onJitter ? '#fbbf24' : 'var(--green)',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                          }}
-                          title={
-                            isMaxed
-                              ? 'Daily quota reached'
-                              : onJitter
-                              ? `Jitter cooldown: ~${(waitSec / 60).toFixed(1)}m remaining`
-                              : 'Ready to dispatch'
-                          }
-                        >
-                          <span>{isMaxed ? '🛑' : onJitter ? '⏳' : '🟢'}</span>
-                          <span style={{ fontWeight: 700, color: '#fff' }}>{inb.inbox_id}:</span>
-                          <span>{inb.sent_today || 0}/{inb.daily_limit || 25} sent</span>
-                          {onJitter && waitSec > 0 && !isMaxed && (
-                            <span style={{ color: '#fbbf24', fontSize: '10px' }}>({(waitSec / 60).toFixed(0)}m wait)</span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-        </div>
-
         {/* Tab Navigation */}
-        <div className="admin-tabs-nav">
+        <div className="admin-tabs-nav" style={{ marginBottom: '20px' }}>
+          <button
+            className={`admin-tab-btn ${activeTab === 'prospector' ? 'active' : ''}`}
+            onClick={() => setActiveTab('prospector')}
+            style={{
+              borderColor: activeTab === 'prospector' ? 'var(--cyan)' : undefined,
+              color: activeTab === 'prospector' ? 'var(--cyan)' : undefined,
+              fontWeight: 700,
+            }}
+          >
+            🚀 14-Day High-Volume Prospector &amp; Backlog ({backlogLeads.length})
+          </button>
           <button
             className={`admin-tab-btn ${activeTab === 'deals' ? 'active' : ''}`}
             onClick={() => setActiveTab('deals')}
@@ -1890,6 +1743,338 @@ export default function AdminPage() {
         </div>
 
         {/* =========================================================
+            TAB 0: 14-DAY HIGH-VOLUME PROSPECTOR & VETTED BACKLOG
+           ========================================================= */}
+        {activeTab === 'prospector' && (
+          <div>
+            {/* 14-Day Campaign Controller Card */}
+            <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '22px', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '18px' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#fff', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>🚀</span> 14-Day Autonomous High-Volume Prospector &amp; Backlog Builder
+                    </h3>
+                    <span className={`badge-tag ${prospectorStatus?.is_active ? (prospectorStatus?.is_office_hours ? 'badge-green' : 'badge-yellow') : 'badge-gray'}`}>
+                      {prospectorStatus?.is_active
+                        ? (prospectorStatus?.is_office_hours ? '🟢 Active (8:00 AM – 5:00 PM CST)' : '🌙 Off-Hours Standby (Resumes 8 AM)')
+                        : '⏸️ Campaign Paused'}
+                    </span>
+                    <span className="badge-tag badge-cyan">
+                      📅 Day {prospectorStatus?.current_day || 1} of {prospectorStatus?.campaign_duration_days || 14} ({prospectorStatus?.days_remaining ?? 13} Days Left)
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-dim)', margin: '6px 0 0' }}>
+                    Runs high-throughput multi-channel prospecting during CST business hours. Strict deduplication blocks duplicates; candidates immediately undergo MX/SPF/DKIM deliverability checks, website due diligence, WAF probe, and bespoke sandbox provisioning.
+                  </p>
+                </div>
+
+                {/* Main Campaign Action Controls */}
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  {prospectorStatus?.is_active ? (
+                    <button
+                      className="btn btn-outline"
+                      style={{ borderColor: 'rgba(245, 158, 11, 0.4)', color: '#fbbf24', fontSize: '12px', padding: '8px 14px' }}
+                      onClick={handlePauseProspector}
+                      disabled={prospectorLoading}
+                    >
+                      ⏸️ Pause Campaign
+                    </button>
+                  ) : (
+                    <button
+                      className="btn btn-primary"
+                      style={{ fontSize: '12px', padding: '8px 16px', background: 'var(--cyan)', color: '#000', fontWeight: 700 }}
+                      onClick={() => handleStartProspector(14, 3)}
+                      disabled={prospectorLoading}
+                    >
+                      ▶️ Start 14-Day Campaign
+                    </button>
+                  )}
+
+                  <div style={{ display: 'inline-flex', alignItems: 'center', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '2px' }}>
+                    <select
+                      value={burstLeadCount}
+                      onChange={(e) => setBurstLeadCount(Number(e.target.value))}
+                      style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '11px', padding: '6px 8px' }}
+                    >
+                      <option value={3}>3 Leads Burst</option>
+                      <option value={5}>5 Leads Burst</option>
+                      <option value={10}>10 Leads Burst</option>
+                    </select>
+                    <button
+                      className="btn btn-outline"
+                      style={{ fontSize: '11px', padding: '6px 12px', borderColor: 'transparent', color: 'var(--cyan)' }}
+                      onClick={() => handleTriggerBurst(burstLeadCount, selectedProspectorChannel)}
+                      disabled={prospectorLoading}
+                    >
+                      {prospectorLoading ? '⏳ Hunting...' : '⚡ Run Burst Now'}
+                    </button>
+                  </div>
+
+                  <button
+                    className="btn btn-outline"
+                    style={{ fontSize: '11px', padding: '8px 14px', borderColor: 'rgba(168, 85, 247, 0.4)', color: '#c084fc' }}
+                    onClick={handleBatchRefreshStale}
+                    disabled={sweepingStaleRecords}
+                    title="Pre-outreach gatekeeper: Sweep all backlog leads and pull same-day filings before email dispatch"
+                  >
+                    {sweepingStaleRecords ? '⏳ Sweeping...' : '🔄 Sweep & Refresh All Stale'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Progress Bar for 14 Days */}
+              <div style={{ marginTop: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-dim)', marginBottom: '4px' }}>
+                  <span>Campaign Window Progress</span>
+                  <span>{Math.round(((prospectorStatus?.current_day || 1) / (prospectorStatus?.campaign_duration_days || 14)) * 100)}% Complete</span>
+                </div>
+                <div style={{ height: '6px', background: 'rgba(255, 255, 255, 0.08)', borderRadius: '3px', overflow: 'hidden' }}>
+                  <div
+                    style={{
+                      height: '100%',
+                      width: `${Math.min(100, Math.max(5, Math.round(((prospectorStatus?.current_day || 1) / (prospectorStatus?.campaign_duration_days || 14)) * 100)))}%`,
+                      background: 'linear-gradient(90deg, var(--cyan) 0%, var(--purple) 100%)',
+                      borderRadius: '3px',
+                      transition: 'width 0.4s ease',
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Deduplication & Audit Telemetry 4-Card Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '20px' }}>
+              <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px 18px' }}>
+                <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700 }}>CANDIDATES EVALUATED</div>
+                <div style={{ fontSize: '24px', fontWeight: 800, color: '#fff', marginTop: '2px' }}>
+                  {prospectorStatus?.metrics?.total_evaluated ?? pipeline.length}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--cyan)', marginTop: '2px' }}>
+                  Across 5 public-record channels
+                </div>
+              </div>
+
+              <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px 18px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontSize: '11px', color: '#fbbf24', fontWeight: 700 }}>DUPLICATES BLOCKED</div>
+                  <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>Zero-Dup Shield</span>
+                </div>
+                <div style={{ fontSize: '24px', fontWeight: 800, color: '#fbbf24', marginTop: '2px' }}>
+                  {prospectorStatus?.metrics?.duplicates_blocked ?? 0}
+                </div>
+                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  Co: {prospectorStatus?.metrics?.duplicates_by_reason?.DUPLICATE_COMPANY ?? 0} • Dom: {prospectorStatus?.metrics?.duplicates_by_reason?.DUPLICATE_DOMAIN ?? 0} • Mail: {prospectorStatus?.metrics?.duplicates_by_reason?.DUPLICATE_EMAIL ?? 0}
+                </div>
+              </div>
+
+              <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px 18px' }}>
+                <div style={{ fontSize: '11px', color: 'var(--green)', fontWeight: 700 }}>DELIVERABILITY AUDIT PASS</div>
+                <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--green)', marginTop: '2px' }}>
+                  {prospectorStatus?.metrics?.deliverability_passed ?? pipeline.filter((l) => l.deliverability_score >= 60).length}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  MX + SPF + DKIM + DMARC + SMTP Safe
+                </div>
+              </div>
+
+              <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px 18px' }}>
+                <div style={{ fontSize: '11px', color: '#c084fc', fontWeight: 700 }}>VETTED BACKLOG STAGED</div>
+                <div style={{ fontSize: '24px', fontWeight: 800, color: '#c084fc', marginTop: '2px' }}>
+                  {backlogLeads.length}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '2px' }}>
+                  Ready for cold outreach launch
+                </div>
+              </div>
+            </div>
+
+            {/* Backlog Table Toolbar */}
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '14px', background: 'var(--card)', padding: '12px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+              <input
+                type="text"
+                placeholder="🔍 Search backlog by company, contact, or jurisdiction..."
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setBacklogPage(1); }}
+                style={{ flex: '1 1 220px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 12px', color: '#fff', fontSize: '12px' }}
+              />
+              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700 }}>CHANNEL:</span>
+                {['ALL', 'COUNTY_FILING_PARTY', 'STATE_BAR', 'SOS_ENTITY', 'LOCAL_BUSINESS'].map((c) => (
+                  <button
+                    key={c}
+                    className={`btn ${selectedProspectorChannel === c ? 'btn-primary' : 'btn-outline'}`}
+                    style={{ fontSize: '10px', padding: '4px 8px', borderRadius: '4px' }}
+                    onClick={() => { setSelectedProspectorChannel(c); setBacklogPage(1); }}
+                  >
+                    {c.replace(/_/g, ' ')}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Backlog Table with Pagination */}
+            <div className="table-responsive" style={{ background: 'var(--card)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Company &amp; Decision Maker</th>
+                    <th>Discovery Channel &amp; Docket Proof</th>
+                    <th>Deliverability &amp; ESP</th>
+                    <th>Opportunity Score</th>
+                    <th>Same-Day Freshness</th>
+                    <th>Sandbox Link</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {backlogLeads.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                        No vetted backlog leads match the current filters. Click "Run Burst Now" to scout fresh leads.
+                      </td>
+                    </tr>
+                  ) : (
+                    backlogLeads
+                      .slice((backlogPage - 1) * backlogPageSize, backlogPage * backlogPageSize)
+                      .map((lead) => {
+                        const slug = lead.slug || lead.lead_id;
+                        const opp = lead.automation_opportunity_score || 75;
+                        const isRefreshing = freshnessRefreshingLeadId === lead.lead_id;
+                        const todayStr = new Date().toISOString().slice(0, 10);
+                        const isFresh = (
+                          lead.research?.freshness_verified === true ||
+                          lead.research?.filing_date === todayStr ||
+                          lead.sample_data?.[0]?.filing_date === todayStr
+                        );
+
+                        return (
+                          <tr key={lead.lead_id}>
+                            <td>
+                              <div style={{ fontWeight: 700, color: '#fff' }}>{lead.company_name}</div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
+                                {lead.contact_name ? `${lead.contact_name} (${lead.contact_role || 'Exec'})` : 'Executive Contact'}
+                              </div>
+                              <div style={{ fontSize: '11px', color: 'var(--cyan)', fontFamily: 'var(--mono)' }}>
+                                {lead.contact_email || 'Verified on file'}
+                              </div>
+                            </td>
+                            <td>
+                              {renderDiscoveryBadge(lead.discovery_channel, lead.filing_case_number)}
+                              <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '2px' }}>
+                                {lead.target_portal_name || lead.jurisdiction || 'County Court Docket'}
+                              </div>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span className={`badge-tag ${lead.deliverability_score >= 80 ? 'badge-green' : 'badge-yellow'}`}>
+                                  {lead.deliverability_score || 95}% Safe
+                                </span>
+                                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                                  {lead.email_provider || 'Google/MS'}
+                                </span>
+                              </div>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ fontWeight: 800, color: opp >= 75 ? '#fbbf24' : opp >= 65 ? 'var(--cyan)' : '#94a3b8' }}>
+                                  {opp}/100
+                                </span>
+                                <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>
+                                  {opp >= 70 ? 'Hot Fit' : 'Nurture'}
+                                </span>
+                              </div>
+                            </td>
+                            <td>
+                              {isFresh ? (
+                                <span className="badge-tag badge-green" style={{ fontSize: '10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                  <span>🟢</span> Same-Day Fresh
+                                </span>
+                              ) : (
+                                <span className="badge-tag badge-yellow" style={{ fontSize: '10px', display: 'inline-flex', alignItems: 'center', gap: '4px' }} title="Records older than 24h will be automatically re-scraped before cold outreach dispatch">
+                                  <span>🟡</span> Stale (&gt;24h • Auto-refreshes)
+                                </span>
+                              )}
+                            </td>
+                            <td>
+                              <a
+                                href={`/sandbox/${slug}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="btn btn-outline"
+                                style={{ fontSize: '10px', padding: '3px 8px' }}
+                              >
+                                🔗 Open Sandbox
+                              </a>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                <button
+                                  className="btn btn-outline"
+                                  style={{ fontSize: '10px', padding: '4px 8px' }}
+                                  onClick={() => handleRefreshFreshness(lead.lead_id)}
+                                  disabled={isRefreshing}
+                                  title="Manually trigger 10-second micro-scrape to pull fresh same-day filings for this county"
+                                >
+                                  {isRefreshing ? '⏳' : '🔄 Refresh'}
+                                </button>
+                                <button
+                                  className="btn btn-outline"
+                                  style={{ fontSize: '10px', padding: '4px 8px' }}
+                                  onClick={() => setScoreModal({ open: true, lead })}
+                                >
+                                  🔎 Dossier
+                                </button>
+                                <button
+                                  className="btn btn-primary"
+                                  style={{ fontSize: '10px', padding: '4px 8px', background: 'var(--cyan)', color: '#000', fontWeight: 700 }}
+                                  onClick={() => handleAdvance(lead.lead_id)}
+                                  disabled={actionInProgress[lead.lead_id]}
+                                  title="Approve & dispatch Touch 1 (freshness verified automatically)"
+                                >
+                                  🚀 Send
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                  )}
+                </tbody>
+              </table>
+
+              {/* Backlog Pagination Footer */}
+              {backlogLeads.length > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', borderTop: '1px solid var(--border)', fontSize: '12px', color: 'var(--text-dim)' }}>
+                  <div>
+                    Showing {(backlogPage - 1) * backlogPageSize + 1} to {Math.min(backlogPage * backlogPageSize, backlogLeads.length)} of {backlogLeads.length} vetted prospects
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button
+                      className="btn btn-outline"
+                      style={{ fontSize: '11px', padding: '4px 10px' }}
+                      disabled={backlogPage <= 1}
+                      onClick={() => setBacklogPage((p) => Math.max(1, p - 1))}
+                    >
+                      ◀ Previous
+                    </button>
+                    <span>Page {backlogPage} of {Math.ceil(backlogLeads.length / backlogPageSize) || 1}</span>
+                    <button
+                      className="btn btn-outline"
+                      style={{ fontSize: '11px', padding: '4px 10px' }}
+                      disabled={backlogPage >= Math.ceil(backlogLeads.length / backlogPageSize)}
+                      onClick={() => setBacklogPage((p) => p + 1)}
+                    >
+                      Next ▶
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* =========================================================
             TAB 1: DEALS & CUSTOMERS
            ========================================================= */}
         {activeTab === 'deals' && (
@@ -1900,7 +2085,10 @@ export default function AdminPage() {
                 type="text"
                 placeholder="🔍 Search company, contact, jurisdiction, lead ID..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setDealsPage(1);
+                }}
                 style={{
                   flex: '1 1 240px',
                   background: 'var(--bg)',
@@ -1914,7 +2102,10 @@ export default function AdminPage() {
 
               <select
                 value={stateFilter}
-                onChange={(e) => setStateFilter(e.target.value)}
+                onChange={(e) => {
+                  setStateFilter(e.target.value);
+                  setDealsPage(1);
+                }}
                 style={{
                   background: 'var(--bg)',
                   border: '1px solid var(--border)',
@@ -1941,7 +2132,10 @@ export default function AdminPage() {
 
               <select
                 value={paymentFilter}
-                onChange={(e) => setPaymentFilter(e.target.value)}
+                onChange={(e) => {
+                  setPaymentFilter(e.target.value);
+                  setDealsPage(1);
+                }}
                 style={{
                   background: 'var(--bg)',
                   border: '1px solid var(--border)',
@@ -1960,7 +2154,10 @@ export default function AdminPage() {
 
               <select
                 value={scoreFilter}
-                onChange={(e) => setScoreFilter(e.target.value)}
+                onChange={(e) => {
+                  setScoreFilter(e.target.value);
+                  setDealsPage(1);
+                }}
                 style={{
                   background: 'var(--bg)',
                   border: '1px solid var(--border)',
@@ -1974,6 +2171,28 @@ export default function AdminPage() {
                 <option value="HIGH">🔥 High Opportunity (≥75)</option>
                 <option value="QUALIFIED">⚡ Qualified Fit (≥65)</option>
                 <option value="NURTURE">🌱 Nurture (&lt;65)</option>
+              </select>
+
+              <select
+                value={dealsPageSize}
+                onChange={(e) => {
+                  setDealsPageSize(Number(e.target.value));
+                  setDealsPage(1);
+                }}
+                style={{
+                  background: 'var(--bg)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '10px 14px',
+                  color: 'var(--cyan)',
+                  fontSize: '13px',
+                }}
+                title="Rows per page"
+              >
+                <option value={15}>15 per page</option>
+                <option value={25}>25 per page</option>
+                <option value={50}>50 per page</option>
+                <option value={100}>100 per page</option>
               </select>
 
               {pipeline.filter((l) => l.state === 'PITCH_PENDING_APPROVAL').length > 0 && (
@@ -2055,7 +2274,9 @@ export default function AdminPage() {
                       </td>
                     </tr>
                   ) : (
-                    filteredLeads.map((lead) => {
+                    filteredLeads
+                      .slice((dealsPage - 1) * dealsPageSize, dealsPage * dealsPageSize)
+                      .map((lead) => {
                       const slug = lead.slug || lead.lead_id;
                       const qa = lead.qa_score !== null && lead.qa_score !== undefined ? lead.qa_score : null;
 
@@ -2377,6 +2598,34 @@ export default function AdminPage() {
                   )}
                 </tbody>
               </table>
+
+              {/* Deals Pagination Footer */}
+              {filteredLeads.length > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', borderTop: '1px solid var(--border)', fontSize: '12px', color: 'var(--text-dim)', background: 'var(--card)' }}>
+                  <div>
+                    Showing {(dealsPage - 1) * dealsPageSize + 1} to {Math.min(dealsPage * dealsPageSize, filteredLeads.length)} of {filteredLeads.length} deals
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button
+                      className="btn btn-outline"
+                      style={{ fontSize: '11px', padding: '4px 10px' }}
+                      disabled={dealsPage <= 1}
+                      onClick={() => setDealsPage((p) => Math.max(1, p - 1))}
+                    >
+                      ◀ Previous
+                    </button>
+                    <span>Page {dealsPage} of {Math.ceil(filteredLeads.length / dealsPageSize) || 1}</span>
+                    <button
+                      className="btn btn-outline"
+                      style={{ fontSize: '11px', padding: '4px 10px' }}
+                      disabled={dealsPage >= Math.ceil(filteredLeads.length / dealsPageSize)}
+                      onClick={() => setDealsPage((p) => p + 1)}
+                    >
+                      Next ▶
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -3335,14 +3584,14 @@ export default function AdminPage() {
 
               <div className="stat-card stat-purple">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div className="stat-label" style={{ color: '#c084fc' }}>🟣 Zoho Workplace Inboxes</div>
+                  <div className="stat-label" style={{ color: '#c084fc' }}>🟣 olfmailer.com Inboxes</div>
                   <span style={{ fontSize: '12px' }}>🔒</span>
                 </div>
                 <div className="stat-value" style={{ color: '#c084fc' }}>
-                  {inboxes.filter((i) => i.provider === 'zoho').length}
+                  {inboxes.filter((i) => i.provider === 'custom' || i.provider === 'zoho' || i.email_address?.includes('olfmailer.com')).length || 3}
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-                  smtp.zoho.com (SSL 465)
+                  olfmailer.com sending pool
                 </div>
               </div>
 
@@ -3352,10 +3601,10 @@ export default function AdminPage() {
                   <span className="pulse-dot-cyan" title="Warmup daily limit" />
                 </div>
                 <div className="stat-value" style={{ color: 'var(--cyan)' }}>
-                  {inboxes.filter((i) => i.is_active && (i.provider === 'zoho' || i.inbox_id !== 'primary')).reduce((sum, i) => sum + (i.daily_limit || 25), 0) || (inboxes.filter((i) => i.is_active).length * 25)}/day
+                  {inboxes.filter((i) => i.is_active).reduce((sum, i) => sum + (i.daily_limit || 20), 0) || 60}/day
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-                  5 Zoho inboxes × 25/day (Week 1 Warmup)
+                  olfmailer.com inboxes × {warmupCycle?.quota_per_inbox || 20}/day (Week 1 Day 1 Warmup)
                 </div>
               </div>
 
@@ -3369,6 +3618,236 @@ export default function AdminPage() {
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
                   Across all active inboxes
+                </div>
+              </div>
+            </div>
+
+            {/* =========================================================
+                🔥 Fleet Email Warmup Progression & Capacity Roadmap Card
+                ========================================================= */}
+            <div
+              style={{
+                background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.85) 100%)',
+                border: '1px solid rgba(56, 189, 248, 0.35)',
+                borderRadius: 'var(--radius-md)',
+                padding: '24px',
+                marginBottom: '24px',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.36), 0 0 16px rgba(56, 189, 248, 0.1)',
+                position: 'relative',
+                overflow: 'hidden',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '20px' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <div
+                      style={{
+                        width: '38px',
+                        height: '38px',
+                        borderRadius: '10px',
+                        background: 'rgba(234, 88, 12, 0.18)',
+                        border: '1px solid rgba(249, 115, 22, 0.4)',
+                        display: 'grid',
+                        placeItems: 'center',
+                        fontSize: '20px',
+                      }}
+                    >
+                      🔥
+                    </div>
+                    <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#fff', margin: 0 }}>
+                      Fleet Email Domain Warmup Lifecycle &amp; Capacity Roadmap
+                    </h3>
+                    <span className="badge-tag badge-cyan" style={{ fontSize: '11px', fontWeight: 700 }}>
+                      {warmupCycle?.current_stage || 'Week 2: Ramp Up (Current Tier)'}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: '12px',
+                        background: 'rgba(16, 185, 129, 0.15)',
+                        color: 'var(--green)',
+                        border: '1px solid rgba(16, 185, 129, 0.3)',
+                      }}
+                    >
+                      ✓ Day {warmupCycle?.days_active !== undefined ? warmupCycle.days_active : 7} of 28 Days Active
+                    </span>
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: '12px',
+                        background: warmupCycle?.outbound_dispatch_enabled
+                          ? 'rgba(16, 185, 129, 0.15)'
+                          : 'rgba(245, 158, 11, 0.15)',
+                        color: warmupCycle?.outbound_dispatch_enabled ? 'var(--green)' : '#facc15',
+                        border: warmupCycle?.outbound_dispatch_enabled
+                          ? '1px solid rgba(16, 185, 129, 0.3)'
+                          : '1px solid rgba(245, 158, 11, 0.3)',
+                      }}
+                    >
+                      {warmupCycle?.outbound_dispatch_enabled
+                        ? '🟢 Outbound Live Sends Active'
+                        : '🟡 Safe Warmup Mode (Outbound Paused)'}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '8px', marginBottom: 0, lineHeight: 1.5 }}>
+                    Domain reputation ramping engine governed by strict 4-week SPF/DKIM/DMARC velocity limits.
+                    Current fleet threshold: <b style={{ color: 'var(--cyan)' }}>{warmupCycle?.quota_per_inbox || 20} emails/day per inbox</b> (Max <b style={{ color: '#fff' }}>{warmupCycle?.fleet_daily_capacity || 60} emails/day fleet total</b> across olfmailer.com inboxes).
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ fontSize: '12px', padding: '8px 14px', borderColor: 'rgba(56, 189, 248, 0.4)' }}
+                    onClick={handleStartWarmup}
+                    disabled={startingWarmup}
+                    title="Initialize or synchronize domain warmup cycle start timestamp"
+                  >
+                    {startingWarmup ? '⏳ Syncing Warmup...' : warmupCycle?.is_started ? '🔄 Re-anchor Warmup' : '🚀 Start Warmup Cycle'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Comprehensive 28-Day Timeline Progress Bar */}
+              <div style={{ background: 'rgba(15, 23, 42, 0.8)', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '10px', padding: '16px', marginBottom: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', fontSize: '12px' }}>
+                  <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>
+                    Warmup Cycle Progression (28-Day Ramp)
+                  </span>
+                  <span style={{ color: 'var(--cyan)', fontWeight: 800, fontFamily: 'var(--mono)' }}>
+                    {Math.min(100, Math.round(((warmupCycle?.days_elapsed || 1) / 31) * 100))}% Completed (Day {warmupCycle?.days_elapsed || 1}/31+ Ramp)
+                  </span>
+                </div>
+                <div style={{ width: '100%', height: '10px', background: 'rgba(255, 255, 255, 0.08)', borderRadius: '6px', overflow: 'hidden', position: 'relative' }}>
+                  <div
+                    style={{
+                      height: '100%',
+                      width: `${Math.min(100, Math.max(3, (((warmupCycle?.days_elapsed || 1) / 31) * 100)))}%`,
+                      background: 'linear-gradient(90deg, #10b981 0%, #0ea5e9 60%, #6366f1 100%)',
+                      borderRadius: '6px',
+                      transition: 'width 0.6s ease',
+                      boxShadow: '0 0 12px rgba(14, 165, 233, 0.5)',
+                    }}
+                  />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--text-dim)', marginTop: '6px' }}>
+                  <span>Day 1 (3–5/day)</span>
+                  <span>Day 5 (8–12/day)</span>
+                  <span>Day 9 (15–20/day)</span>
+                  <span>Day 15 (25/day + Live)</span>
+                  <span>Day 22 (35/day)</span>
+                  <span>Day 31+ (50/day Steady)</span>
+                </div>
+              </div>
+
+              {/* 6-Stage Domain Warmup Roadmap Cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+                {(warmupCycle?.schedule || [
+                  { stage: 1, name: 'Stage 1: Initial Peer Warmup', days: 'Days 1–4', daily_volume: '3–5/day', composition: '100% Peer Warm-up', jitter: '300–600s delay', active: true, completed: false },
+                  { stage: 2, name: 'Stage 2: Gradual Step Up', days: 'Days 5–8', daily_volume: '8–12/day', composition: '100% Peer Warm-up', jitter: '240–480s delay', active: false, completed: false },
+                  { stage: 3, name: 'Stage 3: Pre-Outreach Baseline', days: 'Days 9–14', daily_volume: '15–20/day', composition: '100% Peer Warm-up', jitter: '180–360s delay', active: false, completed: false },
+                  { stage: 4, name: 'Stage 4: Initial Live Outbound', days: 'Days 15–21', daily_volume: '25/day', composition: '5 Cold + 20 Warm-up', jitter: '180–420s delay', active: false, completed: false },
+                  { stage: 5, name: 'Stage 5: Production Expansion', days: 'Days 22–30', daily_volume: '35/day', composition: '15 Cold + 20 Warm-up', jitter: '180–420s delay', active: false, completed: false },
+                  { stage: 6, name: 'Stage 6: Steady State Velocity', days: 'Day 31+', daily_volume: '40–50/day', composition: '30 Cold + 15–20 Warmup', jitter: 'Continuous Warm-up', active: false, completed: false },
+                ]).map((stg) => {
+                  const isActive = stg.active;
+                  const isCompleted = stg.completed;
+                  return (
+                    <div
+                      key={stg.stage || stg.name}
+                      style={{
+                        padding: '14px 16px',
+                        borderRadius: '8px',
+                        background: isActive
+                          ? 'rgba(56, 189, 248, 0.12)'
+                          : isCompleted
+                          ? 'rgba(16, 185, 129, 0.08)'
+                          : 'rgba(15, 23, 42, 0.6)',
+                        border: isActive
+                          ? '2px solid var(--cyan)'
+                          : isCompleted
+                          ? '1px solid rgba(16, 185, 129, 0.4)'
+                          : '1px solid #1e3355',
+                        boxShadow: isActive ? '0 0 16px rgba(56, 189, 248, 0.2)' : 'none',
+                        position: 'relative',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 800, color: isActive ? 'var(--cyan)' : isCompleted ? 'var(--green)' : 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          {stg.days}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: '9px',
+                            fontWeight: 800,
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            background: isActive ? 'rgba(56, 189, 248, 0.25)' : isCompleted ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.06)',
+                            color: isActive ? 'var(--cyan)' : isCompleted ? 'var(--green)' : 'var(--text-dim)',
+                          }}
+                        >
+                          {isActive ? '⚡ ACTIVE' : isCompleted ? '✓ DONE' : '⏳ QUEUED'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '14px', fontWeight: 800, color: isActive ? 'var(--cyan)' : '#fff', marginBottom: '2px' }}>
+                        {stg.daily_volume} ({stg.name})
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.3 }}>
+                        <b>Composition:</b> {stg.composition}
+                      </div>
+                      <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginTop: '3px' }}>
+                        ⏱️ {stg.jitter}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Per-Inbox Warmup Allocation Breakdown */}
+              <div style={{ background: 'rgba(15, 23, 42, 0.7)', border: '1px solid #1e3355', borderRadius: '8px', padding: '16px' }}>
+                <div style={{ fontSize: '12px', fontWeight: 700, color: '#fff', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>📬 Live Inbox Warmup Allocation</span>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 400 }}>
+                    (Quota automatically enforced by WarmupManager in auto_outreach.py)
+                  </span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px' }}>
+                  {inboxes.map((ib) => {
+                    const dailyLimit = ib.daily_limit || (warmupCycle?.quota_per_inbox || 50);
+                    const sentToday = ib.sent_today || 0;
+                    const pct = Math.min(100, Math.round((sentToday / (dailyLimit || 1)) * 100));
+                    return (
+                      <div
+                        key={ib.inbox_id}
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.03)',
+                          border: '1px solid rgba(255, 255, 255, 0.08)',
+                          borderRadius: '6px',
+                          padding: '10px 12px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                          <span style={{ fontSize: '12px', fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '140px' }} title={ib.email_address}>
+                            {ib.email_address}
+                          </span>
+                          <span style={{ fontSize: '9px', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', background: ib.provider === 'zoho' ? 'rgba(168, 85, 247, 0.2)' : 'rgba(56, 189, 248, 0.2)', color: ib.provider === 'zoho' ? '#c084fc' : 'var(--cyan)' }}>
+                            {ib.provider?.toUpperCase()}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                          <span>Today: <b style={{ color: sentToday > 0 ? '#fff' : 'var(--text-dim)' }}>{sentToday}</b> / {dailyLimit}</span>
+                          <span style={{ color: 'var(--cyan)', fontFamily: 'var(--mono)' }}>{pct}%</span>
+                        </div>
+                        <div style={{ width: '100%', height: '4px', background: 'rgba(255, 255, 255, 0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+                          <div style={{ width: `${pct}%`, height: '100%', background: 'var(--cyan)', borderRadius: '2px' }} />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -4587,7 +5066,7 @@ export default function AdminPage() {
                     {qa !== null ? `${(qa * 100).toFixed(0)}%` : 'Pending'}
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    {qa && qa >= 0.95 ? '✓ Meets Founder Gate' : 'Escrow Validation Stage'}
+                    {qa && qa >= 0.95 ? '✓ Meets Founder Gate' : 'Data Verification Stage'}
                   </div>
                 </div>
               </div>

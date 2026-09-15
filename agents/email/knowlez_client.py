@@ -130,6 +130,24 @@ class KnowlezDeliverabilityClient:
                     ON email_deliverability_cache (checked_at DESC)
                     """
                 )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS domain_validation_cache (
+                        domain TEXT PRIMARY KEY,
+                        valid INTEGER NOT NULL,
+                        tld TEXT DEFAULT '',
+                        normalized TEXT DEFAULT '',
+                        raw_response_json TEXT NOT NULL,
+                        checked_at TEXT NOT NULL
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS ix_domain_val_checked
+                    ON domain_validation_cache (checked_at DESC)
+                    """
+                )
                 conn.commit()
         except Exception as exc:
             logger.warning(f"Could not initialize deliverability cache DB at {self.db_path}: {exc}")
@@ -462,11 +480,100 @@ class KnowlezDeliverabilityClient:
 
         return [results_by_email.get(e, {"email": e, "valid": False, "cached": False}) for e in clean_emails]
 
-    def validate_domain(self, domain: str) -> dict[str, Any]:
+    def get_cached_domain(self, domain: str, max_age_days: int = 30) -> dict[str, Any] | None:
+        """Return cached domain validation result if within TTL; otherwise None."""
+        clean = (domain or "").strip().lower().replace("https://", "").replace("http://", "").split("/")[0]
+        if not clean:
+            return None
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT * FROM domain_validation_cache WHERE domain = ?",
+                    (clean,),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return None
+
+                checked_at_str = row["checked_at"]
+                try:
+                    checked_at_dt = datetime.fromisoformat(checked_at_str)
+                    if checked_at_dt.tzinfo is None:
+                        checked_at_dt = checked_at_dt.replace(tzinfo=timezone.utc)
+                except Exception:
+                    checked_at_dt = datetime.now(timezone.utc)
+
+                if checked_at_dt < cutoff:
+                    return None
+
+                raw_data = {}
+                try:
+                    raw_data = json.loads(row["raw_response_json"])
+                except Exception:
+                    pass
+
+                result = {
+                    "domain": clean,
+                    "valid": bool(row["valid"]),
+                    "tld": row["tld"] or "",
+                    "normalized": row["normalized"] or clean,
+                    "checked_at": checked_at_str,
+                    "cached": True,
+                    **{k: v for k, v in raw_data.items() if k not in ("domain", "valid", "cached")},
+                }
+                return result
+        except Exception as exc:
+            logger.debug(f"Domain validation cache lookup exception for {clean}: {exc}")
+            return None
+
+    def save_cached_domain(self, domain: str, data: dict[str, Any]) -> None:
+        """Store domain validation result into SQLite cache."""
+        clean = (domain or "").strip().lower().replace("https://", "").replace("http://", "").split("/")[0]
+        if not clean:
+            return
+
+        now_str = datetime.now(timezone.utc).isoformat()
+        valid = bool(data.get("valid", False))
+        tld = str(data.get("tld") or "")
+        normalized = str(data.get("normalized") or clean)
+
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO domain_validation_cache (
+                        domain, valid, tld, normalized, raw_response_json, checked_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(domain) DO UPDATE SET
+                        valid=excluded.valid,
+                        tld=excluded.tld,
+                        normalized=excluded.normalized,
+                        raw_response_json=excluded.raw_response_json,
+                        checked_at=excluded.checked_at
+                    """,
+                    (clean, 1 if valid else 0, tld, normalized, json.dumps(data), now_str),
+                )
+                conn.commit()
+        except Exception as exc:
+            logger.debug(f"Domain validation cache write exception for {clean}: {exc}")
+
+    def validate_domain(self, domain: str, force: bool = False) -> dict[str, Any]:
         """Validate sending or target domain MX, syntax, and disposable status."""
         clean_domain = (domain or "").strip().lower().replace("https://", "").replace("http://", "").split("/")[0]
         if not clean_domain:
             return {"domain": domain, "valid": False, "reason": "empty_domain"}
+
+        # 1. Check Cache First (Conserve Knowlez credits)
+        if not force:
+            cached = self.get_cached_domain(clean_domain)
+            if cached:
+                logger.info(f"⚡ [KNOWLEZ DOMAIN CACHE HIT] '{clean_domain}' -> Valid: {cached.get('valid')} (0 API Credits Burned)")
+                return cached
 
         if not self.is_configured:
             return {"domain": clean_domain, "valid": True, "unverified_fallback": True}
@@ -477,6 +584,8 @@ class KnowlezDeliverabilityClient:
                 resp = client.post(url, headers=self._get_headers(), json={"domain": clean_domain})
                 if resp.status_code in (200, 201):
                     data = resp.json()
+                    data["cached"] = False
+                    self.save_cached_domain(clean_domain, data)
                     logger.info(f"🌐 [KNOWLEZ DOMAIN] '{clean_domain}' -> Valid: {data.get('valid')} | TLD: {data.get('tld')}")
                     return data
                 logger.warning(f"Knowlez domain validate returned HTTP {resp.status_code}: {resp.text}")

@@ -407,11 +407,63 @@ class EmailSettings:
 
         inbox_pool: list[InboxAccountConfig] = []
 
-        # 1. Parse JSON inboxes if provided: ZOHO_INBOXES_JSON or INBOXES_CONFIG_JSON
-        json_inboxes_raw = os.environ.get("ZOHO_INBOXES_JSON") or os.environ.get("INBOXES_CONFIG_JSON") or ""
-        if json_inboxes_raw.strip():
+        # 1. Parse olfmailer.com inboxes: OLFMAILER_INBOXES_JSON, INBOXES_CONFIG_JSON, or default 3 inboxes
+        olf_inboxes_raw = os.environ.get("OLFMAILER_INBOXES_JSON") or os.environ.get("INBOXES_CONFIG_JSON") or ""
+        if olf_inboxes_raw.strip():
             try:
-                parsed_list = json.loads(json_inboxes_raw)
+                parsed_list = json.loads(olf_inboxes_raw)
+                if isinstance(parsed_list, list):
+                    for idx, item in enumerate(parsed_list):
+                        if isinstance(item, dict):
+                            addr = item.get("email_address") or item.get("email") or ""
+                            if addr:
+                                inbox_pool.append(
+                                    InboxAccountConfig(
+                                        id=item.get("id") or f"olf_{idx+1}",
+                                        email_address=addr,
+                                        password=item.get("password") or item.get("app_password") or "",
+                                        provider="smtp_generic",
+                                        from_name=item.get("from_name", from_name),
+                                        smtp_host=item.get("smtp_host", ""),
+                                        smtp_port=int(item.get("smtp_port", 465)),
+                                        daily_limit=int(item.get("daily_limit", warmup_week1_limit)),
+                                        warmup_start_date=item.get("warmup_start_date", warmup_start_date),
+                                        is_active=str(item.get("is_active", "true")).lower() in ("true", "1", "yes"),
+                                    )
+                                )
+            except Exception as err:
+                logger.error(f"Failed to parse OLFMAILER_INBOXES_JSON: {err}")
+
+        # 1.5 Numbered Zoho inboxes (ZOHO_INBOX_1_EMAIL, ZOHO_INBOX_2_EMAIL, ...)
+        for i in range(1, 21):
+            z_email = os.environ.get(f"ZOHO_INBOX_{i}_EMAIL", "").strip()
+            if z_email:
+                z_pwd = os.environ.get(f"ZOHO_INBOX_{i}_APP_PASSWORD", "").strip()
+                z_name = os.environ.get(f"ZOHO_INBOX_{i}_FROM_NAME", from_name).strip()
+                inbox_pool.append(
+                    InboxAccountConfig(
+                        id=f"zoho_{i}",
+                        email_address=z_email,
+                        password=z_pwd,
+                        provider="zoho",
+                        from_name=z_name,
+                        smtp_host="smtp.zoho.com",
+                        smtp_port=465,
+                        smtp_use_ssl=True,
+                        imap_host="imap.zoho.com",
+                        imap_port=993,
+                        imap_use_ssl=True,
+                        daily_limit=warmup_week1_limit,
+                        warmup_start_date=warmup_start_date,
+                        is_active=True,
+                    )
+                )
+
+        # 2. Legacy Zoho JSON fallback if explicitly provided
+        json_zoho_raw = os.environ.get("ZOHO_INBOXES_JSON") or ""
+        if json_zoho_raw.strip():
+            try:
+                parsed_list = json.loads(json_zoho_raw)
                 if isinstance(parsed_list, list):
                     for idx, item in enumerate(parsed_list):
                         if isinstance(item, dict):
@@ -436,44 +488,22 @@ class EmailSettings:
             except Exception as err:
                 logger.error(f"Failed to parse ZOHO_INBOXES_JSON: {err}")
 
-        # 2. Parse numbered Zoho environment variables: ZOHO_INBOX_1_EMAIL ... ZOHO_INBOX_10_EMAIL
-        for idx in range(1, 11):
-            z_email = (
-                os.environ.get(f"ZOHO_INBOX_{idx}_EMAIL")
-                or os.environ.get(f"ZOHO_INBOX_{idx}_USER")
-                or os.environ.get(f"INBOX_{idx}_EMAIL")
-                or ""
-            ).strip()
-            z_pwd = (
-                os.environ.get(f"ZOHO_INBOX_{idx}_APP_PASSWORD")
-                or os.environ.get(f"ZOHO_INBOX_{idx}_PASSWORD")
-                or os.environ.get(f"INBOX_{idx}_PASSWORD")
-                or ""
-            ).strip()
-
-            if z_email:
-                z_name = os.environ.get(f"ZOHO_INBOX_{idx}_FROM_NAME", from_name).strip()
-                z_host = os.environ.get(f"ZOHO_INBOX_{idx}_SMTP_HOST", "").strip()
-                z_port = _clean_int(os.environ.get(f"ZOHO_INBOX_{idx}_SMTP_PORT", "465"), 465)
-                z_imap_host = os.environ.get(f"ZOHO_INBOX_{idx}_IMAP_HOST", "").strip()
-                z_imap_port = _clean_int(os.environ.get(f"ZOHO_INBOX_{idx}_IMAP_PORT", "993"), 993)
-                z_limit = _clean_int(os.environ.get(f"ZOHO_INBOX_{idx}_DAILY_LIMIT", str(warmup_week1_limit)), warmup_week1_limit)
-
-                z_imap_enabled = os.environ.get(f"ZOHO_INBOX_{idx}_IMAP_ENABLED", "false").lower() in ("true", "1", "yes")
-
+        # 3. Default to the 3 olfmailer.com sending identities if no custom inboxes configured
+        if not inbox_pool:
+            default_olf = [
+                ("olf_ben", "ben@olfmailer.com", "Ben | OmniLeadFeeder"),
+                ("olf_alex", "alex@olfmailer.com", "Alex | OmniLeadFeeder"),
+                ("olf_contact", "contact@olfmailer.com", "OmniLeadFeeder Operations"),
+            ]
+            for id_slug, addr, disp_name in default_olf:
                 inbox_pool.append(
                     InboxAccountConfig(
-                        id=f"zoho_{idx}",
-                        email_address=z_email,
-                        password=z_pwd,
-                        provider="zoho",
-                        from_name=z_name,
-                        smtp_host=z_host,
-                        smtp_port=z_port,
-                        imap_host=z_imap_host,
-                        imap_port=z_imap_port,
-                        imap_enabled=z_imap_enabled,
-                        daily_limit=z_limit,
+                        id=id_slug,
+                        email_address=addr,
+                        password="",
+                        provider="smtp_generic",
+                        from_name=disp_name,
+                        daily_limit=warmup_week1_limit,
                         warmup_start_date=warmup_start_date,
                         is_active=True,
                     )

@@ -1,0 +1,37 @@
+{
+  "start_time": "2026-09-15T18:15:41.655763+00:00",
+  "end_time": "2026-09-29T18:15:41.655763+00:00",
+  "campaign_duration_days": 14,
+  "is_active": false,
+  "volume_per_cycle": 4,
+  "active_channels": [
+    "county_filing_party",
+    "state_bar",
+    "sos_entity",
+    "local_business",
+    "b2b_web_search"
+  ],
+  "metrics": {
+    "total_evaluated": 2,
+    "duplicates_blocked": 0,
+    "duplicates_by_reason": {
+      "DUPLICATE_COMPANY": 0,
+      "DUPLICATE_DOMAIN": 0,
+      "DUPLICATE_EMAIL": 0,
+      "GLOBAL_SUPPRESSION": 0,
+      "RECENTLY_CONTACTED_45D": 0
+    },
+    "deliverability_passed": 2,
+    "deliverability_failed": 0,
+    "websites_verified": 2,
+    "sandboxes_created": 2,
+    "qualified_backlog_count": 0,
+    "last_lead_discovered": {
+      "company_name": "Lone Star Concrete LLC",
+      "contact_email": "ops@lonestarconcrete.com",
+      "slug": "lone-star-concrete",
+      "discovered_at": "2026-09-15T18:15:38.237161+00:00"
+    }
+  },
+  "saved_at": "2026-09-15T18:15:41.663865+00:00"
+}

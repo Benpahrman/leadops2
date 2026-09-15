@@ -98,17 +98,20 @@ class WarmupManager:
             else:
                 warmup_start = now
 
-        days_active = max(0, (now - warmup_start).days)
-        week_number = (days_active // 7) + 1
+        days_active = max(0, (now - warmup_start).days) + 1  # 1-indexed days (Day 1 on start date)
 
-        if week_number == 1:
-            return WarmupTier(week_number=1, daily_quota=self.settings.warmup_week1_limit, name="Week 1 (Warmup: 20-25/day)")
-        elif week_number == 2:
-            return WarmupTier(week_number=2, daily_quota=self.settings.warmup_week2_limit, name="Week 2 (Expansion: 50/day)")
-        elif week_number == 3:
-            return WarmupTier(week_number=3, daily_quota=self.settings.warmup_week3_limit, name="Week 3 (Acceleration: 75/day)")
+        if days_active <= 4:
+            return WarmupTier(week_number=1, daily_quota=5, name="Stage 1 (Days 1–4: 3–5/day, 100% Warmup)")
+        elif days_active <= 8:
+            return WarmupTier(week_number=1, daily_quota=12, name="Stage 2 (Days 5–8: 8–12/day, 100% Warmup)")
+        elif days_active <= 14:
+            return WarmupTier(week_number=2, daily_quota=20, name="Stage 3 (Days 9–14: 15–20/day, 100% Warmup)")
+        elif days_active <= 21:
+            return WarmupTier(week_number=3, daily_quota=25, name="Stage 4 (Days 15–21: 25/day, 5 Cold + 20 Warmup)")
+        elif days_active <= 30:
+            return WarmupTier(week_number=4, daily_quota=35, name="Stage 5 (Days 22–30: 35/day, 15 Cold + 20 Warmup)")
         else:
-            return WarmupTier(week_number=week_number, daily_quota=self.settings.warmup_week4_limit, name=f"Week {week_number} (Full Throttle: 100/day max)")
+            return WarmupTier(week_number=5, daily_quota=50, name="Stage 6 (Day 31+: 40–50/day Steady State)")
 
     def get_active_warmup_week(self, warmup_start: datetime | None = None) -> int:
         """Convenience method returning the active week number (1, 2, 3, 4+)."""

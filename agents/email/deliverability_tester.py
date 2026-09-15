@@ -64,17 +64,18 @@ class DeliverabilityTester:
         - 35-55 words total
         - Plaintext only, no links or tracking pixels
         - Permission-first hook asking to send today's filings
-        - Identity: Alex from OmniLeadFeeder / LeadOps
+        - Identity: Alex or Ben from OmniLeadFeeder / LeadOps
+        - ZERO spam trigger words or test words to protect domain reputation
         """
         sender_name = inbox.from_name or self.settings.from_name or "Alex | OmniLeadFeeder"
         display_first = sender_name.split("|")[0].split()[0].strip() or "Alex"
 
-        subject = "quick question on morning docket records"
+        subject = "morning docket records for your jurisdiction"
         body = (
             f"Hi there,\n\n"
             f"Our automated scraper indexed today's morning public records and filings "
             f"for your target jurisdiction into a clean spreadsheet.\n\n"
-            f"Would it be helpful if I passed over a link to the sample dataset so your team can review it?\n\n"
+            f"Would it be helpful if I passed over the sample dataset so your team can review it?\n\n"
             f"Best,\n"
             f"{display_first}\n"
             f"OmniLeadFeeder Automated Swarm"
@@ -91,16 +92,39 @@ class DeliverabilityTester:
         self,
         inbox: InboxAccountConfig,
         test_tag: str,
+        recipient_override: str | None = None,
     ) -> dict[str, Any]:
-        """Dispatch cold email probe from a specific inbox to TestMail."""
+        """Dispatch cold email probe conforming strictly to live production Touch 1 rules."""
         probe = self.generate_cold_email_probe(inbox)
-        recipient = f"{self.namespace}.{test_tag}@inbox.testmail.app"
+        recipient = recipient_override or f"{self.namespace}.{test_tag}@inbox.testmail.app"
         start_t = time.time()
+
+        # Rule 1: Pre-flight deliverability verification before any test dispatch
+        try:
+            from .verifier import DeliverabilityVerifier
+            verifier = DeliverabilityVerifier(probe_smtp=False, probe_web=False)
+            syntax_ok, _, _ = verifier.check_syntax(recipient)
+            if not syntax_ok:
+                return {
+                    "ok": False,
+                    "inbox_id": inbox.id,
+                    "email_address": inbox.email_address,
+                    "recipient": recipient,
+                    "test_tag": test_tag,
+                    "error": f"Recipient '{recipient}' failed pre-flight deliverability syntax check.",
+                    "dispatched_at": datetime.now(timezone.utc).isoformat(),
+                    "latency_ms": 0,
+                }
+        except Exception as verif_err:
+            logger.debug(f"Pre-flight probe syntax check notice: {verif_err}")
+
+        # Rule 2: Natural recipient display name (never use 'TestMail QA Ingestion' which triggers spam filters)
+        recipient_name = "Operations Lead" if not recipient_override else recipient_override.split("@")[0].replace(".", " ").title()
 
         try:
             dispatch_res = self.email_client.send_email(
                 to_email=recipient,
-                to_name="TestMail QA Ingestion",
+                to_name=recipient_name,
                 subject=probe["subject"],
                 text_body=probe["body"],
                 inbox=inbox,
@@ -383,6 +407,10 @@ class DeliverabilityTester:
         # 1. Dispatch probes to TestMail with unique tags
         dispatched_probes: list[tuple[InboxAccountConfig, str, dict[str, Any]]] = []
         for idx, inbox in enumerate(target_inboxes, 1):
+            if idx > 1 and not os.environ.get("PYTEST_CURRENT_TEST"):
+                # Enforce anti-burst delay between test dispatches to preserve reputation
+                logger.info(f"⏳ [ANTI-BURST PACING] Pausing 5s between test inbox dispatches to preserve domain reputation...")
+                time.sleep(5)
             clean_tag = f"audit_{inbox.id}_{int(time.time())}_{idx}"
             send_res = self.send_inbox_probe(inbox, clean_tag)
             dispatched_probes.append((inbox, clean_tag, send_res))
