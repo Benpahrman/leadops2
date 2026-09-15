@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from .knowlez_client import KnowlezDeliverabilityClient, get_knowlez_client
+
 logger = logging.getLogger("leadops.email.verifier")
 
 # Basic RFC 5322 regex for standard emails
@@ -83,12 +85,14 @@ class DeliverabilityVerifier:
         timeout_seconds: float = 4.0,
         allow_business_roles: bool = False,
         probe_catchall: bool = False,
+        knowlez_client: KnowlezDeliverabilityClient | None = None,
     ):
         self.probe_smtp = probe_smtp
         self.probe_web = probe_web
         self.timeout_seconds = timeout_seconds
         self.allow_business_roles = allow_business_roles
         self.check_catchall = probe_catchall
+        self.knowlez_client = knowlez_client or get_knowlez_client()
 
     def check_syntax(self, email: str) -> tuple[bool, str, str]:
         """Validate RFC email syntax and parse localpart / domain."""
@@ -248,22 +252,68 @@ class DeliverabilityVerifier:
                 domain=domain,
             )
 
-        # Check active domain DNS and network routing
-        is_domain_live, domain_reason = self.check_domain_active(domain)
-        if not is_domain_live:
-            return VerificationResult(
-                email=email,
-                status=DeliverabilityStatus.UNDELIVERABLE,
-                reason=f"Domain is inactive or unreachable: {domain_reason}",
-                is_valid_format=True,
-                is_disposable=False,
-                is_role_account=False,
-                domain=domain,
-                is_domain_active=False,
-            )
+        # Check cloud Deliverability Suite (Knowlez API)
+        knowlez_mx: list[str] = []
+        if self.knowlez_client and self.knowlez_client.is_configured:
+            kz = self.knowlez_client.verify_email(email)
+            if not kz.get("unverified_fallback"):
+                if kz.get("valid") is False:
+                    reason_msg = kz.get("reason") or "Failed cloud deliverability verification"
+                    return VerificationResult(
+                        email=email,
+                        status=DeliverabilityStatus.UNDELIVERABLE,
+                        reason=f"Deliverability Suite rejected: {reason_msg}",
+                        is_valid_format=bool(kz.get("syntax_ok", True)),
+                        is_disposable=bool(kz.get("disposable", False)),
+                        is_role_account=bool(kz.get("role_based", False)),
+                        domain=domain,
+                        mx_records=kz.get("mx_hosts", []),
+                        is_domain_active=bool(kz.get("mx_ok", True)),
+                    )
+                if kz.get("disposable"):
+                    return VerificationResult(
+                        email=email,
+                        status=DeliverabilityStatus.UNDELIVERABLE,
+                        reason=f"Domain {domain} is a temporary/disposable email provider",
+                        is_valid_format=True,
+                        is_disposable=True,
+                        is_role_account=False,
+                        domain=domain,
+                    )
+                if kz.get("mx_ok") is False:
+                    return VerificationResult(
+                        email=email,
+                        status=DeliverabilityStatus.UNDELIVERABLE,
+                        reason=f"No valid MX records found for domain {domain}",
+                        is_valid_format=True,
+                        is_disposable=False,
+                        is_role_account=False,
+                        domain=domain,
+                        mx_records=[],
+                        is_domain_active=False,
+                    )
+                knowlez_mx = kz.get("mx_hosts", [])
+
+        # Check active domain DNS and network routing if not already verified by Knowlez
+        if knowlez_mx:
+            is_domain_live = True
+            domain_reason = "Verified by Deliverability Suite"
+        else:
+            is_domain_live, domain_reason = self.check_domain_active(domain)
+            if not is_domain_live:
+                return VerificationResult(
+                    email=email,
+                    status=DeliverabilityStatus.UNDELIVERABLE,
+                    reason=f"Domain is inactive or unreachable: {domain_reason}",
+                    is_valid_format=True,
+                    is_disposable=False,
+                    is_role_account=False,
+                    domain=domain,
+                    is_domain_active=False,
+                )
 
         # Check DNS MX records before evaluating mailbox or role accounts
-        mx_records = self.resolve_mx_records(domain)
+        mx_records = knowlez_mx or self.resolve_mx_records(domain)
         if not mx_records:
             return VerificationResult(
                 email=email,

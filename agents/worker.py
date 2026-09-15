@@ -30,6 +30,20 @@ class AutonomousSwarmWorker:
         self.running = True
         self._setup_signals()
 
+        # Autonomous Email Engine & Warmup Worker (runs in background for zero extra compute cost)
+        self.email_engine = None
+        self._email_thread = None
+        if os.environ.get("EMAIL_ENGINE_ENABLED", "true").lower() in ("true", "1", "yes") and not os.environ.get("PYTEST_CURRENT_TEST"):
+            try:
+                import threading
+                from .email.engine import EmailEngine
+                self.email_engine = EmailEngine()
+                self._email_thread = threading.Thread(target=self.email_engine.run_continuous_worker, daemon=True)
+                self._email_thread.start()
+                logger.info("📧 Autonomous Email Engine & Warmup Worker initialized in background thread.")
+            except Exception as exc:
+                logger.warning("Could not initialize EmailEngine background thread: %s", exc)
+
     def _setup_signals(self) -> None:
         def handle_stop(signum, frame):
             logger.info("Received termination signal (%s). Shutting down worker gracefully...", signum)

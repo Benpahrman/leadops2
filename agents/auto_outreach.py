@@ -79,7 +79,7 @@ class AutoOutreachScheduler:
     @property
     def is_enabled(self) -> bool:
         """Check if automatic outreach grace-period mode is active."""
-        val = os.environ.get("AUTO_OUTREACH_ENABLED", "true").lower().strip()
+        val = os.environ.get("AUTO_OUTREACH_ENABLED", "false").lower().strip()
         return val in ("1", "true", "yes", "on", "active")
 
     def set_enabled(self, enabled: bool) -> None:
@@ -133,6 +133,10 @@ class AutoOutreachScheduler:
                 logger.info(
                     f"⏱️ [AUTO-OUTREACH QUEUED] Lead {lead_id} ({lead.company_name}) scheduled for auto-dispatch in {self.grace_period_seconds}s at {dispatch_at.isoformat()}."
                 )
+            else:
+                logger.info(
+                    f"⏸️ [AUTO-OUTREACH DISABLED] Auto-sending of cold emails is disabled. Lead {lead_id} ({lead.company_name}) held for manual founder approval."
+                )
 
         return {
             "ok": True,
@@ -169,6 +173,10 @@ class AutoOutreachScheduler:
 
     def _on_grace_period_expired(self, lead_id: str, storage_backend: Any, notifier: Any) -> None:
         """Callback executed when the 3-minute timer fires: pushes lead to sequential FIFO dispatch queue."""
+        if not self.is_enabled:
+            logger.info(f"⏸️ [AUTO-OUTREACH DISABLED] Grace period timer expired for {lead_id}, but auto-outreach is disabled. Skipping FIFO queue.")
+            return
+
         with self._lock:
             entry = self._scheduled.get(lead_id)
             if not entry or entry.get("cancelled") or entry.get("dispatched") or entry.get("queued"):
@@ -197,6 +205,10 @@ class AutoOutreachScheduler:
 
     def _process_single_queued_dispatch(self, lead_id: str, storage_backend: Any, notifier: Any) -> None:
         """Execute dispatch sequentially for a single lead."""
+        if not self.is_enabled:
+            logger.info(f"⏸️ [AUTO-OUTREACH DISABLED] Auto-sending of cold emails is disabled. Skipping dispatch for {lead_id}.")
+            return
+
         with self._lock:
             entry = self._scheduled.get(lead_id)
             if entry and (entry.get("cancelled") or entry.get("dispatched")):

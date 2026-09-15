@@ -160,6 +160,11 @@ class Lead:
     last_lifecycle_email_at: str = ""  # TRIG-07: fatigue guard — last lifecycle email timestamp
     checkout_initiated_at: str = ""  # TRIG-06: PayPal checkout window opened timestamp
     welcome_sent: bool = False  # TRIG-02: welcome email auto-fired on intake
+    deliverability_score: int | None = None
+    deliverability_status: str = ""
+    deliverability_checked_at: str = ""
+    email_provider: str = ""  # google, microsoft, other
+    email_mx_hosts: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         now_str = datetime.now(timezone.utc).isoformat()

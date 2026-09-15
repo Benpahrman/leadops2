@@ -513,3 +513,93 @@ def test_admin_deep_enrich_endpoint(test_setup, monkeypatch):
     assert data["research"]["estimated_hours_saved_weekly"] == 14
     mock_enrich.assert_called_once_with("lead-admin-1")
 
+
+def test_verify_lead_deliverability_endpoint(test_setup, monkeypatch):
+    storage, admin_service, client = test_setup
+    lead = storage.get_lead("lead-admin-1")
+    lead.contact_email = "partner@lawfirm.com"
+    storage.save_lead(lead)
+
+    from unittest.mock import MagicMock
+    from agents.email.knowlez_client import KnowlezDeliverabilityClient
+
+    monkeypatch.setattr("agents.routes.admin.require_admin", lambda: ClerkUser("user_admin", ["admin@example.com"]))
+
+    mock_verify = MagicMock(return_value={
+        "email": "partner@lawfirm.com",
+        "valid": True,
+        "score": 95,
+        "status": "DELIVERABLE",
+        "mx_ok": True,
+        "mx_hosts": ["mail.protection.outlook.com"],
+        "provider": "microsoft",
+        "cached": False,
+        "reason": None,
+    })
+    monkeypatch.setattr(KnowlezDeliverabilityClient, "verify_email", mock_verify)
+
+    res = client.post(
+        "/api/admin/leads/lead-admin-1/verify-deliverability",
+        json={"force": True},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert data["deliverability_score"] == 95
+    assert data["email_provider"] == "microsoft"
+    assert data["deliverability_status"] == "DELIVERABLE"
+
+    updated = storage.get_lead("lead-admin-1")
+    assert updated.deliverability_score == 95
+    assert updated.email_provider == "microsoft"
+
+
+def test_batch_verify_leads_deliverability_endpoint(test_setup, monkeypatch):
+    storage, admin_service, client = test_setup
+    lead1 = storage.get_lead("lead-admin-1")
+    lead1.contact_email = "alex@firm1.com"
+    lead2 = storage.get_lead("lead-admin-2")
+    lead2.contact_email = "beth@firm2.com"
+    storage.save_lead(lead1)
+    storage.save_lead(lead2)
+
+    from unittest.mock import MagicMock
+    from agents.email.knowlez_client import KnowlezDeliverabilityClient
+
+    monkeypatch.setattr("agents.routes.admin.require_admin", lambda: ClerkUser("user_admin", ["admin@example.com"]))
+
+    mock_batch = MagicMock(return_value=[
+        {
+            "email": "alex@firm1.com",
+            "valid": True,
+            "score": 90,
+            "status": "DELIVERABLE",
+            "provider": "microsoft",
+            "cached": True,
+        },
+        {
+            "email": "beth@firm2.com",
+            "valid": True,
+            "score": 85,
+            "status": "DELIVERABLE",
+            "provider": "google",
+            "cached": False,
+        },
+    ])
+    monkeypatch.setattr(KnowlezDeliverabilityClient, "verify_batch", mock_batch)
+
+    res = client.post(
+        "/api/admin/leads/batch-verify-deliverability",
+        json={"lead_ids": ["lead-admin-1", "lead-admin-2"]},
+        headers={"Authorization": "Bearer test-admin-token"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert data["total_leads"] == 2
+    assert data["cached_count"] == 1
+    assert data["api_called_count"] == 1
+    assert len(data["results"]) == 2
+
+

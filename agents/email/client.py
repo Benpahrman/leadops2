@@ -14,13 +14,14 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Callable
 
+from .acs_client import AzureCommunicationEmailClient
 from .config import EmailSettings, InboxAccountConfig
 
 logger = logging.getLogger("leadops.email.client")
 
 
 class EmailClient:
-    """Production email client supporting Gmail, Zoho Mail, and multi-inbox rotation with SSL/TLS."""
+    """Production email client supporting Gmail, Zoho Mail, Azure Communication Services, and multi-inbox rotation with SSL/TLS."""
 
     def __init__(
         self,
@@ -31,6 +32,11 @@ class EmailClient:
         self.settings = settings or EmailSettings.from_environment()
         self.transport_hook = transport_hook
         self.http_requester = http_requester
+        self.acs_client = AzureCommunicationEmailClient(
+            connection_string=self.settings.azure_communication_connection_string,
+            default_sender=self.settings.azure_communication_sender_email,
+            transport_hook=transport_hook,
+        )
 
     def get_token(self) -> str:
         """Backward-compatible OAuth token mock for legacy test mocks."""
@@ -94,6 +100,7 @@ class EmailClient:
                 "text_body": text_body,
                 "html_body": html_body,
                 "from_email": sender_email,
+                "sender": sender_email,
                 "from_name": sender_name,
                 "in_reply_to": in_reply_to,
                 "references": references,
@@ -101,6 +108,30 @@ class EmailClient:
                 "attachments": attachments,
                 "is_transactional": is_transactional,
             })
+        # Route outbound dispatches via Azure Communication Services when targeting olfmailer domains or when ACS is active
+        if (
+            sender_email.endswith("@olfmailer.com")
+            or sender_email.endswith("@olfmailer.net")
+            or (inbox is None and self.settings.is_azure_communication_ready())
+        ):
+            logger.info(f"🚀 [ACS ROUTING] Dispatching for '{sender_email}' via Azure Communication Services.")
+            acs_res = self.acs_client.send_email(
+                to_email=actual_recipient,
+                to_name=actual_name,
+                subject=email_subject,
+                text_body=text_body,
+                html_body=html_body,
+                sender_address=sender_email,
+                is_transactional=is_transactional,
+            )
+            return {
+                "ok": acs_res.get("ok", True),
+                "message_id": acs_res.get("message_id", ""),
+                "recipient": actual_recipient,
+                "inbox_id": "azure_communication",
+                "status": acs_res.get("status", "Succeeded"),
+                "sender": sender_email,
+            }
 
         if self.http_requester is not None:
             import json

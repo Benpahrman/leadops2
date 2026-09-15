@@ -14,7 +14,8 @@ from datetime import datetime, timezone, timedelta
 dotenv.load_dotenv()
 os.environ.setdefault("ENV", "development")
 os.environ.setdefault("LEADOPS_CORS_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173,http://127.0.0.1:5173")
-os.environ.setdefault("LEADOPS_REQUIRE_HUMAN_APPROVAL", "false")
+os.environ.setdefault("LEADOPS_REQUIRE_HUMAN_APPROVAL", "true")
+os.environ.setdefault("AUTO_OUTREACH_ENABLED", "false")
 os.environ.setdefault("LEADOPS_API_TOKEN", "0baac74dfda043fdaf84c5d0b38e259b")
 
 # Configure UTF-8 encoding for Windows standard output

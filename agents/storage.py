@@ -465,6 +465,18 @@ class SqliteStorageBackend:
                 cursor.execute("ALTER TABLE leads ADD COLUMN unlocked_30d_backlog INTEGER DEFAULT 0")
             except sqlite3.OperationalError:
                 pass
+            # Deliverability Suite & Email Provider columns
+            for col, col_def in [
+                ("deliverability_score", "INTEGER DEFAULT NULL"),
+                ("deliverability_status", "TEXT DEFAULT ''"),
+                ("deliverability_checked_at", "TEXT DEFAULT ''"),
+                ("email_provider", "TEXT DEFAULT ''"),
+                ("email_mx_hosts", "TEXT DEFAULT '[]'"),
+            ]:
+                try:
+                    cursor.execute(f"ALTER TABLE leads ADD COLUMN {col} {col_def}")
+                except sqlite3.OperationalError:
+                    pass
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS sandboxes (
@@ -504,12 +516,14 @@ class SqliteStorageBackend:
                     last_login_at, created_at, upsell_sent, referral_sent,
                     winback_stage, heartbeat_count, referred_by, claimed_by, is_paused, paused_until, paypal_vault_id, subscription_id, decision_maker_linkedin,
                     automation_opportunity_score, purchase_probability, pain_severity, qualification_verdict, research,
-                    deposit_amount_usd, unlocked_30d_backlog, updated_at
+                    deposit_amount_usd, unlocked_30d_backlog, updated_at,
+                    deliverability_score, deliverability_status, deliverability_checked_at, email_provider, email_mx_hosts
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?
                 )
                 ON CONFLICT(lead_id) DO UPDATE SET
                     tier_key=excluded.tier_key,
@@ -556,6 +570,11 @@ class SqliteStorageBackend:
                     research=excluded.research,
                     deposit_amount_usd=excluded.deposit_amount_usd,
                     unlocked_30d_backlog=excluded.unlocked_30d_backlog,
+                    deliverability_score=excluded.deliverability_score,
+                    deliverability_status=excluded.deliverability_status,
+                    deliverability_checked_at=excluded.deliverability_checked_at,
+                    email_provider=excluded.email_provider,
+                    email_mx_hosts=excluded.email_mx_hosts,
                     updated_at=excluded.updated_at
                 """,
                 (
@@ -610,6 +629,11 @@ class SqliteStorageBackend:
                     float(getattr(lead, "deposit_amount_usd", 99.00) or 99.00),
                     1 if getattr(lead, "unlocked_30d_backlog", False) else 0,
                     datetime.now(timezone.utc).isoformat(),
+                    getattr(lead, "deliverability_score", None),
+                    getattr(lead, "deliverability_status", "") or "",
+                    getattr(lead, "deliverability_checked_at", "") or "",
+                    getattr(lead, "email_provider", "") or "",
+                    json.dumps(getattr(lead, "email_mx_hosts", []) or []),
                 ),
             )
             conn.commit()
@@ -1492,6 +1516,19 @@ class SqliteStorageBackend:
             ),
             deposit_amount_usd=float(get_col("deposit_amount_usd", 99.00) or 99.00),
             unlocked_30d_backlog=bool(get_col("unlocked_30d_backlog", 0)),
+            deliverability_score=(
+                int(get_col("deliverability_score"))
+                if get_col("deliverability_score") is not None and str(get_col("deliverability_score")).strip() != ""
+                else None
+            ),
+            deliverability_status=str(get_col("deliverability_status", "") or ""),
+            deliverability_checked_at=str(get_col("deliverability_checked_at", "") or ""),
+            email_provider=str(get_col("email_provider", "") or ""),
+            email_mx_hosts=(
+                json.loads(get_col("email_mx_hosts", "[]"))
+                if isinstance(get_col("email_mx_hosts", "[]"), str) and get_col("email_mx_hosts", "[]").strip().startswith("[")
+                else (get_col("email_mx_hosts", []) if isinstance(get_col("email_mx_hosts", []), list) else [])
+            ),
         )
 
     def backup_db(self, target_path: str | None = None) -> str:

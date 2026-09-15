@@ -1145,39 +1145,8 @@ export default function AdminPage() {
             </p>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
             <SignIn routing="hash" />
-          </div>
-
-          <div style={{ padding: '20px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', textAlign: 'left' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <span style={{ color: 'var(--cyan)', fontWeight: 700, fontSize: '13px' }}>⚡ Founder Direct Access</span>
-              <span className="badge-tag badge-purple" style={{ fontSize: '10px' }}>BYPASS</span>
-            </div>
-            <p style={{ fontSize: '12px', color: 'var(--text-dim)', marginBottom: '14px' }}>
-              Unlock directly with your master operational token:
-            </p>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <input
-                type="password"
-                id="founderPasscodeInput"
-                placeholder="Enter Master Token"
-                defaultValue={localStorage.getItem('leadops_admin_token') || '0baac74dfda043fdaf84c5d0b38e259b'}
-                style={{ flex: 1, padding: '9px 12px', background: '#070d18', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', color: '#fff', fontSize: '12px', fontFamily: 'var(--mono)' }}
-              />
-              <button
-                className="btn btn-primary"
-                style={{ padding: '9px 18px', fontSize: '12px', whiteSpace: 'nowrap' }}
-                onClick={() => {
-                  const val = document.getElementById('founderPasscodeInput')?.value || '0baac74dfda043fdaf84c5d0b38e259b';
-                  localStorage.setItem('leadops_admin_token', val.trim());
-                  setMasterAuth(true);
-                  showToast('Founder Master Access Activated!', 'success');
-                }}
-              >
-                Unlock ➔
-              </button>
-            </div>
           </div>
         </div>
       </main>
@@ -2060,7 +2029,7 @@ export default function AdminPage() {
                               Pipeline is Ready for Live Leads
                             </p>
                             <p style={{ fontSize: '12px', color: 'var(--text-dim)', maxWidth: '440px', margin: '0 auto 16px', lineHeight: 1.5 }}>
-                              The database is clean with 0 records. Trigger an autonomous Scout discovery cycle to prospect live municipal leads now, or authenticate via Founder Master Key:
+                              The database is clean with 0 records. Trigger an autonomous Scout discovery cycle to prospect live municipal leads now:
                             </p>
                             <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', flexWrap: 'wrap' }}>
                               <button
@@ -2070,17 +2039,6 @@ export default function AdminPage() {
                                 disabled={scoutingInProgress}
                               >
                                 <span>{scoutingInProgress ? '⏳ Scouting In Progress...' : '🚀 Trigger Live Prospecting Run'}</span>
-                              </button>
-                              <button
-                                className="btn btn-outline"
-                                style={{ padding: '8px 16px', fontSize: '12px' }}
-                                onClick={async () => {
-                                  localStorage.setItem('leadops_admin_token', '0baac74dfda043fdaf84c5d0b38e259b');
-                                  showToast('Founder Master Key Activated!', 'success');
-                                  await loadAdminData();
-                                }}
-                              >
-                                ⚡ Authenticate Master Key
                               </button>
                               <button
                                 className="btn btn-outline"

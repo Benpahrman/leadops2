@@ -3,7 +3,7 @@
 The business logic runs without Azure so local tests and early pilots have no
 cloud cost. A scheduler or Container Apps Job can call these interfaces later.
 """
-
+import logging
 import csv
 import io
 import json
@@ -15,6 +15,7 @@ from datetime import date, datetime, time as dt_time, timezone
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
+logger = logging.getLogger(__name__)
 
 class Destination(Protocol):
     def append(self, rows: list[dict[str, str]]) -> int: ...

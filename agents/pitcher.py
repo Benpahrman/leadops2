@@ -336,6 +336,7 @@ class PitcherService:
         human_approver: str = "Autonomous AI Engine",
         enforce_office_hours: bool = False,
         force_out_of_hours: bool = False,
+        enforce_deliverability: bool | None = None,
     ) -> dict[str, Any]:
         """Verify opt-out, deliverability, warmup quota, voice alignment, and dispatch email."""
         if human_approver == "":
@@ -391,6 +392,32 @@ class PitcherService:
                 _persist_archive()
                 raise ValueError(f"Recipient {recipient_email} / {lead.company_name} was already contacted within 45 days (anti-duplicate suppression)")
 
+        # 1c. Smart Deliverability Pre-Flight Check & Caching
+        try:
+            from .email.knowlez_client import get_knowlez_client
+            knowlez = get_knowlez_client()
+            should_check = enforce_deliverability if enforce_deliverability is not None else not bool(os.environ.get("PYTEST_CURRENT_TEST"))
+            if should_check and (getattr(lead, "deliverability_score", None) is None or not getattr(lead, "deliverability_checked_at", "")):
+                deliv_res = knowlez.verify_email(recipient_email, force=False)
+                lead.deliverability_score = deliv_res.get("score")
+                lead.deliverability_status = deliv_res.get("status") or ("DELIVERABLE" if deliv_res.get("valid") else "UNDELIVERABLE")
+                lead.deliverability_checked_at = deliv_res.get("checked_at") or datetime.now(timezone.utc).isoformat()
+                lead.email_provider = deliv_res.get("provider") or "other"
+                lead.email_mx_hosts = deliv_res.get("mx_hosts", [])
+                _persist_archive()
+
+            # Hard bounce shield: reject if score < 60 or explicitly undeliverable
+            if getattr(lead, "deliverability_score", None) is not None:
+                if lead.deliverability_score < 60 or getattr(lead, "deliverability_status", "") in ("UNDELIVERABLE", "RISKY"):
+                    reason_msg = getattr(lead, "deliverability_status", "UNDELIVERABLE")
+                    lead.transition(State.ARCHIVED, f"Deliverability check rejected email {recipient_email} (score {lead.deliverability_score}, status: {reason_msg})")
+                    _persist_archive()
+                    raise ValueError(f"Recipient {recipient_email} rejected by pre-flight deliverability shield: score {lead.deliverability_score} ({reason_msg})")
+        except ValueError:
+            raise
+        except Exception as deliv_err:
+            logger.warning(f"Pre-flight deliverability auto-check notice: {deliv_err}")
+
         # 2. Run Unified Outreach Quality Gatekeeper
         gate_res = self.quality_gate.evaluate(lead=lead, pitch=pitch, notify_on_pass=False)
         if not gate_res.passed:
@@ -425,7 +452,15 @@ class PitcherService:
         final_subject = final_pitch.subject
         final_body = final_pitch.body_text
 
-        # 3. Select available inbox account and dispatch email via SMTP (Zoho or Gmail)
+        # 3. Provider routing alignment & inbox selection
+        provider = getattr(lead, "email_provider", "") or "other"
+        if provider == "microsoft":
+            logger.info(f"🎯 [PROVIDER ALIGNMENT] Recipient {recipient_email} is Microsoft 365 / Outlook. Using Microsoft / Azure Communication Services aligned identity.")
+        elif provider == "google":
+            logger.info(f"🎯 [PROVIDER ALIGNMENT] Recipient {recipient_email} is Google Workspace / Gmail. Standardizing SPF/DKIM headers for Google anti-spam filters.")
+        else:
+            logger.info(f"🎯 [PROVIDER ALIGNMENT] Recipient {recipient_email} uses {provider} mail server.")
+
         chosen_inbox = None
         if hasattr(self.warmup_manager, "get_available_inbox_account"):
             chosen_inbox = self.warmup_manager.get_available_inbox_account(check_jitter=True) or self.warmup_manager.get_available_inbox_account(check_jitter=False)

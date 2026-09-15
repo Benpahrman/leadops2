@@ -19,12 +19,18 @@ psycopg2-binary>=2.9.9
 azure-servicebus>=7.12.2
 azure-storage-blob>=12.20.0
 azure-identity>=1.16.0
+azure-communication-email>=1.0.0
 
 # Browser Automation & Scraping
 playwright>=1.43.0
 beautifulsoup4>=4.12.3
 requests>=2.31.0
 urllib3>=2.0.0
+# Google Sheets & External Integrations
+gspread>=6.0.0
+google-auth>=2.29.0
+openpyxl>=3.1.2
+
 
 
 # AI & LLM Clients

@@ -3,13 +3,14 @@ import os
 import csv
 import io
 import secrets
+import logging 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
 from .domain import Lead, State
 from .storage import StorageBackend
-
+logger = logging.getLogger(__name__)
 
 @dataclass
 class DestinationConfig:

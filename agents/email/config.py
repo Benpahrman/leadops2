@@ -110,14 +110,29 @@ class EmailSettings:
     # Fully typed multi-inbox pool (including Zoho inboxes)
     inbox_pool: list[InboxAccountConfig] = field(default_factory=list)
 
-    # Cloudflare Registered Sending Subdomains (email.omnileadfeeder.tech & contact.omnileadfeeder.tech)
+    # Allowed Outbound Sending Domains
     allowed_sending_domains: list[str] = field(
-        default_factory=lambda: ["email.omnileadfeeder.tech", "contact.omnileadfeeder.tech"]
+        default_factory=lambda: [
+            "olfmailer.com",
+            "olfmailer.net",
+            "email.omnileadfeeder.tech",
+            "contact.omnileadfeeder.tech",
+        ]
     )
     outreach_sending_domains: list[str] = field(
-        default_factory=lambda: ["email.omnileadfeeder.tech", "contact.omnileadfeeder.tech"]
+        default_factory=lambda: [
+            "olfmailer.com",
+            "olfmailer.net",
+            "email.omnileadfeeder.tech",
+            "contact.omnileadfeeder.tech",
+        ]
     )
     sending_strategy: Literal["rotate", "email_only", "contact_only"] = "rotate"
+
+    # Azure Communication Services (ACS) Configuration
+    azure_communication_connection_string: str = ""
+    azure_communication_sender_domain: str = "olfmailer.com"
+    azure_communication_sender_email: str = "ben@olfmailer.com"
 
     # Outbound Dispatch Policy: When False, strictly use dedicated custom domain/Zoho inboxes for outbound pitches, reserving Gmail for inbound replies and monitoring
     outbound_use_gmail: bool = False
@@ -132,6 +147,10 @@ class EmailSettings:
     # External Email Discovery & Verification APIs (Free-tier Fallbacks)
     hunter_api_key: str = ""
     apollo_api_key: str = ""
+
+    def is_azure_communication_ready(self) -> bool:
+        """Return True if Azure Communication Services is configured."""
+        return bool(self.azure_communication_connection_string and "endpoint=" in self.azure_communication_connection_string.lower())
 
     def is_microsoft_oauth_ready(self) -> bool:
         """Return True if Microsoft OAuth is configured and authorized with a refresh token."""
@@ -468,14 +487,31 @@ class EmailSettings:
         microsoft_refresh_token = (os.environ.get("MICROSOFT_REFRESH_TOKEN") or "").strip().strip("\"'")
         microsoft_redirect_uri = (os.environ.get("MICROSOFT_REDIRECT_URI") or "http://localhost:8000/api/admin/oauth/microsoft/callback").strip().strip("\"'")
 
+        # Azure Communication Services
+        azure_comm_conn = (
+            os.environ.get("AZURE_COMMUNICATION_SERVICES_CONNECTION_STRING")
+            or os.environ.get("AZURE_COMMUNICATION_CONNECTION_STRING")
+            or ""
+        ).strip().strip("\"'")
+        azure_comm_domain = os.environ.get("AZURE_COMMUNICATION_SENDER_DOMAIN", "olfmailer.com").strip().strip("\"'")
+        azure_comm_sender = os.environ.get("AZURE_COMMUNICATION_SENDER_EMAIL", f"ben@{azure_comm_domain}").strip().strip("\"'")
+
         return cls(
             user=user,
             app_password=app_password,
             from_name=from_name,
             from_email=from_email,
-            allowed_sending_domains=["email.omnileadfeeder.tech", "contact.omnileadfeeder.tech"],
+            allowed_sending_domains=[
+                "olfmailer.com",
+                "olfmailer.net",
+                "email.omnileadfeeder.tech",
+                "contact.omnileadfeeder.tech",
+            ],
             outreach_sending_domains=outreach_sending_domains,
             sending_strategy=sending_strategy,
+            azure_communication_connection_string=azure_comm_conn,
+            azure_communication_sender_domain=azure_comm_domain,
+            azure_communication_sender_email=azure_comm_sender,
             smtp_host=smtp_host,
             smtp_port=smtp_port,
             smtp_use_ssl=smtp_use_ssl,

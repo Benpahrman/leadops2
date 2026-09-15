@@ -148,6 +148,158 @@ def batch_approve_pitches(
     """Approve and dispatch all eligible pending pitches in a single operator action."""
     return admin_service.batch_approve_pending_pitches()
 
+
+class VerifyDeliverabilityRequest(BaseModel):
+    force: bool = False
+
+
+class BatchVerifyDeliverabilityRequest(BaseModel):
+    lead_ids: Optional[List[str]] = None
+    force: bool = False
+    limit: int = 50
+
+
+@router.post("/api/admin/leads/{lead_id}/verify-deliverability", tags=["Admin Operations"])
+def verify_lead_deliverability(
+    lead_id: str,
+    req: Optional[VerifyDeliverabilityRequest] = None,
+    _: ClerkUser = Depends(require_admin),
+    storage_backend=Depends(get_storage),
+):
+    """Verify lead contact email deliverability via Knowlez with smart 14-day caching."""
+    lead = storage_backend.get_lead(lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail=f"Lead {lead_id} not found")
+
+    email = getattr(lead, "contact_email", "") or ""
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Lead has no valid contact email address to verify")
+
+    from ..email.knowlez_client import get_knowlez_client
+    client = get_knowlez_client()
+    force = req.force if req else False
+    res = client.verify_email(email, force=force)
+
+    score = res.get("score")
+    valid = res.get("valid", False)
+    provider = res.get("provider", "other")
+    mx_hosts = res.get("mx_hosts", [])
+    status = res.get("status") or ("DELIVERABLE" if (valid and (score is None or score >= 60)) else "UNDELIVERABLE" if not valid else "RISKY")
+
+    lead.deliverability_score = score
+    lead.deliverability_status = status
+    lead.deliverability_checked_at = res.get("checked_at") or datetime.now(timezone.utc).isoformat()
+    lead.email_provider = provider
+    lead.email_mx_hosts = mx_hosts
+
+    storage_backend.save_lead(lead)
+
+    return {
+        "ok": True,
+        "lead_id": lead_id,
+        "email": email,
+        "deliverability_score": score,
+        "deliverability_status": status,
+        "email_provider": provider,
+        "email_mx_hosts": mx_hosts,
+        "cached": res.get("cached", False),
+        "valid": valid,
+        "reason": res.get("reason"),
+    }
+
+
+@router.post("/api/admin/leads/batch-verify-deliverability", tags=["Admin Operations"])
+def batch_verify_leads_deliverability(
+    req: Optional[BatchVerifyDeliverabilityRequest] = None,
+    _: ClerkUser = Depends(require_admin),
+    storage_backend=Depends(get_storage),
+):
+    """Batch verify lead deliverability using smart 14-day caching so cached leads consume 0 quota."""
+    force = req.force if req else False
+    limit = req.limit if req and req.limit > 0 else 50
+    requested_ids = req.lead_ids if req and req.lead_ids else None
+
+    all_leads = storage_backend.list_leads()
+    target_leads = []
+    if requested_ids:
+        req_set = set(requested_ids)
+        target_leads = [l for l in all_leads if l.lead_id in req_set and getattr(l, "contact_email", "")]
+    else:
+        for l in all_leads:
+            em = getattr(l, "contact_email", "")
+            if not em or "@" not in em:
+                continue
+            if force or getattr(l, "deliverability_score", None) is None:
+                target_leads.append(l)
+            if len(target_leads) >= limit:
+                break
+
+    if not target_leads:
+        return {
+            "ok": True,
+            "message": "No eligible unverified leads found",
+            "total_leads": 0,
+            "cached_count": 0,
+            "api_called_count": 0,
+            "results": [],
+        }
+
+    from ..email.knowlez_client import get_knowlez_client
+    client = get_knowlez_client()
+
+    emails = [getattr(l, "contact_email", "") for l in target_leads]
+    verification_results = client.verify_batch(emails, force=force)
+    res_by_email = {r.get("email", "").lower().strip(): r for r in verification_results}
+
+    updated_leads = []
+    cached_count = 0
+    api_called_count = 0
+
+    for lead in target_leads:
+        em = (getattr(lead, "contact_email", "") or "").lower().strip()
+        v_data = res_by_email.get(em, {})
+        if not v_data:
+            continue
+
+        score = v_data.get("score")
+        valid = v_data.get("valid", False)
+        provider = v_data.get("provider", "other")
+        mx_hosts = v_data.get("mx_hosts", [])
+        status = v_data.get("status") or ("DELIVERABLE" if (valid and (score is None or score >= 60)) else "UNDELIVERABLE" if not valid else "RISKY")
+
+        lead.deliverability_score = score
+        lead.deliverability_status = status
+        lead.deliverability_checked_at = v_data.get("checked_at") or datetime.now(timezone.utc).isoformat()
+        lead.email_provider = provider
+        lead.email_mx_hosts = mx_hosts
+
+        storage_backend.save_lead(lead)
+
+        if v_data.get("cached"):
+            cached_count += 1
+        else:
+            api_called_count += 1
+
+        updated_leads.append({
+            "lead_id": lead.lead_id,
+            "company_name": lead.company_name,
+            "email": em,
+            "score": score,
+            "status": status,
+            "provider": provider,
+            "cached": v_data.get("cached", False),
+            "valid": valid,
+        })
+
+    return {
+        "ok": True,
+        "total_leads": len(updated_leads),
+        "cached_count": cached_count,
+        "api_called_count": api_called_count,
+        "results": updated_leads,
+    }
+
+
 @router.delete("/api/admin/leads/{lead_id}", tags=["Admin Operations"])
 def delete_lead(
     lead_id: str,
@@ -2150,6 +2302,48 @@ def run_deliverability_audit_endpoint(
         "message": "Deliverability and spam audit initiated across active inboxes.",
         "status": "RUNNING",
     }
+
+
+class VerifyEmailRequest(BaseModel):
+    email: str
+
+
+class ValidateDomainRequest(BaseModel):
+    domain: str
+
+
+@router.get("/api/admin/deliverability/knowlez/usage", tags=["Admin Deliverability"])
+def get_knowlez_usage(
+    user: ClerkUser = Depends(require_admin),
+):
+    """Retrieve credit usage, remaining quota, and plan status from Knowlez Deliverability Suite."""
+    from ..email.knowlez_client import get_knowlez_client
+    kc = get_knowlez_client()
+    return {"ok": True, "usage": kc.get_usage(), "configured": kc.is_configured}
+
+
+@router.post("/api/admin/deliverability/knowlez/verify-email", tags=["Admin Deliverability"])
+def verify_email_endpoint(
+    req: VerifyEmailRequest,
+    user: ClerkUser = Depends(require_admin),
+):
+    """Verify target email syntax, MX, disposable status, and deliverability score via Knowlez API."""
+    from ..email.knowlez_client import get_knowlez_client
+    kc = get_knowlez_client()
+    res = kc.verify_email(req.email)
+    return {"ok": True, "result": res}
+
+
+@router.post("/api/admin/deliverability/knowlez/validate-domain", tags=["Admin Deliverability"])
+def validate_domain_endpoint(
+    req: ValidateDomainRequest,
+    user: ClerkUser = Depends(require_admin),
+):
+    """Validate domain MX, format, and disposable check via Knowlez API."""
+    from ..email.knowlez_client import get_knowlez_client
+    kc = get_knowlez_client()
+    res = kc.validate_domain(req.domain)
+    return {"ok": True, "result": res}
 
 
 

@@ -27,6 +27,7 @@ DEFAULT_SCOPES = [
     "offline_access",
     "https://graph.microsoft.com/Mail.Read",
     "https://graph.microsoft.com/Mail.ReadWrite",
+    "https://graph.microsoft.com/Mail.Send",
     "https://graph.microsoft.com/User.Read",
 ]
 
@@ -351,6 +352,113 @@ class MicrosoftGraphClient:
         with httpx.Client(timeout=10.0) as client:
             resp = client.patch(url, headers=headers, json=payload)
             return resp.status_code in (200, 204)
+
+    def move_message(self, message_id: str, destination_id: str = "inbox") -> bool:
+        """Move a message to a destination folder (e.g. junkemail -> inbox) to boost reputation."""
+        token = self.acquire_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+        url = f"{MICROSOFT_GRAPH_BASE_URL}/me/messages/{message_id}/move"
+        payload = {"destinationId": destination_id}
+
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.post(url, headers=headers, json=payload)
+            return resp.status_code in (200, 201)
+
+    def send_mail(self, to_email: str, subject: str, body_text: str) -> bool:
+        """Send an email via Microsoft Graph /me/sendMail endpoint."""
+        token = self.acquire_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+        url = f"{MICROSOFT_GRAPH_BASE_URL}/me/sendMail"
+        payload = {
+            "message": {
+                "subject": subject,
+                "body": {
+                    "contentType": "Text",
+                    "content": body_text,
+                },
+                "toRecipients": [
+                    {
+                        "emailAddress": {
+                            "address": to_email,
+                        }
+                    }
+                ],
+            },
+            "saveToSentItems": "true",
+        }
+
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.post(url, headers=headers, json=payload)
+            return resp.status_code in (200, 202)
+
+    def scan_and_unspam_junk(self, domain_filter: str = "olfmailer") -> int:
+        """Scan Junk Email folder and move messages from olfmailer to INBOX."""
+        if not self.is_authorized:
+            return 0
+        token = self.acquire_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        url = (
+            f"{MICROSOFT_GRAPH_BASE_URL}/me/mailFolders/junkemail/messages"
+            f"?$top=50&$select=id,subject,from"
+        )
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(url, headers=headers)
+            if resp.status_code != 200:
+                return 0
+            messages = resp.json().get("value", [])
+
+        unspammed = 0
+        for msg in messages:
+            from_addr = msg.get("from", {}).get("emailAddress", {}).get("address", "").lower()
+            if domain_filter in from_addr:
+                if self.move_message(msg["id"], "inbox"):
+                    logger.info(f"🛡️ [GRAPH AUTO-UNSPAM] Moved {msg.get('subject')} from Junk to Inbox for {self.account_email}")
+                    unspammed += 1
+        return unspammed
+
+    def scan_and_reply_inbox(self, warmup_agent: Any, domain_filter: str = "olfmailer") -> int:
+        """Scan unread emails from olfmailer in INBOX, reply with AI agent, and mark read."""
+        if not self.is_authorized:
+            return 0
+        token = self.acquire_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Prefer": 'outlook.body-content-type="text"',
+        }
+        url = (
+            f"{MICROSOFT_GRAPH_BASE_URL}/me/mailFolders/inbox/messages"
+            f"?$filter=isRead eq false"
+            f"&$top=15"
+            f"&$select=id,subject,from,body"
+        )
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(url, headers=headers)
+            if resp.status_code != 200:
+                return 0
+            messages = resp.json().get("value", [])
+
+        replied = 0
+        for msg in messages:
+            from_addr = msg.get("from", {}).get("emailAddress", {}).get("address", "").lower()
+            if domain_filter in from_addr:
+                subject = msg.get("subject", "Re: Update")
+                body = msg.get("body", {}).get("content", "")
+                reply_text = warmup_agent.generate_reply_email(
+                    original_subject=subject,
+                    original_body=body,
+                    responder_name=self.tokens.account_name or "Alex",
+                )
+                if self.send_mail(from_addr, f"Re: {subject.replace('Re: ', '')}", reply_text):
+                    logger.info(f"💬 [GRAPH REPLY SENT] Sent 2-way reply from {self.account_email} -> {from_addr}")
+                    replied += 1
+                self.mark_as_read(msg["id"])
+        return replied
 
     def test_connection(self) -> dict[str, Any]:
         """Verify Microsoft Graph credentials and token validity."""

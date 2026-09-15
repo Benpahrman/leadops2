@@ -288,8 +288,6 @@ export async function fetchEvidenceDossier(slug) {
 }
 
 // Admin APIs & Token Resolution
-const FALLBACK_ADMIN_TOKEN = '0baac74dfda043fdaf84c5d0b38e259b';
-
 export function resolveAdminAuth(token = '') {
   if (token && typeof token === 'string' && token.trim()) {
     return token.trim();
@@ -308,7 +306,7 @@ export function resolveAdminAuth(token = '') {
       // Ignore local storage errors
     }
   }
-  return import.meta.env.VITE_LEADOPS_API_TOKEN || FALLBACK_ADMIN_TOKEN;
+  return import.meta.env.VITE_LEADOPS_API_TOKEN || '';
 }
 
 export async function fetchAdminPipeline(token = '') {
