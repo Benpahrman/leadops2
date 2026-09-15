@@ -671,37 +671,29 @@ def test_zoho_inbox_config_defaults():
     assert personal_inbox.imap_host == "imap.zoho.com"
 
 
-def test_zoho_inbox_env_loader(monkeypatch):
-    """Verify loading numbered Zoho inboxes and JSON pool from environment variables."""
+def test_olfmailer_inbox_env_loader(monkeypatch):
+    """Verify loading olfmailer inboxes JSON pool from environment variables."""
+    import json
     from agents.email.config import EmailSettings
 
-    # Clear any surrounding env inboxes for test isolation
-    for i in range(1, 11):
-        monkeypatch.delenv(f"ZOHO_INBOX_{i}_EMAIL", raising=False)
-        monkeypatch.delenv(f"ZOHO_INBOX_{i}_APP_PASSWORD", raising=False)
-        monkeypatch.delenv(f"ZOHO_INBOX_{i}_FROM_NAME", raising=False)
-    monkeypatch.delenv("ZOHO_INBOXES_JSON", raising=False)
-
-    monkeypatch.setenv("ZOHO_INBOX_1_EMAIL", "outreach1@company.com")
-    monkeypatch.setenv("ZOHO_INBOX_1_APP_PASSWORD", "pwd-one-1234")
-    monkeypatch.setenv("ZOHO_INBOX_1_FROM_NAME", "Alex | Outreach 1")
-    monkeypatch.setenv("ZOHO_INBOX_2_EMAIL", "outreach2@company.com")
-    monkeypatch.setenv("ZOHO_INBOX_2_APP_PASSWORD", "pwd-two-5678")
+    custom_olf = [
+        {"id": "olf_1", "email_address": "outreach1@olfmailer.com", "from_name": "Ben | LeadOps"},
+        {"id": "olf_2", "email_address": "outreach2@olfmailer.com", "from_name": "Alex | LeadOps"},
+    ]
+    monkeypatch.setenv("OLFMAILER_INBOXES_JSON", json.dumps(custom_olf))
 
     settings = EmailSettings.from_environment()
     accounts = settings.inbox_pool
     assert len(accounts) == 2
 
-    acc1 = next(a for a in accounts if a.id == "zoho_1")
-    assert acc1.email_address == "outreach1@company.com"
-    assert acc1.password == "pwd-one-1234"
-    assert acc1.from_name == "Alex | Outreach 1"
-    assert acc1.smtp_host == "smtp.zoho.com"
-    assert acc1.imap_host == "imap.zoho.com"
+    acc1 = next(a for a in accounts if a.id == "olf_1")
+    assert acc1.email_address == "outreach1@olfmailer.com"
+    assert acc1.from_name == "Ben | LeadOps"
+    assert acc1.provider == "olfmailer"
 
-    acc2 = next(a for a in accounts if a.id == "zoho_2")
-    assert acc2.email_address == "outreach2@company.com"
-    assert acc2.password == "pwd-two-5678"
+    acc2 = next(a for a in accounts if a.id == "olf_2")
+    assert acc2.email_address == "outreach2@olfmailer.com"
+    assert acc2.provider == "olfmailer"
 
 
 def test_multi_inbox_warmup_load_balancing_4_zoho():

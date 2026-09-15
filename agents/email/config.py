@@ -195,18 +195,19 @@ class EmailSettings:
         return f"{user_part}@{chosen}"
 
     def get_outbound_inboxes(self) -> list[InboxAccountConfig]:
-        """Return only inboxes authorized for outbound cold outreach (excluding Gmail when Zoho/custom inboxes are configured)."""
+        """Return only inboxes authorized for outbound cold outreach (excluding monitored personal/reply inboxes unless explicitly enabled)."""
         all_inboxes = self.get_all_inboxes()
-        zoho_or_custom = [inb for inb in all_inboxes if inb.provider != "gmail" and inb.id != "primary"]
-        if zoho_or_custom and not self.outbound_use_gmail:
-            return zoho_or_custom
+        olf_or_custom = [inb for inb in all_inboxes if inb.provider not in ("gmail", "outlook") and inb.id != "primary"]
+        if olf_or_custom and not self.outbound_use_gmail:
+            return olf_or_custom
         return all_inboxes
 
     def get_all_inboxes(self) -> list[InboxAccountConfig]:
-        """Return all active and configured inbox accounts (primary + Zoho / extra inboxes)."""
+        """Return all active and configured inbox accounts (monitored primary inbox + olfmailer sending pool)."""
         accounts: list[InboxAccountConfig] = []
+        existing_ids: set[str] = set()
 
-        # 1. Primary Inbox (always default to primary inbox slot)
+        # 1. Monitored primary inbox (for incoming prospect replies & IMAP watcher)
         user_lower = (self.user or "").lower()
         if (
             "outlook" in self.smtp_host.lower()
@@ -219,11 +220,13 @@ class EmailSettings:
         elif "gmail" in self.smtp_host.lower() or not self.smtp_host:
             primary_provider = "gmail"
         else:
-            primary_provider = "smtp_generic"
+            primary_provider = "custom"
+
+        primary_addr = self.user or "christopher.ben.pahrman@gmail.com"
         accounts.append(
             InboxAccountConfig(
                 id="primary",
-                email_address=self.user or "primary@omnileadfeeder.tech",
+                email_address=primary_addr,
                 password=self.app_password,
                 provider=primary_provider,
                 from_name=self.from_name,
@@ -239,22 +242,22 @@ class EmailSettings:
                 is_active=True,
             )
         )
+        existing_ids.add("primary")
 
-        # 2. Structured inbox pool (Zoho inboxes, etc.)
-        existing_ids = {a.id for a in accounts}
+        # 2. Structured inbox pool (olfmailer sending accounts)
         for inbox in self.inbox_pool:
             if inbox.id not in existing_ids:
                 accounts.append(inbox)
                 existing_ids.add(inbox.id)
 
-        # 3. Legacy extra_inboxes dictionary format
+        # 3. Custom extra_inboxes dictionary format
         for i, extra in enumerate(self.extra_inboxes):
             inbox_id = extra.get("id") or f"inbox_{i+1}"
             if inbox_id in existing_ids:
                 continue
             email_addr = extra.get("email_address") or extra.get("user") or extra.get("email") or ""
             pwd = extra.get("password") or extra.get("app_password") or ""
-            provider = extra.get("provider", "zoho" if ("zoho" in email_addr or "zoho" in extra.get("smtp_host", "")) else "smtp_generic")
+            provider = extra.get("provider", "olfmailer" if "olfmailer" in email_addr else "custom")
             accounts.append(
                 InboxAccountConfig(
                     id=inbox_id,
@@ -422,7 +425,7 @@ class EmailSettings:
                                         id=item.get("id") or f"olf_{idx+1}",
                                         email_address=addr,
                                         password=item.get("password") or item.get("app_password") or "",
-                                        provider="smtp_generic",
+                                        provider="olfmailer",
                                         from_name=item.get("from_name", from_name),
                                         smtp_host=item.get("smtp_host", ""),
                                         smtp_port=int(item.get("smtp_port", 465)),
@@ -434,61 +437,7 @@ class EmailSettings:
             except Exception as err:
                 logger.error(f"Failed to parse OLFMAILER_INBOXES_JSON: {err}")
 
-        # 1.5 Numbered Zoho inboxes (ZOHO_INBOX_1_EMAIL, ZOHO_INBOX_2_EMAIL, ...)
-        for i in range(1, 21):
-            z_email = os.environ.get(f"ZOHO_INBOX_{i}_EMAIL", "").strip()
-            if z_email:
-                z_pwd = os.environ.get(f"ZOHO_INBOX_{i}_APP_PASSWORD", "").strip()
-                z_name = os.environ.get(f"ZOHO_INBOX_{i}_FROM_NAME", from_name).strip()
-                inbox_pool.append(
-                    InboxAccountConfig(
-                        id=f"zoho_{i}",
-                        email_address=z_email,
-                        password=z_pwd,
-                        provider="zoho",
-                        from_name=z_name,
-                        smtp_host="smtp.zoho.com",
-                        smtp_port=465,
-                        smtp_use_ssl=True,
-                        imap_host="imap.zoho.com",
-                        imap_port=993,
-                        imap_use_ssl=True,
-                        daily_limit=warmup_week1_limit,
-                        warmup_start_date=warmup_start_date,
-                        is_active=True,
-                    )
-                )
-
-        # 2. Legacy Zoho JSON fallback if explicitly provided
-        json_zoho_raw = os.environ.get("ZOHO_INBOXES_JSON") or ""
-        if json_zoho_raw.strip():
-            try:
-                parsed_list = json.loads(json_zoho_raw)
-                if isinstance(parsed_list, list):
-                    for idx, item in enumerate(parsed_list):
-                        if isinstance(item, dict):
-                            inbox_pool.append(
-                                InboxAccountConfig(
-                                    id=item.get("id") or f"zoho_{idx+1}",
-                                    email_address=item.get("email_address") or item.get("email") or "",
-                                    password=item.get("password") or item.get("app_password") or "",
-                                    provider=item.get("provider", "zoho"),
-                                    from_name=item.get("from_name", from_name),
-                                    smtp_host=item.get("smtp_host", ""),
-                                    smtp_port=int(item.get("smtp_port", 465)),
-                                    smtp_use_ssl=str(item.get("smtp_use_ssl", "true")).lower() == "true",
-                                    imap_host=item.get("imap_host", ""),
-                                    imap_port=int(item.get("imap_port", 993)),
-                                    imap_use_ssl=str(item.get("imap_use_ssl", "true")).lower() == "true",
-                                    warmup_start_date=item.get("warmup_start_date", warmup_start_date),
-                                    daily_limit=int(item.get("daily_limit", warmup_week1_limit)),
-                                    is_active=str(item.get("is_active", "true")).lower() in ("true", "1", "yes"),
-                                )
-                            )
-            except Exception as err:
-                logger.error(f"Failed to parse ZOHO_INBOXES_JSON: {err}")
-
-        # 3. Default to the 3 olfmailer.com sending identities if no custom inboxes configured
+        # 2. Default to the 3 official olfmailer.com sending identities
         if not inbox_pool:
             default_olf = [
                 ("olf_ben", "ben@olfmailer.com", "Ben | OmniLeadFeeder"),
@@ -501,7 +450,7 @@ class EmailSettings:
                         id=id_slug,
                         email_address=addr,
                         password="",
-                        provider="smtp_generic",
+                        provider="olfmailer",
                         from_name=disp_name,
                         daily_limit=warmup_week1_limit,
                         warmup_start_date=warmup_start_date,

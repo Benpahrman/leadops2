@@ -281,8 +281,8 @@ export default function AdminPage() {
     email_address: '',
     password: '',
     from_name: 'Alex | OmniLeadFeeder',
-    provider: 'zoho',
-    daily_limit: 25,
+    provider: 'olfmailer',
+    daily_limit: 5,
   });
 
   // Morning Deliverability & TestMail Spam Assessment State
@@ -500,7 +500,7 @@ export default function AdminPage() {
 
   const handleRunDeliverabilityAudit = async () => {
     setAuditingDeliverability(true);
-    showToast('🛡️ Initiating morning deliverability probes: sending AI cold emails to TestMail across all active Zoho inboxes...', 'info');
+    showToast('🛡️ Initiating morning deliverability probes: sending AI cold emails to TestMail across all active olfmailer.com inboxes...', 'info');
     try {
       const token = await resolveToken();
       await runDeliverabilityAudit({ force: true, wait: false }, token);
@@ -546,7 +546,7 @@ export default function AdminPage() {
 
   const handleFlushOutreachQueue = async () => {
     setFlushingQueue(true);
-    showToast('⚡ Flushing outreach queue across all active Zoho inboxes...', 'info');
+    showToast('⚡ Flushing outreach queue across all active olfmailer.com inboxes...', 'info');
     try {
       const token = await resolveToken();
       const res = await triggerOutreachFlush(token);
@@ -576,8 +576,8 @@ export default function AdminPage() {
         email_address: '',
         password: '',
         from_name: 'Alex | OmniLeadFeeder',
-        provider: 'zoho',
-        daily_limit: 25,
+        provider: 'olfmailer',
+        daily_limit: 5,
       });
       await loadInboxes();
       if (inboxFormData.password) {
@@ -3521,7 +3521,7 @@ export default function AdminPage() {
         )}
 
         {/* =========================================================
-            TAB 7: EMAIL INBOXES & WARMUP FLEET (ZOHO / GMAIL)
+            TAB 7: EMAIL INBOXES & WARMUP FLEET (OLFMAILER / AZURE)
            ========================================================= */}
         {activeTab === 'inboxes' && (
           <div>
@@ -3535,7 +3535,7 @@ export default function AdminPage() {
                   <span className="badge-tag badge-cyan">{inboxes.length} Configured</span>
                 </div>
                 <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '6px', marginBottom: 0 }}>
-                  Automated cold outreach load balancing &amp; bidirectional reply monitoring across Zoho Workplace and Gmail inboxes.
+                  Automated cold outreach load balancing &amp; bidirectional reply monitoring across olfmailer.com sending pool and monitored inboxes.
                 </p>
               </div>
 
@@ -3562,7 +3562,7 @@ export default function AdminPage() {
                   style={{ fontSize: '12px', padding: '8px 16px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                   onClick={() => setShowAddInboxModal(true)}
                 >
-                  <span>+</span> Add Zoho / Email Inbox
+                  <span>+</span> Add Sending / Email Inbox
                 </button>
               </div>
             </div>
@@ -3584,11 +3584,11 @@ export default function AdminPage() {
 
               <div className="stat-card stat-purple">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div className="stat-label" style={{ color: '#c084fc' }}>🟣 olfmailer.com Inboxes</div>
+                  <div className="stat-label" style={{ color: 'var(--cyan)' }}>🚀 olfmailer.com Inboxes</div>
                   <span style={{ fontSize: '12px' }}>🔒</span>
                 </div>
-                <div className="stat-value" style={{ color: '#c084fc' }}>
-                  {inboxes.filter((i) => i.provider === 'custom' || i.provider === 'zoho' || i.email_address?.includes('olfmailer.com')).length || 3}
+                <div className="stat-value" style={{ color: 'var(--cyan)' }}>
+                  {inboxes.filter((i) => i.provider === 'olfmailer' || i.provider === 'custom' || i.email_address?.includes('olfmailer.com')).length || 3}
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
                   olfmailer.com sending pool
@@ -3601,10 +3601,10 @@ export default function AdminPage() {
                   <span className="pulse-dot-cyan" title="Warmup daily limit" />
                 </div>
                 <div className="stat-value" style={{ color: 'var(--cyan)' }}>
-                  {inboxes.filter((i) => i.is_active).reduce((sum, i) => sum + (i.daily_limit || 20), 0) || 60}/day
+                  {inboxes.filter((i) => i.is_active).reduce((sum, i) => sum + (i.daily_limit || (warmupCycle?.per_inbox_daily_limit || 5)), 0) || 15}/day
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
-                  olfmailer.com inboxes × {warmupCycle?.quota_per_inbox || 20}/day (Week 1 Day 1 Warmup)
+                  olfmailer.com inboxes × {warmupCycle?.per_inbox_daily_limit || 5}/day (Stage 1 Warmup)
                 </div>
               </div>
 
@@ -3614,7 +3614,7 @@ export default function AdminPage() {
                   <span className="pulse-dot-amber" title="Fleet sends today" />
                 </div>
                 <div className="stat-value" style={{ color: '#fbbf24' }}>
-                  {inboxes.reduce((sum, i) => sum + (i.sent_today || 0), 0)} / {inboxes.filter((i) => i.is_active && (i.provider === 'zoho' || i.inbox_id !== 'primary')).reduce((sum, i) => sum + (i.daily_limit || 25), 0) || 125}
+                  {inboxes.reduce((sum, i) => sum + (i.sent_today || 0), 0)} / {inboxes.filter((i) => i.is_active && (i.provider === 'olfmailer' || i.inbox_id !== 'primary')).reduce((sum, i) => sum + (i.daily_limit || (warmupCycle?.per_inbox_daily_limit || 5)), 0) || 15}
                 </div>
                 <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>
                   Across all active inboxes
@@ -3817,9 +3817,10 @@ export default function AdminPage() {
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px' }}>
                   {inboxes.map((ib) => {
-                    const dailyLimit = ib.daily_limit || (warmupCycle?.quota_per_inbox || 50);
+                    const dailyLimit = ib.daily_limit || (warmupCycle?.per_inbox_daily_limit || 5);
                     const sentToday = ib.sent_today || 0;
                     const pct = Math.min(100, Math.round((sentToday / (dailyLimit || 1)) * 100));
+                    const isOlf = ib.provider === 'olfmailer' || ib.email_address?.includes('olfmailer');
                     return (
                       <div
                         key={ib.inbox_id}
@@ -3834,8 +3835,8 @@ export default function AdminPage() {
                           <span style={{ fontSize: '12px', fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '140px' }} title={ib.email_address}>
                             {ib.email_address}
                           </span>
-                          <span style={{ fontSize: '9px', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', background: ib.provider === 'zoho' ? 'rgba(168, 85, 247, 0.2)' : 'rgba(56, 189, 248, 0.2)', color: ib.provider === 'zoho' ? '#c084fc' : 'var(--cyan)' }}>
-                            {ib.provider?.toUpperCase()}
+                          <span style={{ fontSize: '9px', fontWeight: 800, padding: '1px 5px', borderRadius: '4px', background: isOlf ? 'rgba(56, 189, 248, 0.25)' : 'rgba(168, 85, 247, 0.2)', color: isOlf ? 'var(--cyan)' : '#c084fc' }}>
+                            {isOlf ? 'OLFMAILER' : (ib.provider?.toUpperCase() || 'CUSTOM')}
                           </span>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
@@ -4105,14 +4106,14 @@ export default function AdminPage() {
                 <div style={{ fontSize: '42px', marginBottom: '14px' }}>📬</div>
                 <h3 style={{ fontSize: '18px', fontWeight: 700, color: '#fff', marginBottom: '8px' }}>No Email Inboxes Configured Yet</h3>
                 <p style={{ fontSize: '14px', color: 'var(--text-muted)', maxWidth: '460px', margin: '0 auto 20px' }}>
-                  Connect your 4 new Zoho inboxes to start automated outreach load balancing and continuous IMAP prospect reply monitoring.
+                  Connect your olfmailer.com inboxes to start automated outreach load balancing and continuous IMAP prospect reply monitoring.
                 </p>
                 <button
                   className="btn btn-primary"
                   onClick={() => setShowAddInboxModal(true)}
                   style={{ fontSize: '13px', padding: '10px 20px' }}
                 >
-                  + Add Your First Zoho Inbox
+                  + Add Your First Email Inbox
                 </button>
               </div>
             ) : (() => {
@@ -4185,6 +4186,7 @@ export default function AdminPage() {
                         const testRes = testResults[inbox.inbox_id];
                         const isTesting = testingInboxId === inbox.inbox_id;
                         const pct = Math.min(100, Math.round(((inbox.sent_today || 0) / (inbox.daily_limit || 25)) * 100));
+                        const isOlf = inbox.provider === 'olfmailer' || inbox.email_address?.includes('olfmailer');
 
                         const deliv = deliverabilityReport?.inboxes?.find(
                           (d) => d.email_address?.toLowerCase() === inbox.email_address?.toLowerCase() || d.inbox_id === inbox.inbox_id
@@ -4229,16 +4231,16 @@ export default function AdminPage() {
                                     fontWeight: 700,
                                     padding: '4px 10px',
                                     borderRadius: '20px',
-                                    background: inbox.provider === 'zoho' ? 'rgba(168, 85, 247, 0.15)' : 'rgba(59, 130, 246, 0.15)',
-                                    color: inbox.provider === 'zoho' ? '#c084fc' : '#60a5fa',
-                                    border: `1px solid ${inbox.provider === 'zoho' ? 'rgba(168, 85, 247, 0.35)' : 'rgba(59, 130, 246, 0.35)'}`,
+                                    background: isOlf ? 'rgba(56, 189, 248, 0.15)' : inbox.provider === 'outlook' ? 'rgba(249, 115, 22, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+                                    color: isOlf ? 'var(--cyan)' : inbox.provider === 'outlook' ? '#fb923c' : '#60a5fa',
+                                    border: `1px solid ${isOlf ? 'rgba(56, 189, 248, 0.35)' : inbox.provider === 'outlook' ? 'rgba(249, 115, 22, 0.35)' : 'rgba(59, 130, 246, 0.35)'}`,
                                     display: 'inline-flex',
                                     alignItems: 'center',
                                     gap: '6px',
                                   }}
                                 >
-                                  <span>{inbox.provider === 'zoho' ? '🟣' : inbox.provider === 'outlook' ? '🟧' : '🔵'}</span>
-                                  {inbox.provider === 'zoho' ? 'Zoho Workplace' : inbox.provider === 'outlook' ? 'Microsoft Outlook' : inbox.provider === 'gmail' ? 'Google / Gmail' : 'Custom SMTP'}
+                                  <span>{isOlf ? '🚀' : inbox.provider === 'outlook' ? '🟧' : '🔵'}</span>
+                                  {isOlf ? 'olfmailer.com (Azure Comm)' : inbox.provider === 'outlook' ? 'Microsoft Outlook' : inbox.provider === 'gmail' ? 'Google / Gmail' : 'Custom SMTP'}
                                 </span>
 
                                 <span
@@ -4268,8 +4270,8 @@ export default function AdminPage() {
 
                               {/* Protocol Chips */}
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '16px', fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--mono)', background: 'rgba(15, 23, 42, 0.5)', padding: '10px 12px', borderRadius: 'var(--radius-sm)' }}>
-                                <div>📤 SMTP: <span style={{ color: '#fff' }}>{inbox.smtp_host || 'smtp.zoho.com'}:{inbox.smtp_port || 465}</span> ({inbox.smtp_use_ssl ? 'SSL' : 'TLS'})</div>
-                                <div>📥 IMAP: <span style={{ color: '#fff' }}>{inbox.imap_host || 'imap.zoho.com'}:{inbox.imap_port || 993}</span> ({inbox.imap_use_ssl ? 'SSL' : 'TLS'})</div>
+                                <div>📤 Outbound: <span style={{ color: '#fff' }}>{isOlf ? 'Azure Communication Services (Port 443 REST API + DKIM/SPF)' : `${inbox.smtp_host || 'smtp.custom.com'}:${inbox.smtp_port || 465}`}</span></div>
+                                <div>📥 Inbound: <span style={{ color: '#fff' }}>{isOlf ? 'Cloudflare Email Routing ➔ Gmail IMAP' : `${inbox.imap_host || 'imap.custom.com'}:${inbox.imap_port || 993}`}</span></div>
                               </div>
 
                               {/* Quota Progress */}
@@ -4472,31 +4474,22 @@ export default function AdminPage() {
               </button>
             </div>
 
-            {/* Zoho Guidance Callout */}
+            {/* OLFMAILER Guidance Callout */}
             <div
               style={{
-                background: 'rgba(168, 85, 247, 0.12)',
-                border: '1px solid rgba(168, 85, 247, 0.35)',
+                background: 'rgba(56, 189, 248, 0.12)',
+                border: '1px solid rgba(56, 189, 248, 0.35)',
                 borderRadius: 'var(--radius-sm)',
                 padding: '12px 14px',
                 fontSize: '12px',
-                color: '#e9d5ff',
+                color: '#e0f2fe',
                 lineHeight: 1.5,
                 marginBottom: '18px',
               }}
             >
-              <b>💡 Zoho Workplace &amp; Zoho Mail Setup</b>:
+              <b>🚀 olfmailer.com &amp; Azure Email Setup</b>:
               <br />
-              Zoho strictly requires an <b>App-Specific Password</b> for third-party SMTP &amp; IMAP. Generate one under:{' '}
-              <a
-                href="https://accounts.zoho.com"
-                target="_blank"
-                rel="noreferrer"
-                style={{ color: 'var(--cyan)', textDecoration: 'underline' }}
-              >
-                Zoho Accounts ➔ Security ➔ App Passwords
-              </a>
-              . Standard account passwords will fail authentication.
+              Outbound sending runs over <b>Azure Communication Services</b> with Cloudflare SPF, DKIM, and DMARC verification. Inbound prospect replies to <code>*@olfmailer.com</code> are routed through Cloudflare Email Routing directly to your watched inbox.
             </div>
 
             {/* Form Fields */}
@@ -4518,7 +4511,7 @@ export default function AdminPage() {
                     fontSize: '13px',
                   }}
                 >
-                  <option value="zoho">🟣 Zoho Workplace (smtppro.zoho.com:465 / imappro.zoho.com:993)</option>
+                  <option value="olfmailer">🚀 olfmailer.com (Azure Communication Services + Cloudflare)</option>
                   <option value="gmail">🔵 Google / Gmail (smtp.gmail.com:465 / imap.gmail.com:993)</option>
                   <option value="outlook">🟧 Microsoft Outlook / 365 (smtp-mail.outlook.com:587 / outlook.office365.com:993)</option>
                   <option value="smtp_generic">⚪ Generic Custom SMTP / IMAP</option>
@@ -4531,7 +4524,7 @@ export default function AdminPage() {
                 </label>
                 <input
                   type="email"
-                  placeholder="e.g. alex@yourdomain.com or omnileadfeeder@outlook.com"
+                  placeholder="e.g. alex@olfmailer.com or ben@olfmailer.com"
                   value={inboxFormData.email_address}
                   onChange={(e) => setInboxFormData((p) => ({ ...p, email_address: e.target.value }))}
                   style={{
@@ -4548,11 +4541,11 @@ export default function AdminPage() {
 
               <div>
                 <label style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>
-                  {inboxFormData.provider === 'zoho' ? 'Zoho App-Specific Password *' : inboxFormData.provider === 'outlook' ? 'Outlook App Password *' : 'App-Specific Password *'}
+                  {inboxFormData.provider === 'outlook' ? 'Outlook App Password *' : inboxFormData.provider === 'gmail' ? 'Google App Password *' : 'App-Specific Password (Optional for Azure ACS)'}
                 </label>
                 <input
                   type="password"
-                  placeholder="App password or account password"
+                  placeholder="App password (if applicable)"
                   value={inboxFormData.password}
                   onChange={(e) => setInboxFormData((p) => ({ ...p, password: e.target.value }))}
                   style={{
