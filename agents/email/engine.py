@@ -446,6 +446,22 @@ class EmailEngineQueue:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    def get_all_warmup_targets(self) -> list[dict[str, Any]]:
+        """Return all registered warm receiver accounts in the peer warmup pool."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT id, email, name, status, total_sent, added_at, last_sent_at, provider, imap_host, imap_port, smtp_host, smtp_port, is_monitored, unspammed_count, replied_count "
+                "FROM warmup_targets ORDER BY id ASC"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def delete_warmup_target(self, target_id: int) -> bool:
+        """Remove a warm receiver account from the peer warmup pool."""
+        with self._get_conn() as conn:
+            cur = conn.execute("DELETE FROM warmup_targets WHERE id = ?", (target_id,))
+            return cur.rowcount > 0
+
+
 
 class PeerInboxWarmupWatcher:
     """Monitors registered test/warm-up inboxes via IMAP:

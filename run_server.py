@@ -555,21 +555,6 @@ def main():
     )
     automation_thread.start()
 
-    # 4. Morning Deliverability & Spam Shield (probes TestMail from all active Zoho inboxes)
-    if os.environ.get("DELIVERABILITY_AUDIT_ON_STARTUP", "true").lower() in ("true", "1", "yes"):
-        def _startup_deliverability_check():
-            try:
-                time.sleep(3)
-                from agents.email.deliverability_tester import DeliverabilityTester
-                tester = DeliverabilityTester(storage_backend=storage)
-                tester.run_fleet_audit(force=False)
-            except Exception as audit_err:
-                server_logger.warning(f"Startup deliverability audit error: {audit_err}")
-
-        startup_audit_thread = threading.Thread(target=_startup_deliverability_check, daemon=True)
-        startup_audit_thread.start()
-        print("✓ Deliverability & Spam Shield: Active (audits TestMail probes on startup)")
-
     print("------------------------------------------------------------------")
     print(" 🔗 Clickable Live Production Endpoints:")
     print(f"  • Live Candidate Sandbox Feed:   http://{host}:{port}/p/apex-commercial-title-demo-lead")

@@ -2311,6 +2311,146 @@ def delete_admin_inbox(
     return {"ok": True, "inbox_id": inbox_id, "message": f"Inbox '{inbox_id}' removed from storage."}
 
 
+class AddWarmupTargetRequest(BaseModel):
+    email: str
+    name: Optional[str] = ""
+    password: Optional[str] = ""
+    provider: Optional[str] = "gmail"
+    is_monitored: Optional[bool] = True
+
+
+@router.get("/api/admin/inboxes/inbound-stream", tags=["Admin Inboxes"])
+def get_inbound_stream(
+    storage_backend=Depends(get_storage),
+    user: ClerkUser = Depends(require_admin),
+):
+    """Retrieve live watched inbox status, health telemetry, and all received prospect replies."""
+    from ..email.config import EmailSettings
+    settings = EmailSettings.from_environment()
+
+    # Determine active watched inbox metadata
+    user_email = (
+        os.environ.get("INBOX_WATCHER_EMAIL")
+        or os.environ.get("OUTLOOK_USER")
+        or os.environ.get("GMAIL_USER")
+        or settings.user
+        or "christopher.ben.pahrman@gmail.com"
+    ).strip()
+
+    is_outlook = any(user_email.lower().endswith(d) for d in ("@outlook.com", "@hotmail.com", "@live.com", "@office365.com")) or "outlook" in user_email.lower()
+    provider_name = "Microsoft Outlook (Graph/IMAP)" if is_outlook else "Google Workspace / Gmail (IMAP)"
+
+    # Retrieve stored inbound replies
+    inbound_emails = []
+    if hasattr(storage_backend, "list_inbound_emails"):
+        try:
+            inbound_emails = storage_backend.list_inbound_emails()
+        except Exception as err:
+            logger.warning(f"Could not load inbound emails: {err}")
+
+    # Compute classification breakdown metrics
+    intents = {}
+    for email_item in inbound_emails:
+        intent = email_item.get("intent") or "unclassified"
+        intents[intent] = intents.get(intent, 0) + 1
+
+    return {
+        "ok": True,
+        "watched_inbox": {
+            "email_address": user_email,
+            "provider": provider_name,
+            "poll_interval_seconds": int(str(os.environ.get("INBOUND_POLL_INTERVAL_SECONDS", "60")).split("#")[0].strip()),
+            "watcher_enabled": os.environ.get("INBOUND_WATCHER_ENABLED", "true").lower() in ("true", "1", "yes"),
+            "imap_host": settings.imap_host,
+            "imap_port": settings.imap_port,
+            "imap_use_ssl": settings.imap_use_ssl,
+            "has_credentials": bool(settings.app_password or os.environ.get("MICROSOFT_REFRESH_TOKEN")),
+        },
+        "metrics": {
+            "total_received": len(inbound_emails),
+            "classified_counts": intents,
+            "interested_count": intents.get("warm_lead", 0) + intents.get("interested", 0) + intents.get("call_booked", 0),
+            "unclassified_count": intents.get("unclassified", 0),
+            "unsubscribe_count": intents.get("unsubscribe", 0) + intents.get("not_interested", 0),
+        },
+        "inbound_emails": inbound_emails,
+    }
+
+
+@router.get("/api/admin/inboxes/warmup-targets", tags=["Admin Inboxes"])
+def get_warmup_targets(
+    user: ClerkUser = Depends(require_admin),
+):
+    """List all registered peer warm receiver inboxes and 2-way engagement telemetry."""
+    from ..email.engine import EmailEngineQueue
+    queue = EmailEngineQueue()
+    targets = queue.get_all_warmup_targets()
+    return {
+        "ok": True,
+        "targets": targets,
+        "total_count": len(targets),
+        "monitored_count": len([t for t in targets if t.get("is_monitored")]),
+    }
+
+
+@router.post("/api/admin/inboxes/warmup-targets", tags=["Admin Inboxes"])
+def create_warmup_target(
+    req: AddWarmupTargetRequest,
+    user: ClerkUser = Depends(require_admin),
+):
+    """Register a new warm receiver inbox into the peer warmup network."""
+    if not req.email or "@" not in req.email:
+        raise HTTPException(status_code=400, detail="Valid email address is required.")
+
+    from ..email.engine import EmailEngineQueue
+    queue = EmailEngineQueue()
+    success = queue.enqueue_warmup_target(
+        email=req.email,
+        name=req.name or "",
+        password=req.password or "",
+        provider=req.provider or "gmail",
+        is_monitored=bool(req.is_monitored),
+    )
+    if not success:
+        raise HTTPException(status_code=500, detail=f"Failed to register warm receiver inbox '{req.email}'.")
+
+    return {"ok": True, "message": f"Warm receiver inbox '{req.email}' added to peer warmup network."}
+
+
+@router.delete("/api/admin/inboxes/warmup-targets/{target_id}", tags=["Admin Inboxes"])
+def delete_warmup_target_endpoint(
+    target_id: int,
+    user: ClerkUser = Depends(require_admin),
+):
+    """Remove a warm receiver inbox from the peer warmup network."""
+    from ..email.engine import EmailEngineQueue
+    queue = EmailEngineQueue()
+    deleted = queue.delete_warmup_target(target_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Warm receiver with ID {target_id} not found.")
+
+    return {"ok": True, "message": f"Warm receiver ID {target_id} removed."}
+
+
+@router.get("/api/admin/inboxes/warmup-activity", tags=["Admin Inboxes"])
+def get_warmup_activity(
+    limit: int = 50,
+    user: ClerkUser = Depends(require_admin),
+):
+    """Retrieve recent dispatch and warmup activity logs."""
+    from ..email.engine import EmailEngineQueue
+    queue = EmailEngineQueue()
+    logs = queue.get_dispatch_history(limit=limit)
+    cold_today, warmup_today = queue.get_today_sent_counts()
+    return {
+        "ok": True,
+        "logs": logs,
+        "cold_sent_today": cold_today,
+        "warmup_sent_today": warmup_today,
+    }
+
+
+
 
 @router.post("/api/admin/auto-outreach/flush", tags=["Admin Operations"])
 def trigger_outreach_flush(

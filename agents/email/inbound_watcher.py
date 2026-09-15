@@ -614,7 +614,7 @@ class InboundEmailWatcher:
         logger.info(f"🔄 [INBOUND WATCHER STARTED] Polling every {self.settings.imap_poll_interval_seconds}s for Cloudflare-routed replies.")
         while self.is_running:
             try:
-                self.poll_and_process_once()
+                await asyncio.to_thread(self.poll_and_process_once)
             except Exception as exc:
                 logger.error(f"Inbound watcher poll error: {exc}")
             await asyncio.sleep(self.settings.imap_poll_interval_seconds)
