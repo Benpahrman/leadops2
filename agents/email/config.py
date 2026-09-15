@@ -222,7 +222,7 @@ class EmailSettings:
         else:
             primary_provider = "custom"
 
-        primary_addr = self.user or "christopher.ben.pahrman@gmail.com"
+        primary_addr = self.user or "alex@olfmailer.com"
         accounts.append(
             InboxAccountConfig(
                 id="primary",

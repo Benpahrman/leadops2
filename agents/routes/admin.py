@@ -2344,7 +2344,7 @@ def get_inbound_stream(
         or os.environ.get("OUTLOOK_USER")
         or os.environ.get("GMAIL_USER")
         or settings.user
-        or "christopher.ben.pahrman@gmail.com"
+        or "alex@olfmailer.com"
     ).strip()
 
     is_outlook = any(user_email.lower().endswith(d) for d in ("@outlook.com", "@hotmail.com", "@live.com", "@office365.com")) or "outlook" in user_email.lower()
@@ -2462,7 +2462,7 @@ def dispatch_warmup_batch(
 
     targets = queue.get_all_warmup_targets()
     if not targets:
-        targets = [{"id": 1, "email": "christopher.ben.pahrman@gmail.com", "first_name": "Ben", "target_daily": 5}]
+        targets = [{"id": 1, "email": "alex@olfmailer.com", "first_name": "Alex", "target_daily": 5}]
 
     dispatched = []
     errors = []

@@ -425,7 +425,7 @@ export default function AdminPage() {
     try {
       const urlParams = new URLSearchParams(window.location.search);
       if (urlParams.get('oauth') === 'microsoft_success') {
-        const authedEmail = urlParams.get('email') || 'omnileadfeeder@outlook.com';
+        const authedEmail = urlParams.get('email') || user?.primaryEmailAddress?.emailAddress || 'Connected Account';
         showToast(`🎉 Microsoft Outlook (${authedEmail}) connected successfully via OAuth2!`, 'success');
         urlParams.delete('oauth');
         urlParams.delete('email');
@@ -4369,7 +4369,7 @@ export default function AdminPage() {
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#fff', margin: 0 }}>
-                            Primary Inbound Watched Inbox: {inboundStream?.watched_inbox?.email_address || 'christopher.ben.pahrman@gmail.com'}
+                            Primary Inbound Watched Inbox: {inboundStream?.watched_inbox?.email_address || 'alex@olfmailer.com'}
                           </h3>
                           <span className="badge-tag badge-green">
                             🟢 {inboundStream?.watched_inbox?.watcher_enabled ? 'POLLING ACTIVE' : 'CONNECTED'}
@@ -4458,7 +4458,7 @@ export default function AdminPage() {
                         {!inboundStream?.inbound_emails || inboundStream.inbound_emails.length === 0 ? (
                           <tr>
                             <td colSpan="5" style={{ textAlign: 'center', padding: '48px', color: 'var(--text-muted)' }}>
-                              No inbound replies received yet. As prospect responses arrive at <b>{inboundStream?.watched_inbox?.email_address || 'christopher.ben.pahrman@gmail.com'}</b>, they will appear here live with AI classification.
+                              No inbound replies received yet. As prospect responses arrive at <b>{inboundStream?.watched_inbox?.email_address || 'alex@olfmailer.com'}</b>, they will appear here live with AI classification.
                             </td>
                           </tr>
                         ) : (
@@ -4807,7 +4807,7 @@ export default function AdminPage() {
                 </label>
                 <input
                   type="email"
-                  placeholder="e.g. christopher.ben.pahrman@gmail.com"
+                  placeholder="e.g. receiver@yourdomain.com"
                   value={receiverFormData.email}
                   onChange={(e) => setReceiverFormData((p) => ({ ...p, email: e.target.value }))}
                   style={{
