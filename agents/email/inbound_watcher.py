@@ -40,8 +40,9 @@ class InboundEmailWatcher:
 
         Specifically ignores:
         - googlemail.com and google.com domains / subdomains (system alerts, mailer-daemon, etc.)
-        - system role accounts (mailer-daemon, postmaster, no-reply, autoreply)
+        - system role accounts (mailer-daemon, postmaster, no-reply, autoreply, billing, receipts, notifications, newsletters)
         - automated bounce notifications / delivery failure notices
+        - automated marketing / SaaS / CRM / social / cloud vendor domains
         - self-addressed loops from our own sending domains (omnileadfeeder.tech)
         """
         if not sender:
@@ -57,19 +58,69 @@ class InboundEmailWatcher:
         else:
             local_part, domain = clean_sender, ""
 
-        # 1. Block Googlemail, Google system domains, and our own domain loops
-        # User requirement: "IN OUR INBOUND MESSAGES WE GET MAIL FROM GOOGLEMAIL.COM AND GOOGLE.COM WE NEED TO NOT RESPOND TO THOSE"
+        # 1. Block Googlemail, Google system domains, our own domains, and known SaaS / marketing / vendor platforms
+        blocked_exact_senders = {
+            "omnileadfeeder@outlook.com",
+            "omnileadfeeder.tech@gmail.com",
+        }
+        if clean_sender in blocked_exact_senders:
+            return True
+
         blocked_domains = {
             "google.com",
             "googlemail.com",
             "omnileadfeeder.tech",
+            "mailchimp.com",
+            "hubspot.com",
+            "hubspotmail.com",
+            "intercom.com",
+            "intercom-mail.com",
+            "zendesk.com",
+            "salesforce.com",
+            "docusign.net",
+            "stripe.com",
+            "paypal.com",
+            "github.com",
+            "linkedin.com",
+            "twitter.com",
+            "x.com",
+            "facebookmail.com",
+            "quora.com",
+            "medium.com",
+            "substack.com",
+            "brevo.com",
+            "sendinblue.com",
+            "constantcontact.com",
+            "klaviyo.com",
+            "mailerlite.com",
+            "activecampaign.com",
+            "convertkit.com",
+            "campaign-monitor.com",
+            "eventbrite.com",
+            "zoom.us",
+            "slack.com",
+            "atlassian.com",
+            "notion.so",
+            "canva.com",
+            "adobe.com",
+            "figma.com",
+            "dropbox.com",
+            "box.com",
+            "intuit.com",
+            "quickbooks.com",
+            "microsoft.com",
+            "apple.com",
+            "amazon.com",
+            "aws.amazon.com",
+            "cloudflare.com",
+            "digitalocean.com",
+            "godaddy.com",
+            "namecheap.com",
         }
-        if clean_sender in ("omnileadfeeder@outlook.com", "omnileadfeeder.tech@gmail.com"):
-            return True
         if domain in blocked_domains or any(domain.endswith(f".{bd}") for bd in blocked_domains):
             return True
 
-        # 2. Block system, daemon, bounce, and no-reply local parts
+        # 2. Block system, daemon, bounce, billing, notification, and marketing local parts
         system_prefixes = (
             "mailer-daemon",
             "mailerdaemon",
@@ -81,18 +132,48 @@ class InboundEmailWatcher:
             "bounce",
             "bounces",
             "notifications",
+            "notification",
             "daemon",
             "auto-reply",
             "autoreply",
+            "marketing",
+            "newsletter",
+            "newsletters",
+            "promo",
+            "promotions",
+            "billing",
+            "invoices",
+            "invoice",
+            "receipts",
+            "receipt",
+            "security",
+            "alerts",
+            "alert",
+            "updates",
+            "news",
+            "digest",
+            "events",
+            "webinar",
+            "orders",
+            "order",
+            "subscriptions",
+            "subscription",
+            "accounts",
+            "account",
+            "support",
+            "help",
+            "billing-noreply",
+            "invoicing",
+            "donotreply-notifications",
         )
         if any(
-            local_part == prefix or local_part.startswith(f"{prefix}+") or local_part.startswith(f"{prefix}-")
+            local_part == prefix or local_part.startswith(f"{prefix}+") or local_part.startswith(f"{prefix}-") or local_part.startswith(f"{prefix}.")
             for prefix in system_prefixes
         ):
             return True
 
-        # 3. Block bounce / automated delivery status subjects
-        bounce_phrases = (
+        # 3. Block bounce / automated delivery status / marketing & transaction alert subjects
+        ignored_subjects = (
             "delivery status notification",
             "undelivered mail returned to sender",
             "mail delivery failed",
@@ -104,11 +185,35 @@ class InboundEmailWatcher:
             "automatic reply",
             "auto-reply",
             "out of office",
+            "order confirmation",
+            "your invoice",
+            "invoice for",
+            "receipt for your",
+            "payment receipt",
+            "statement ready",
+            "your subscription",
+            "verification code",
+            "verify your email",
+            "confirm your email",
+            "one-time passcode",
+            "password reset",
+            "new sign-in",
+            "new login",
+            "weekly digest",
+            "monthly digest",
+            "special offer",
+            "limited time offer",
+            "exclusive offer",
+            "% off",
+            "discount code",
+            "save up to",
+            "sale ends",
         )
-        if any(phrase in subject_lower for phrase in bounce_phrases):
+        if any(phrase in subject_lower for phrase in ignored_subjects):
             return True
 
         return False
+
 
     @staticmethod
     def is_ooo_notification(subject: str = "", body: str = "") -> bool:
@@ -471,20 +576,6 @@ class InboundEmailWatcher:
                     "subject": lead.outreach_subject,
                     "body": getattr(lead, "outreach_body", ""),
                 }
-        elif self.storage and hasattr(self.storage, "save_lead"):
-            # Auto-provision new lead record in storage for unregistered prospect
-            lead_id = f"lead-{sender.split('@')[0]}-{int(time.time())}"
-            lead = Lead(
-                lead_id=lead_id,
-                tier_key="weekly",
-                state=State.CONVERSATIONAL_INTAKE,
-                company_name=company_name,
-                contact_name=full_name or first_name,
-                contact_email=sender,
-                target_portal_name=detected_portal,
-                slug=detected_slug,
-            )
-            self.storage.save_lead(lead)
 
         # 2. Invoke Inbound Reply Agent with conversation memory
         ai_eval = self.reply_agent.process_inbound_reply(
@@ -499,6 +590,38 @@ class InboundEmailWatcher:
         intent = ai_eval.get("intent", "INTERESTED")
         draft_reply = ai_eval.get("draft_reply_text", "")
         draft_subj = ai_eval.get("draft_subject", f"Re: {subject}")
+
+        # 2b. If classified as IRRELEVANT, suppress completely (no reply, no lead creation, no noisy alerts)
+        if intent == "IRRELEVANT":
+            logger.info(
+                f"🚫 [IRRELEVANT INBOUND SUPPRESSED] Ignoring non-relevant/vendor pitch from {sender} | Subject: '{subject}'"
+            )
+            return {
+                "ok": True,
+                "sender": sender,
+                "subject": subject,
+                "intent": "IRRELEVANT",
+                "lead_id": lead.lead_id if lead else None,
+                "reply_dispatched": False,
+                "ai_eval": ai_eval,
+                "status": "IRRELEVANT_IGNORED",
+                "received_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+        # 2c. If genuine prospect inquiry and lead not yet in storage, auto-provision now
+        if not lead and self.storage and hasattr(self.storage, "save_lead"):
+            lead_id = f"lead-{sender.split('@')[0]}-{int(time.time())}"
+            lead = Lead(
+                lead_id=lead_id,
+                tier_key="weekly",
+                state=State.CONVERSATIONAL_INTAKE,
+                company_name=company_name,
+                contact_name=full_name or first_name,
+                contact_email=sender,
+                target_portal_name=detected_portal,
+                slug=detected_slug,
+            )
+            self.storage.save_lead(lead)
 
         # 3. Handle Lead State Machine Transitions & Sequencer Auto-Stop
         if lead:
@@ -537,7 +660,7 @@ class InboundEmailWatcher:
 
         # 5. Dispatch automated response if autonomous mode is permitted
         dispatched = False
-        if ai_eval.get("should_auto_send", False) and draft_reply:
+        if ai_eval.get("should_auto_send", False) and draft_reply and intent != "IRRELEVANT":
             try:
                 reply_inbox = None
                 inbox_id = msg.get("inbox_id")

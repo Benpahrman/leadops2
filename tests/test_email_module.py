@@ -871,6 +871,65 @@ def test_auto_outreach_rejection_window_and_autonomous_dispatch():
     assert not scheduler.is_pending("lead-test-autonomous-1")
 
 
+def test_inbound_irrelevant_email_suppression_and_no_reply():
+    """Verify irrelevant emails (vendor pitches, newsletters, receipts, unrelated spam) are NEVER replied to and never provision fake leads."""
+    storage = InMemoryStorageBackend()
+
+    # 1. Test deterministic should_ignore_inbound filters
+    assert InboundEmailWatcher.should_ignore_inbound("newsletter@marketing.hubspotmail.com", "Your weekly marketing digest")
+    assert InboundEmailWatcher.should_ignore_inbound("billing@stripe.com", "Your monthly receipt")
+    assert InboundEmailWatcher.should_ignore_inbound("no-reply@accounts.google.com", "Security alert: new sign-in")
+    assert InboundEmailWatcher.should_ignore_inbound("support@mailchimp.com", "Special 30% discount offer")
+    assert InboundEmailWatcher.should_ignore_inbound("notifications@linkedin.com", "You have 5 new connections")
+
+    # 2. Test InboundReplyAgent classification of vendor cold pitches
+    agent = InboundReplyAgent()
+    res_vendor = agent.process_inbound_reply(
+        inbound_text="Hi Alex, We are an offshore digital marketing agency specializing in SEO, backlinks, and web development. Would you like to hire dedicated developers?",
+        inbound_subject="Web Development & SEO Services for LeadOps",
+        lead_context={
+            "company_name": "DevShop Global",
+            "contact_name": "Raj",
+            "target_portal_name": "Public Records",
+        },
+    )
+    assert res_vendor["intent"] == "IRRELEVANT"
+    assert res_vendor["should_auto_send"] is False
+    assert res_vendor["draft_reply_text"] == ""
+
+    # 3. Test InboundEmailWatcher end-to-end on irrelevant vendor pitch
+    class MockVendorInboundClient(EmailClient):
+        def fetch_unseen_emails(self, folder="INBOX", mark_as_read=False):
+            return [{
+                "imap_id": "999",
+                "sender_name": "Offshore SEO Solutions",
+                "sender_email": "sales@offshore-seo-agency.com",
+                "subject": "Boost your website ranking with our backlinks",
+                "message_id": "<pitch-vendor-999@offshore.com>",
+                "in_reply_to": "",
+                "references": "",
+                "date": "Tue, 15 Sep 2026 14:00:00 +0000",
+                "body_text": "Hello, we can provide high quality backlinks and guest post services to grow your traffic. Let me know if interested.",
+                "body_html": "",
+            }]
+
+    watcher = InboundEmailWatcher(
+        email_client=MockVendorInboundClient(),
+        storage_backend=storage,
+    )
+
+    results = watcher.poll_and_process_once()
+    assert len(results) == 1
+    assert results[0]["intent"] == "IRRELEVANT"
+    assert results[0]["reply_dispatched"] is False
+    assert results[0]["status"] == "IRRELEVANT_IGNORED"
+
+    # Verify no bogus lead was created in storage for the vendor
+    all_leads = storage.list_leads()
+    assert len(all_leads) == 0
+
+
+
 
 
 

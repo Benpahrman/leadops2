@@ -236,22 +236,28 @@ class InboundReplyAgent:
 
         system_prompt = (
             "You are Alex, Technical Solutions Specialist & Automation Architect at LeadOps / OmniLeadFeeder.\n"
-            "A prospective commercial customer just replied to our communication regarding automated public records data feeds.\n\n"
-            "BRAND & CONTEXTUAL COMMUNICATION GUIDELINES:\n"
-            "1. DEEPLY CONTEXT-AWARE & INDIVIDUALIZED: NEVER use generic canned email templates or repeat the same email over and over. "
+            "An inbound email was received in our monitored mailbox.\n\n"
+            "SYSTEM DIRECTIVES FOR INBOUND CLASSIFICATION & RESPONSE:\n"
+            "1. INTENT CATEGORIES:\n"
+            "   - 'INTERESTED': Prospect is asking for the spreadsheet, live sandbox, sample rows, or expressing genuine interest in public records data feeds.\n"
+            "   - 'QUESTION': Prospect is asking about integrations (Google Sheets/Webhook), pricing ($99 setup sprint / $250-$500/mo), schema/columns, or jurisdiction coverage.\n"
+            "   - 'OBJECTION': Prospect is raising technical or commercial concerns (timing, budget, existing vendor).\n"
+            "   - 'OPT_OUT': Prospect requested removal ('unsubscribe', 'remove me', 'stop emailing', 'not interested').\n"
+            "   - 'OUT_OF_OFFICE': Automated vacation or absence notification.\n"
+            "   - 'IRRELEVANT': Inbound email is SPAM, a vendor pitch selling services TO US (e.g. SEO services, web design, offshore developers, lead gen agencies, VA services, recruitment, crypto), promotional newsletters, automated receipts/invoices, billing notices, or completely unrelated inquiries. FOR IRRELEVANT EMAILS, YOU MUST RETURN 'intent': 'IRRELEVANT', 'should_auto_send': false, and 'draft_reply_text': ''. NEVER REPLY TO IRRELEVANT EMAILS.\n\n"
+            "2. DEEPLY CONTEXT-AWARE & INDIVIDUALIZED: When replying to legitimate prospects (INTERESTED/QUESTION/OBJECTION), NEVER use generic canned templates. "
             "Formulate a fresh, individualized response tailored specifically to the customer's exact words, questions, company, jurisdiction, and target court/portal.\n"
-            "2. CONVERSATION LOG AWARENESS: You have access to the running log of past messages in this thread (initial outreach and prior replies). "
-            "Build upon the conversation naturally. If you already explained pricing or introduced yourself earlier, DO NOT repeat yourself—progress the discussion forward.\n"
-            "3. SPECIFIC TOPIC PLAYBOOK:\n"
-            "   - Data Accuracy & Verification: Records are extracted directly from official county/court dockets (zero bought/stale lists). Each record includes a 1-click verification URL linking directly to the county filing.\n"
+            "3. CONVERSATION LOG AWARENESS: You have access to the running log of past messages in this thread. Progress the discussion forward without repeating yourself.\n"
+            "4. SPECIFIC TOPIC PLAYBOOK:\n"
+            "   - Data Accuracy & Verification: Records are extracted directly from official county/court dockets. Each record includes a 1-click verification URL linking directly to the county filing.\n"
             "   - Integrations & Delivery: Feeds stream daily at 6:00 AM UTC directly to Google Sheets, CRM webhooks, Zapier, Make, or CSV format.\n"
-            "   - Filtering & Columns: We customize extraction to their exact target criteria (filing types, minimum valuations, zoning, dates) and format columns to their exact CRM schema.\n"
-            "   - Pricing & Risk-Free Setup: Setup is just a $99 refundable down payment (100% credited toward your Month 1 balance). If our autonomous dev swarm doesn't deliver verified live data with >=95% accuracy within 24 hours, the deposit is refunded in full. Ongoing sync is $250–$500/mo depending on cadence (cancel anytime, zero contracts). NEVER use confusing escrow terminology—explain it simply as a $99 refundable down payment with a 24-hour guarantee.\n"
+            "   - Filtering & Columns: We customize extraction to their exact target criteria and format columns to their exact CRM schema.\n"
+            "   - Pricing & Risk-Free Setup: Setup is just a $99 refundable down payment (100% credited toward your Month 1 balance). Ongoing sync is $250–$500/mo depending on cadence (cancel anytime, zero contracts).\n"
             "   - Live Sandbox: Direct them to inspect their company's live interactive sandbox preview (no login or sales call required).\n"
-            "4. TONE & STYLE: Peer-to-peer, pragmatic engineer tone (Alex). Direct, concise, highly competent, zero corporate fluff, zero high-pressure sales tactics.\n"
-            "5. LENGTH: Under 85 words. End with a natural, low-friction question.\n"
-            "6. BANNED VOCABULARY: NEVER use the word 'quick' (e.g. do not say 'quick question', 'quick call', 'quick note', 'take a quick look'). Be direct and natural.\n"
-            "7. Output STRICT JSON ONLY."
+            "5. TONE & STYLE: Peer-to-peer, pragmatic engineer tone (Alex). Direct, concise, highly competent, zero corporate fluff.\n"
+            "6. LENGTH: Under 85 words. End with a natural, low-friction question.\n"
+            "7. BANNED VOCABULARY: NEVER use the word 'quick' (e.g. do not say 'quick question', 'quick call', 'quick note'). Be direct and natural.\n"
+            "8. Output STRICT JSON ONLY."
         )
 
         history_lines = []
@@ -293,18 +299,22 @@ class InboundReplyAgent:
         prompt_sections.append(
             "Analyze and return JSON:\n"
             "{\n"
-            '  "intent": "INTERESTED" | "QUESTION" | "OBJECTION" | "OPT_OUT" | "OUT_OF_OFFICE",\n'
+            '  "intent": "INTERESTED" | "QUESTION" | "OBJECTION" | "OPT_OUT" | "OUT_OF_OFFICE" | "IRRELEVANT",\n'
             '  "sentiment": "POSITIVE" | "NEUTRAL" | "NEGATIVE",\n'
             f'  "draft_subject": "Re: {inbound_subject}",\n'
-            '  "draft_reply_text": "Alex\'s dynamic, personalized, context-aware response",\n'
+            '  "draft_reply_text": "Alex\'s dynamic, personalized response (or empty string if IRRELEVANT)",\n'
             '  "should_auto_send": true | false,\n'
-            '  "summary": "1-sentence summary of what prospect said"\n'
+            '  "summary": "1-sentence summary of what was received"\n'
             "}"
         )
 
         user_prompt = "\n\n".join(prompt_sections)
         res = self.llm.generate_structured_json(system_prompt, user_prompt)
         if res and isinstance(res, dict):
+            # If AI classified as IRRELEVANT, force should_auto_send = False and empty draft
+            if res.get("intent") == "IRRELEVANT":
+                res["should_auto_send"] = False
+                res["draft_reply_text"] = ""
             if "draft_reply_text" in res and isinstance(res["draft_reply_text"], str):
                 res["draft_reply_text"] = re.sub(r"(?i)\bquick\s+", "", res["draft_reply_text"]).strip()
             if "draft_subject" in res and isinstance(res["draft_subject"], str):
@@ -312,7 +322,7 @@ class InboundReplyAgent:
 
         if not res or not isinstance(res, dict):
             # Fallback
-            inbound_lower = inbound_text.lower()
+            inbound_lower = f"{inbound_subject} {inbound_text}".lower()
             p_clean = (portal_name or jurisdiction or "Public Records").strip()
             if p_clean.lower().endswith(("records", "filings", "permits", "dockets")):
                 portal_phrase = p_clean
@@ -320,6 +330,26 @@ class InboundReplyAgent:
                 portal_phrase = f"{p_clean} records"
 
             active_url = (sandbox_url or "").strip() or "https://omnileadfeeder.tech/p/austin-commercial-permits"
+
+            # 1. Check for vendor pitches, promotions, or irrelevant topics
+            irrelevant_keywords = [
+                "seo", "search engine optimization", "web design", "web development",
+                "app development", "hire developers", "dedicated developer", "offshore team",
+                "virtual assistant", "guest post", "backlink", "grow your traffic",
+                "digital marketing agency", "recruitment agency", "staffing solution",
+                "crypto", "bitcoin", "forex", "trading bot", "loan offer", "funding offer",
+                "invoice #", "receipt for your", "order confirmation", "weekly digest",
+                "special discount", "% off", "limited time promotion",
+            ]
+            if any(kw in inbound_lower for kw in irrelevant_keywords):
+                return {
+                    "intent": "IRRELEVANT",
+                    "sentiment": "NEUTRAL",
+                    "draft_subject": "",
+                    "draft_reply_text": "",
+                    "should_auto_send": False,
+                    "summary": "Inbound vendor pitch or promotional/irrelevant email",
+                }
 
             is_optout = any(w in inbound_lower for w in ["unsubscribe", "remove", "stop", "not interested"])
             if is_optout:
@@ -367,7 +397,7 @@ class InboundReplyAgent:
                 }
 
             # Demo, sample, jurisdiction, or filing inquiry fallback
-            if any(w in inbound_lower for w in ["demo", "sample", "travis", "filing", "filings", "live data", "permit", "court", "have data"]):
+            if any(w in inbound_lower for w in ["demo", "sample", "travis", "filing", "filings", "live data", "permit", "court", "have data", "spreadsheet", "records", "send over", "sandbox", "link"]):
                 return {
                     "intent": "INTERESTED",
                     "sentiment": "POSITIVE",
@@ -384,6 +414,17 @@ class InboundReplyAgent:
                     "summary": f"Prospect asked for demo/data for {portal_phrase}",
                 }
 
+            # If no clear topic matched and no prior outreach context, mark IRRELEVANT rather than assuming INTERESTED
+            if not initial_outreach and not conversation_history:
+                return {
+                    "intent": "IRRELEVANT",
+                    "sentiment": "NEUTRAL",
+                    "draft_subject": "",
+                    "draft_reply_text": "",
+                    "should_auto_send": False,
+                    "summary": "Unrelated inbound communication with no public records context",
+                }
+
             return {
                 "intent": "INTERESTED",
                 "sentiment": "POSITIVE",
@@ -396,6 +437,7 @@ class InboundReplyAgent:
                     f"Best,\nAlex | LeadOps"
                 ),
                 "should_auto_send": False,
-                "summary": "Prospect showed interest",
+                "summary": "Prospect showed interest in thread",
             }
+
         return res
