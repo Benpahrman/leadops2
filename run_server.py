@@ -555,6 +555,22 @@ def main():
     )
     automation_thread.start()
 
+    # 4. Start Autonomous Email Engine & Warmup Worker Loop (runs in background)
+    if os.environ.get("EMAIL_ENGINE_ENABLED", "true").lower() in ("true", "1", "yes"):
+        try:
+            from agents.email.engine import EmailEngine
+            email_engine = EmailEngine()
+            email_thread = threading.Thread(
+                target=email_engine.run_continuous_worker,
+                daemon=True,
+                name="email-engine-warmup-worker",
+            )
+            email_thread.start()
+            print("✓ Autonomous Email Engine & Warmup Worker: Active (24/7 background peer warming)")
+        except Exception as exc:
+            server_logger.warning("Could not initialize EmailEngine worker thread: %s", exc)
+
+
     print("------------------------------------------------------------------")
     print(" 🔗 Clickable Live Production Endpoints:")
     print(f"  • Live Candidate Sandbox Feed:   http://{host}:{port}/p/apex-commercial-title-demo-lead")

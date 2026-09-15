@@ -2205,13 +2205,23 @@ def set_warmup_cycle_start(
     storage_backend=Depends(get_storage),
     user: ClerkUser = Depends(require_admin),
 ):
-    """Officially initialize or reset the email fleet warmup start date."""
+    """Officially initialize or reset the email fleet warmup start date and dispatch initial peer warmup batch."""
+    from ..email.engine import EmailEngineQueue
     target_date = req.start_date or datetime.now(timezone.utc).isoformat()
     os.environ["WARMUP_START_DATE"] = target_date
+    queue = EmailEngineQueue()
+    queue.set_state("warmup_start_date", target_date)
+
+    # Immediately trigger initial 3-email peer warmup batch
+    batch_res = dispatch_warmup_batch(count=3, storage_backend=storage_backend, user=user)
+
     return {
         "ok": True,
         "warmup_start_date": target_date,
-        "message": f"Warmup cycle started with baseline date {target_date}.",
+        "dispatched_count": batch_res.get("dispatched_count", 0),
+        "dispatched": batch_res.get("dispatched", []),
+        "errors": batch_res.get("errors", []),
+        "message": f"Warmup cycle started with baseline date {target_date}. Dispatched {batch_res.get('dispatched_count', 0)} initial peer warmup emails!",
     }
 
 
@@ -2473,6 +2483,7 @@ def dispatch_warmup_batch(
                 subject=subj,
                 text_body=body,
                 inbox=acc,
+                is_warmup=True,
             )
             inbox_id = acc.id if acc else "primary"
             warmup_mgr.record_send(inbox_id=inbox_id, recipient=target_email)

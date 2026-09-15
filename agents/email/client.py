@@ -57,6 +57,7 @@ class EmailClient:
         inbox: InboxAccountConfig | None = None,
         attachments: list[dict[str, Any]] | None = None,
         is_transactional: bool = False,
+        is_warmup: bool = False,
     ) -> dict[str, Any]:
         """Dispatch email via SMTP using specified inbox account (Zoho, Gmail, or default settings)."""
         # Check for development/test overrides
@@ -70,7 +71,7 @@ class EmailClient:
         else:
             logger.info(f"📧 [REAL RECIPIENT DISPATCH] Sending directly to verified recipient '{to_email}' ({to_name}).")
 
-        if inbox is not None:
+        if inbox is not None and inbox.password:
             inbox_id = inbox.id
             sender_email = inbox.email_address
             sender_name = inbox.from_name or self.settings.from_name
@@ -81,9 +82,9 @@ class EmailClient:
             smtp_user = inbox.email_address
             smtp_password = inbox.password
         else:
-            inbox_id = "primary"
-            sender_email = self.settings.resolve_sender_email(hint=actual_recipient)
-            sender_name = self.settings.from_name
+            inbox_id = inbox.id if inbox else "primary"
+            sender_email = (inbox.email_address if inbox else "") or self.settings.resolve_sender_email(hint=actual_recipient)
+            sender_name = (inbox.from_name if inbox else "") or self.settings.from_name
             smtp_host = self.settings.smtp_host
             smtp_port = self.settings.smtp_port
             smtp_use_ssl = self.settings.smtp_use_ssl
@@ -128,11 +129,10 @@ class EmailClient:
             )
             return data
 
-        # Route outbound dispatches via Azure Communication Services when targeting olfmailer domains or when ACS is active
+        # Route outbound dispatches via Azure Communication Services when targeting olfmailer domains and ACS is configured
         if (
-            sender_email.endswith("@olfmailer.com")
-            or sender_email.endswith("@olfmailer.net")
-            or (inbox is None and self.settings.is_azure_communication_ready())
+            (sender_email.endswith("@olfmailer.com") or sender_email.endswith("@olfmailer.net") or inbox is None)
+            and self.settings.is_azure_communication_ready()
         ):
             logger.info(f"🚀 [ACS ROUTING] Dispatching for '{sender_email}' via Azure Communication Services.")
             acs_res = self.acs_client.send_email(
@@ -142,7 +142,7 @@ class EmailClient:
                 text_body=text_body,
                 html_body=html_body,
                 sender_address=sender_email,
-                is_transactional=is_transactional,
+                is_transactional=is_transactional or is_warmup,
             )
             return {
                 "ok": acs_res.get("ok", True),
@@ -200,8 +200,8 @@ class EmailClient:
                 part_app["Content-Disposition"] = f'attachment; filename="{att_name}"'
                 msg.attach(part_app)
 
-        # HARD SAFETY LOCK: Prevent cold outreach if disabled, but allow transactional customer exports
-        if not is_transactional and not self.settings.outreach_dispatch_enabled:
+        # HARD SAFETY LOCK: Prevent cold outreach if disabled, but allow transactional customer exports and peer warmup
+        if not is_transactional and not is_warmup and not self.settings.outreach_dispatch_enabled:
             logger.info(
                 f"🛡️ [OUTREACH FROZEN / DRY-RUN] OUTREACH_DISPATCH_ENABLED is false. "
                 f"Simulated dispatch for recipient '{actual_recipient}' with subject '{email_subject}'. "
