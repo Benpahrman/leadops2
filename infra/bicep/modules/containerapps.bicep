@@ -162,6 +162,11 @@ resource apiApp 'Microsoft.App/containerApps@2023-05-01' = {
           keyVaultUrl: '${keyVaultUri}secrets/nvidia-api-key'
           identity: managedIdentityId
         }
+        {
+          name: 'azure-communication-connection-string'
+          keyVaultUrl: '${keyVaultUri}secrets/azure-communication-connection-string'
+          identity: managedIdentityId
+        }
       ]
     }
     template: {
@@ -245,6 +250,14 @@ resource apiApp 'Microsoft.App/containerApps@2023-05-01' = {
             {
               name: 'NVIDIA_API_KEY'
               secretRef: 'nvidia-api-key'
+            }
+            {
+              name: 'AZURE_COMMUNICATION_SERVICES_CONNECTION_STRING'
+              secretRef: 'azure-communication-connection-string'
+            }
+            {
+              name: 'AZURE_COMMUNICATION_SENDER_DOMAIN'
+              value: 'olfmailer.com'
             }
           ]
           resources: {
@@ -346,6 +359,11 @@ resource workerApp 'Microsoft.App/containerApps@2023-05-01' = {
           keyVaultUrl: '${keyVaultUri}secrets/nvidia-api-key'
           identity: managedIdentityId
         }
+        {
+          name: 'azure-communication-connection-string'
+          keyVaultUrl: '${keyVaultUri}secrets/azure-communication-connection-string'
+          identity: managedIdentityId
+        }
       ]
     }
     template: {
@@ -369,6 +387,14 @@ resource workerApp 'Microsoft.App/containerApps@2023-05-01' = {
             {
               name: 'AZURE_SERVICE_BUS_CONNECTION_STRING'
               secretRef: 'servicebus-connection-string'
+            }
+            {
+              name: 'AZURE_COMMUNICATION_SERVICES_CONNECTION_STRING'
+              secretRef: 'azure-communication-connection-string'
+            }
+            {
+              name: 'AZURE_COMMUNICATION_SENDER_DOMAIN'
+              value: 'olfmailer.com'
             }
             {
               name: 'SERVICE_BUS_QUEUE_NAME'
