@@ -501,23 +501,30 @@ def run_continuous_scout_loop(
                 time.sleep(sleep_chunk)
             continue
 
-        target_per_cycle = int(os.environ.get("SCOUT_TARGET_PER_CYCLE", "2"))
-        for cycle_idx in range(target_per_cycle):
-            try:
-                candidate = worker.discover_next_candidate()
-                if candidate and candidate.get("ok"):
-                    log.info(f"✨ [SCOUT AUTONOMOUS STREAM] Discovered ({cycle_idx+1}/{target_per_cycle}): '{candidate['company_name']}' | Contact: {candidate.get('contact_email')} -> /p/{candidate['slug']}")
-            except Exception as e:
-                log.warning(f"Scout continuous discovery iteration ({cycle_idx+1}/{target_per_cycle}): {e}")
-        
-        # Calculate random sleep duration between 10 and 20 minutes
-        sleep_duration = random.randint(min_sec, max_sec)
-        log.info(f"⏳ [SCOUT DAEMON] Next prospecting discovery window in {sleep_duration // 60} minutes ({sleep_duration}s)")
+        try:
+            target_per_cycle = int(os.environ.get("SCOUT_TARGET_PER_CYCLE", "2"))
+            for cycle_idx in range(target_per_cycle):
+                try:
+                    candidate = worker.discover_next_candidate()
+                    if candidate and candidate.get("ok"):
+                        log.info(f"✨ [SCOUT AUTONOMOUS STREAM] Discovered ({cycle_idx+1}/{target_per_cycle}): '{candidate['company_name']}' | Contact: {candidate.get('contact_email')} -> /p/{candidate['slug']}")
+                except Exception as e:
+                    log.warning(f"Scout continuous discovery iteration ({cycle_idx+1}/{target_per_cycle}): {e}")
+            
+            # Calculate random sleep duration between 10 and 20 minutes
+            sleep_duration = random.randint(min_sec, max_sec)
+            log.info(f"⏳ [SCOUT DAEMON] Next prospecting discovery window in {sleep_duration // 60} minutes ({sleep_duration}s)")
 
-        if stop_event:
-            stop_event.wait(sleep_duration)
-        else:
-            time.sleep(sleep_duration)
+            if stop_event:
+                stop_event.wait(sleep_duration)
+            else:
+                time.sleep(sleep_duration)
+        except Exception as loop_err:
+            log.error(f"Unexpected error in scout loop: {loop_err}", exc_info=True)
+            if stop_event:
+                stop_event.wait(60)
+            else:
+                time.sleep(60)
 
 
 def main():
