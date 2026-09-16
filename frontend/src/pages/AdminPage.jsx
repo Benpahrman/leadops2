@@ -59,6 +59,9 @@ import {
   triggerProspectorBurst,
   refreshLeadFreshness,
   batchRefreshStaleBacklog,
+  fetchCountyOrchestratorStatus,
+  advanceCountyOrchestratorCursor,
+  setCountyOrchestratorStateFocus,
 } from '../services/api';
 import { useToast } from '../context/ToastContext';
 import ConfirmModal from '../components/common/ConfirmModal';
@@ -124,6 +127,10 @@ export default function AdminPage() {
   const [sweepingStaleRecords, setSweepingStaleRecords] = useState(false);
   const [burstLeadCount, setBurstLeadCount] = useState(3);
   const [selectedProspectorChannel, setSelectedProspectorChannel] = useState('ALL');
+
+  // 50-State & County-by-County Swarm Prospecting State
+  const [countyOrchestrator, setCountyOrchestrator] = useState(null);
+  const [orchestratorLoading, setOrchestratorLoading] = useState(false);
 
   // Pagination for Deals & Backlog
   const [dealsPage, setDealsPage] = useState(1);
@@ -459,7 +466,7 @@ export default function AdminPage() {
     setLoading(true);
     try {
       const token = await resolveToken();
-      const [pipeData, metricData, buildsData, scoutData, autoData, inboxesData, prospectorData] = await Promise.allSettled([
+      const [pipeData, metricData, buildsData, scoutData, autoData, inboxesData, prospectorData, countyData] = await Promise.allSettled([
         fetchAdminPipeline(token),
         fetchAdminMetrics(token),
         fetchActiveBuilds(token),
@@ -467,6 +474,7 @@ export default function AdminPage() {
         fetchAutoOutreachStatus(token),
         fetchAdminInboxes(token),
         fetchProspectorStatus(token),
+        fetchCountyOrchestratorStatus(token),
       ]);
 
       if (pipeData.status === 'fulfilled') {
@@ -503,6 +511,10 @@ export default function AdminPage() {
       if (prospectorData.status === 'fulfilled' && prospectorData.value) {
         setProspectorStatus(prospectorData.value);
       }
+      if (countyData.status === 'fulfilled' && countyData.value && countyData.value.ok) {
+        setCountyOrchestrator(countyData.value);
+      }
+
     } catch (err) {
       console.warn('Admin load note:', err);
       showToast(`Admin load: ${err.message}`, 'info');
@@ -1012,6 +1024,37 @@ export default function AdminPage() {
       showToast(`Sweep error: ${err.message}`, 'error');
     } finally {
       setSweepingStaleRecords(false);
+    }
+  };
+
+  const handleAdvanceCountyCursor = async () => {
+    setOrchestratorLoading(true);
+    showToast('Advancing national prospecting cursor to next county...', 'info');
+    try {
+      const token = await resolveToken();
+      const res = await advanceCountyOrchestratorCursor(token);
+      showToast(res.message || 'Advanced to next county/state!', 'success');
+      const statusRes = await fetchCountyOrchestratorStatus(token);
+      if (statusRes?.ok) setCountyOrchestrator(statusRes);
+    } catch (err) {
+      showToast(`Advance error: ${err.message}`, 'error');
+    } finally {
+      setOrchestratorLoading(false);
+    }
+  };
+
+  const handleSetStateFocus = async (stateCode) => {
+    setOrchestratorLoading(true);
+    try {
+      const token = await resolveToken();
+      const res = await setCountyOrchestratorStateFocus(stateCode || null, token);
+      showToast(res.message || 'State focus updated!', 'success');
+      const statusRes = await fetchCountyOrchestratorStatus(token);
+      if (statusRes?.ok) setCountyOrchestrator(statusRes);
+    } catch (err) {
+      showToast(`State focus error: ${err.message}`, 'error');
+    } finally {
+      setOrchestratorLoading(false);
     }
   };
 
@@ -1937,7 +1980,109 @@ export default function AdminPage() {
            ========================================================= */}
         {activeTab === 'prospector' && (
           <div>
+            {/* 50-State & County-by-County Swarm Prospecting Card */}
+            <div style={{ background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.08) 0%, rgba(59, 130, 246, 0.05) 50%, rgba(139, 92, 246, 0.08) 100%)', border: '1px solid rgba(6, 182, 212, 0.3)', borderRadius: 'var(--radius-md)', padding: '20px', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '14px' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                    <h3 style={{ fontSize: '17px', fontWeight: 800, color: '#fff', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>🗺️</span> 50-State &amp; County-by-County Swarm Prospecting Engine
+                    </h3>
+                    <span className="badge-tag badge-cyan">
+                      {countyOrchestrator?.active_jurisdiction?.is_state_locked
+                        ? `🔒 Locked: ${countyOrchestrator.active_jurisdiction.locked_state}`
+                        : `🌎 50-State Sweep (National Cycle #${countyOrchestrator?.active_jurisdiction?.cycle_count || 0})`}
+                    </span>
+                    <span className="badge-tag badge-purple">
+                      🏛️ State {((countyOrchestrator?.active_jurisdiction?.state_index ?? 0) + 1)} of {countyOrchestrator?.active_jurisdiction?.total_states || 50} ({countyOrchestrator?.active_jurisdiction?.state_code || 'WA'})
+                    </span>
+                    <span className="badge-tag badge-green">
+                      📍 County {((countyOrchestrator?.active_jurisdiction?.county_index ?? 0) + 1)} of {countyOrchestrator?.active_jurisdiction?.total_counties_in_state || 39}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '12px', color: 'var(--text-dim)', margin: '6px 0 0' }}>
+                    Scout sweeps nationwide jurisdiction by jurisdiction across all 50 states and municipal counties. In each county, Scout extracts live court/clerk dockets and locates local commercial prospects (probate attorneys, estate planners, contractors, title agents).
+                  </p>
+                </div>
+
+                {/* Orchestrator Controls */}
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', background: 'var(--bg)', border: '1px solid rgba(6, 182, 212, 0.4)', borderRadius: 'var(--radius-sm)', padding: '2px' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--text-dim)', paddingLeft: '8px', fontWeight: 600 }}>State Focus:</span>
+                    <select
+                      value={countyOrchestrator?.active_jurisdiction?.locked_state || ''}
+                      onChange={(e) => handleSetStateFocus(e.target.value || null)}
+                      disabled={orchestratorLoading}
+                      style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '11px', padding: '6px 8px', cursor: 'pointer' }}
+                    >
+                      <option value="">🌎 All 50 States (Continuous Sweep)</option>
+                      <option value="WA">Washington (WA - 39 Counties)</option>
+                      <option value="TX">Texas (TX - High Density Metros)</option>
+                      <option value="FL">Florida (FL - Miami/Orlando/Tampa)</option>
+                      <option value="CA">California (CA - Bay/LA/SD)</option>
+                      <option value="AZ">Arizona (AZ - Maricopa/Pima)</option>
+                      <option value="IL">Illinois (IL - Cook/DuPage)</option>
+                      <option value="GA">Georgia (GA - Fulton/Gwinnett)</option>
+                      <option value="NC">North Carolina (NC - Wake/Mecklenburg)</option>
+                      <option value="OH">Ohio (OH - Franklin/Cuyahoga)</option>
+                      <option value="CO">Colorado (CO - Denver/Arapahoe)</option>
+                      <option value="NV">Nevada (NV - Clark/Washoe)</option>
+                      <option value="NY">New York (NY - NYC/Suffolk)</option>
+                      <option value="PA">Pennsylvania (PA - Allegheny/Philly)</option>
+                      <option value="TN">Tennessee (TN - Davidson/Shelby)</option>
+                      <option value="MI">Michigan (MI - Wayne/Oakland)</option>
+                    </select>
+                  </div>
+
+                  <button
+                    className="btn btn-primary"
+                    style={{ fontSize: '11px', padding: '7px 14px', background: 'linear-gradient(90deg, var(--cyan), #3b82f6)', color: '#000', fontWeight: 700 }}
+                    onClick={handleAdvanceCountyCursor}
+                    disabled={orchestratorLoading}
+                    title="Advance to the next county in active state sequence"
+                  >
+                    {orchestratorLoading ? '⏳ Advancing...' : '⏭️ Advance Next County'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Current Active Jurisdiction Details Strip */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px', background: 'rgba(0, 0, 0, 0.25)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: 'var(--radius-sm)', padding: '12px 16px' }}>
+                <div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-dim)', fontWeight: 700, letterSpacing: '0.05em' }}>ACTIVE COUNTY</div>
+                  <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--cyan)', marginTop: '2px' }}>
+                    {countyOrchestrator?.active_jurisdiction?.county_name || 'King County'}, {countyOrchestrator?.active_jurisdiction?.state_code || 'WA'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-dim)', fontWeight: 700, letterSpacing: '0.05em' }}>PRIMARY METRO</div>
+                  <div style={{ fontSize: '14px', fontWeight: 800, color: '#fff', marginTop: '2px' }}>
+                    {countyOrchestrator?.active_jurisdiction?.primary_city || 'Seattle'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-dim)', fontWeight: 700, letterSpacing: '0.05em' }}>COUNTY CLERK / DOCKET PORTAL</div>
+                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#93c5fd', marginTop: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {countyOrchestrator?.active_jurisdiction?.portal_url ? (
+                      <a href={countyOrchestrator.active_jurisdiction.portal_url} target="_blank" rel="noopener noreferrer" style={{ color: '#93c5fd', textDecoration: 'underline' }}>
+                        🔗 {countyOrchestrator.active_jurisdiction.portal_name || 'County Public Portal'}
+                      </a>
+                    ) : (
+                      <span>🏛️ {countyOrchestrator?.active_jurisdiction?.portal_name || 'Municipal Registry'}</span>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-dim)', fontWeight: 700, letterSpacing: '0.05em' }}>COUNTY SWEEP POSITION</div>
+                  <div style={{ fontSize: '13px', fontWeight: 800, color: '#a78bfa', marginTop: '2px' }}>
+                    County {((countyOrchestrator?.active_jurisdiction?.county_index ?? 0) + 1)} / {countyOrchestrator?.active_jurisdiction?.total_counties_in_state || 39} ({Math.round((((countyOrchestrator?.active_jurisdiction?.county_index ?? 0) + 1) / (countyOrchestrator?.active_jurisdiction?.total_counties_in_state || 1)) * 100)}%)
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* 14-Day Campaign Controller Card */}
+
             <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '22px', marginBottom: '20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '18px' }}>
                 <div>

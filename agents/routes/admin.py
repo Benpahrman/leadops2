@@ -9,6 +9,7 @@ from typing import Optional, List, Dict, Any
 
 from ..auth import ClerkUser, require_admin, get_current_user_optional
 from ..models import Ticket, TicketStatus, TicketPriority, TicketType, CancellationRequest, CancellationStatus
+from ..domain import State, PaymentEvent, Lead
 from ..scout_runner import ScoutBackgroundWorker, B2BWebScoutWorker
 from ..scraper_catalog import (
     get_catalog,
@@ -478,6 +479,59 @@ def trigger_batch_scout_run(
             "message": f"Batch scout error: {str(exc)}",
             "reason": str(exc),
         }
+
+
+class SetStateFocusRequest(BaseModel):
+    state_code: Optional[str] = None
+
+
+@router.get("/api/admin/scout/county-orchestrator/status", tags=["Admin Operations"])
+def get_county_orchestrator_status(
+    _: ClerkUser = Depends(require_admin),
+):
+    """Retrieve current 50-state and county-by-county orchestrator progress, active jurisdiction, and stats."""
+    from ..national_county_orchestrator import get_national_county_orchestrator
+    orchestrator = get_national_county_orchestrator()
+    active = orchestrator.get_active_jurisdiction()
+    full_state = orchestrator.state.to_dict()
+    return {
+        "ok": True,
+        "active_jurisdiction": active,
+        "orchestrator_state": full_state,
+    }
+
+
+@router.post("/api/admin/scout/county-orchestrator/advance", tags=["Admin Operations"])
+def advance_county_orchestrator_cursor(
+    _: ClerkUser = Depends(require_admin),
+):
+    """Manually advance the national prospecting cursor to the next county/state."""
+    from ..national_county_orchestrator import get_national_county_orchestrator
+    orchestrator = get_national_county_orchestrator()
+    new_active = orchestrator.advance_cursor()
+    return {
+        "ok": True,
+        "message": f"Orchestrator cursor advanced to {new_active['county_name']}, {new_active['state_code']}",
+        "active_jurisdiction": new_active,
+    }
+
+
+@router.post("/api/admin/scout/county-orchestrator/set-focus", tags=["Admin Operations"])
+def set_county_orchestrator_state_focus(
+    req: SetStateFocusRequest,
+    _: ClerkUser = Depends(require_admin),
+):
+    """Lock scouting to a specific state (e.g. 'WA', 'TX', 'FL') or unlock for 50-state sweep (null/empty)."""
+    from ..national_county_orchestrator import get_national_county_orchestrator
+    orchestrator = get_national_county_orchestrator()
+    active = orchestrator.set_state_focus(req.state_code)
+    mode = f"locked to {req.state_code.upper()}" if req.state_code else "unlocked (50-state national sweep)"
+    return {
+        "ok": True,
+        "message": f"State focus {mode}",
+        "active_jurisdiction": active,
+    }
+
 
 
 class StartProspectorRequest(BaseModel):

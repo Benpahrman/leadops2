@@ -1058,5 +1058,45 @@ export async function batchRefreshStaleBacklog(token = '') {
   return res.json();
 }
 
+// ─── 50-State & County-by-County Swarm Prospecting Orchestrator ────────────
+
+export async function fetchCountyOrchestratorStatus(token = '') {
+  const headers = {};
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/scout/county-orchestrator/status`, { headers });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function advanceCountyOrchestratorCursor(token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/scout/county-orchestrator/advance`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function setCountyOrchestratorStateFocus(stateCode = null, token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/scout/county-orchestrator/set-focus`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ state_code: stateCode }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+
 
 

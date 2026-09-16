@@ -105,6 +105,7 @@ from .county_filing_extractor import CountyFilingPartyExtractor
 from .state_bar_prospector import StateBarProspector
 from .sos_entity_prospector import SOSEntityProspector
 from .local_business_prospector import LocalBusinessProspector
+from .national_county_orchestrator import get_national_county_orchestrator
 from .outreach_playbooks import (
     format_county_filing_pitch,
     format_state_bar_pitch,
@@ -356,10 +357,23 @@ class ScoutBackgroundWorker:
                         "reason": str(cfp_err),
                     }
 
+        # National State-by-State, County-by-County Jurisdiction Resolution
+        orchestrator = get_national_county_orchestrator()
+        active_jur = orchestrator.get_active_jurisdiction()
+        current_state = active_jur["state_code"]
+        current_county = active_jur["county_name"]
+        current_city = active_jur["primary_city"] or "Seattle"
+        current_portal_name = active_jur["portal_name"]
+
+        logger.info(
+            f"🏛️ [COUNTY-BY-COUNTY SCOUT] Active Focus: State {current_state} ({active_jur['state_index']+1}/{active_jur['total_states']}) | "
+            f"County: {current_county} ({active_jur['county_index']+1}/{active_jur['total_counties_in_state']}) | City: {current_city}"
+        )
+
         # Channel 2: State Bar Association Directory Prospector
         if selected_channel == "state_bar" or (selected_channel is None and run_until_found and not os.environ.get("PYTEST_CURRENT_TEST")):
             try:
-                state_options = ["TX", "CA", "FL", "IL", "GA"] if run_until_found else [random.choice(["TX", "CA", "FL", "IL", "GA"])]
+                state_options = [current_state, "TX", "FL", "CA", "WA", "IL", "GA", "AZ"] if run_until_found else [current_state]
                 practice_options = [
                     "Probate and Estate Administration",
                     "Real Estate and Title Law",
@@ -374,6 +388,8 @@ class ScoutBackgroundWorker:
                             enriched_bar = self.bar_prospector.enrich_bar_prospect(aty, existing_companies)
                             if enriched_bar and enriched_bar.get("website"):
                                 logger.info(f"⚖️ [STATE BAR CANDIDATE FOUND] {enriched_bar['company_name']} ({enriched_bar['contact_name']})")
+                                orchestrator.record_lead_discovered(state_choice, current_county)
+                                orchestrator.advance_cursor()
                                 dkey = aty.target_portal.get("dataset_key", "cook-county-probate")
                                 if not enriched_bar.get("sample_data"):
                                     enriched_bar["sample_data"] = AUTHENTIC_REGISTRY_DATASETS[dkey]["sample_data"][:25]
@@ -385,6 +401,8 @@ class ScoutBackgroundWorker:
                                     "target_url": enriched_bar["target_url"],
                                     "pain_point": enriched_bar["pain_point"],
                                     "tier_key": enriched_bar["tier_key"],
+                                    "state": state_choice,
+                                    "county": current_county,
                                 }
                                 res = self._process_discovered_target(enriched_bar, existing_companies, cat_entry)
                                 if res.get("ok"):
@@ -401,40 +419,32 @@ class ScoutBackgroundWorker:
                         "reason": str(sb_err),
                     }
 
-        # Channel 3: Local Business & Map Directory Search
+        # Channel 3: Local Business & Map Directory Search (County-by-County)
         if selected_channel == "local_business" or (selected_channel is None and run_until_found and not os.environ.get("PYTEST_CURRENT_TEST")):
             try:
-                metro_options = [
-                    {"city": "Dallas", "state": "TX", "category": "Title Company"},
-                    {"city": "Houston", "state": "TX", "category": "Title Company"},
-                    {"city": "Orlando", "state": "FL", "category": "Title Company"},
-                    {"city": "Chicago", "state": "IL", "category": "Probate Law Firm"},
-                    {"city": "Atlanta", "state": "GA", "category": "Probate Law Firm"},
-                ] if run_until_found else [random.choice([
-                    {"city": "Dallas", "state": "TX", "category": "Title Company"},
-                    {"city": "Houston", "state": "TX", "category": "Title Company"},
-                    {"city": "Orlando", "state": "FL", "category": "Title Company"},
-                    {"city": "Chicago", "state": "IL", "category": "Probate Law Firm"},
-                    {"city": "Atlanta", "state": "GA", "category": "Probate Law Firm"},
-                ])]
-                for metro in metro_options:
-                    local_ops = self.local_prospector.discover_local_operators(city=metro["city"], state=metro["state"], category=metro["category"], max_results=3)
+                categories = ["Title Company", "Probate Law Firm", "Estate Planning Attorney", "General Contractor"]
+                for cat in categories:
+                    local_ops = self.local_prospector.discover_local_operators(city=current_city, state=current_state, category=cat, max_results=3)
                     for op in local_ops:
                         if op.business_name.lower() in existing_companies:
                             continue
                         enriched_local = self.local_prospector.enrich_local_prospect(op, existing_companies)
                         if enriched_local and enriched_local.get("website"):
-                            logger.info(f"📍 [LOCAL BUSINESS CANDIDATE FOUND] {enriched_local['company_name']}")
+                            logger.info(f"📍 [LOCAL BUSINESS CANDIDATE FOUND] {enriched_local['company_name']} in {current_county}, {current_state}")
+                            orchestrator.record_lead_discovered(current_state, current_county)
+                            orchestrator.advance_cursor()
                             if not enriched_local.get("sample_data"):
                                 enriched_local["sample_data"] = AUTHENTIC_REGISTRY_DATASETS["harris-foreclosure"]["sample_data"][:25]
                             cat_entry = {
                                 "niche": enriched_local["niche"],
-                                "portal_name": enriched_local["portal_name"],
-                                "jurisdiction": enriched_local["jurisdiction"],
+                                "portal_name": enriched_local.get("portal_name") or current_portal_name,
+                                "jurisdiction": f"{current_county}, {current_state} ({current_city})",
                                 "dataset_key": "harris-foreclosure",
-                                "target_url": enriched_local["target_url"],
+                                "target_url": enriched_local.get("target_url") or active_jur.get("portal_url", "https://data.gov"),
                                 "pain_point": enriched_local["pain_point"],
                                 "tier_key": enriched_local["tier_key"],
+                                "state": current_state,
+                                "county": current_county,
                             }
                             res = self._process_discovered_target(enriched_local, existing_companies, cat_entry)
                             if res.get("ok"):
@@ -455,11 +465,12 @@ class ScoutBackgroundWorker:
         if selected_channel == "sos_entity" or (selected_channel is None and run_until_found and not os.environ.get("PYTEST_CURRENT_TEST")):
             try:
                 sos_options = [
+                    (current_state, "Title Company"),
+                    (current_state, "Settlement Services"),
                     ("TX", "Title Company"),
                     ("FL", "Abstract & Title"),
-                    ("DE", "Settlement Services"),
-                    ("CA", "Escrow Services"),
-                ] if run_until_found else [(random.choice(["TX", "FL", "DE", "CA"]), random.choice(["Title Company", "Abstract & Title", "Settlement Services", "Escrow Services"]))]
+                    ("WA", "Escrow Services"),
+                ] if run_until_found else [(current_state, "Title Company")]
                 for state_choice, kw_choice in sos_options:
                     sos_entities = self.sos_prospector.discover_new_registrations(state_code=state_choice, keyword=kw_choice, max_results=3)
                     for ent in sos_entities:
@@ -467,17 +478,21 @@ class ScoutBackgroundWorker:
                             continue
                         enriched_sos = self.sos_prospector.enrich_sos_prospect(ent, existing_companies)
                         if enriched_sos and enriched_sos.get("website"):
-                            logger.info(f"🏢 [SOS ENTITY CANDIDATE FOUND] {enriched_sos['company_name']}")
+                            logger.info(f"🏢 [SOS ENTITY CANDIDATE FOUND] {enriched_sos['company_name']} ({state_choice})")
+                            orchestrator.record_lead_discovered(state_choice, current_county)
+                            orchestrator.advance_cursor()
                             if not enriched_sos.get("sample_data"):
                                 enriched_sos["sample_data"] = AUTHENTIC_REGISTRY_DATASETS["texas-open-data"]["sample_data"][:25]
                             cat_entry = {
                                 "niche": enriched_sos["niche"],
                                 "portal_name": enriched_sos["portal_name"],
-                                "jurisdiction": enriched_sos["jurisdiction"],
+                                "jurisdiction": f"{current_county}, {state_choice}",
                                 "dataset_key": "texas-open-data",
                                 "target_url": enriched_sos["target_url"],
                                 "pain_point": enriched_sos["pain_point"],
                                 "tier_key": enriched_sos["tier_key"],
+                                "state": state_choice,
+                                "county": current_county,
                             }
                             res = self._process_discovered_target(enriched_sos, existing_companies, cat_entry)
                             if res.get("ok"):

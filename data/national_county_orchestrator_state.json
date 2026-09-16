@@ -1,0 +1,71 @@
+{
+  "current_state_code": "WA",
+  "current_state_index": 0,
+  "current_county_index": 6,
+  "active_county_name": "Columbia County",
+  "active_city": "Dayton",
+  "active_portal_name": "Columbia County Auditor Recording",
+  "active_portal_url": "https://www.columbiaco.com/auditor",
+  "cycle_count": 0,
+  "total_states_configured": 51,
+  "locked_state_focus": null,
+  "jurisdiction_stats": {
+    "WA:Adams County": {
+      "state": "WA",
+      "county": "Adams County",
+      "visited_count": 1,
+      "leads_discovered": 1,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T04:19:23.810074+00:00"
+    },
+    "WA:Asotin County": {
+      "state": "WA",
+      "county": "Asotin County",
+      "visited_count": 1,
+      "leads_discovered": 1,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T04:19:28.989991+00:00"
+    },
+    "WA:Benton County": {
+      "state": "WA",
+      "county": "Benton County",
+      "visited_count": 1,
+      "leads_discovered": 1,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T04:19:34.401205+00:00"
+    },
+    "WA:Chelan County": {
+      "state": "WA",
+      "county": "Chelan County",
+      "visited_count": 1,
+      "leads_discovered": 1,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T04:20:27.337371+00:00"
+    },
+    "WA:Clallam County": {
+      "state": "WA",
+      "county": "Clallam County",
+      "visited_count": 1,
+      "leads_discovered": 1,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T04:20:32.652108+00:00"
+    },
+    "WA:Clark County": {
+      "state": "WA",
+      "county": "Clark County",
+      "visited_count": 1,
+      "leads_discovered": 1,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T04:20:37.973134+00:00"
+    },
+    "WA:Columbia County": {
+      "state": "WA",
+      "county": "Columbia County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T04:20:37.974135+00:00"
+    }
+  },
+  "last_updated_at": "2026-09-16T04:20:37.974135+00:00"
+}
