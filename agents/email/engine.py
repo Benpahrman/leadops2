@@ -803,6 +803,8 @@ class EmailEngine:
                 logger.info("⏸️ Cold outreach is administratively disabled (AUTO_OUTREACH_ENABLED=false). Standing by.")
             else:
                 logger.info("🏁 Daily quotas fulfilled for both cold outreach and peer warm-up. Standing by for next window.")
+            if not single_step:
+                time.sleep(300)
             return
 
         # Choose dispatch task (alternate or prioritize warmup)
@@ -822,6 +824,8 @@ class EmailEngine:
             target = self.queue.get_next_warmup_target(exclude_email=sender_addr)
             if not target:
                 logger.warning("⚠️ No active peer warm-up inboxes registered in queue. Enqueue targets via CLI.")
+                if not single_step:
+                    time.sleep(60)
                 return
 
             # Generate via LLM Warmup Agent with authentic persona
@@ -849,6 +853,8 @@ class EmailEngine:
             lead = self.queue.pop_pending_lead()
             if not lead:
                 logger.info("ℹ️ No pending cold leads in queue.")
+                if not single_step:
+                    time.sleep(60)
                 return
 
             sender_box = self.get_next_sender()

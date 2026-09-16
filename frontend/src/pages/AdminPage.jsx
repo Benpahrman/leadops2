@@ -1923,13 +1923,13 @@ export default function AdminPage() {
             className={`admin-tab-btn ${activeTab === 'prospector' ? 'active' : ''}`}
             onClick={() => setActiveTab('prospector')}
           >
-            🗺️ 14-Day Backlog &amp; Swarm ({filteredBacklogLeads.length})
+            🗺️ 14-Day Backlog &amp; Swarm ({backlogLeads.length})
           </button>
           <button
             className={`admin-tab-btn ${activeTab === 'deals' ? 'active' : ''}`}
             onClick={() => setActiveTab('deals')}
           >
-            🚀 Bespoke Deals &amp; Sandboxes ({filteredDeals.length})
+            🚀 Bespoke Deals &amp; Sandboxes ({filteredLeads.length})
           </button>
           <button
             className={`admin-tab-btn ${activeTab === 'kanban' ? 'active' : ''}`}
@@ -1978,78 +1978,69 @@ export default function AdminPage() {
         {/* TAB 0: 14-DAY HIGH-VOLUME PROSPECTOR & VETTED BACKLOG */}
         {activeTab === 'prospector' && (
           <ProspectorTab
-            prospectingMode={prospectingMode}
-            setProspectingMode={setProspectingMode}
             countyOrchestrator={countyOrchestrator}
-            isDiscovering={isDiscovering}
-            scoutStatus={scoutStatus}
-            handleTriggerScout={handleTriggerScout}
-            autoPitchSettings={autoPitchSettings}
-            setAutoPitchSettings={setAutoPitchSettings}
-            savingAutoPitch={savingAutoPitch}
-            handleUpdateAutoPitchSettings={handleUpdateAutoPitchSettings}
-            backlogCategoryFilter={backlogCategoryFilter}
-            setBacklogCategoryFilter={setBacklogCategoryFilter}
-            backlogStateFilter={backlogStateFilter}
-            setBacklogStateFilter={setBacklogStateFilter}
-            backlogSearch={backlogSearch}
-            setBacklogSearch={setBacklogSearch}
-            filteredBacklogLeads={filteredBacklogLeads}
-            handleSingleLeadPitch={handleSingleLeadPitch}
-            handleOpenScoreModal={handleOpenScoreModal}
-            handleEnrichLeadContact={handleEnrichLeadContact}
-            enrichingLeadId={enrichingLeadId}
-            handleDeepEnrichLead={handleDeepEnrichLead}
-            deepEnrichingLeadId={deepEnrichingLeadId}
-            handleCancelAutoOutreach={handleCancelAutoOutreach}
-            cancellingLeadId={cancellingLeadId}
+            orchestratorLoading={orchestratorLoading}
+            handleSetStateFocus={handleSetStateFocus}
+            handleAdvanceCountyCursor={handleAdvanceCountyCursor}
+            prospectorStatus={prospectorStatus}
+            prospectorLoading={prospectorLoading}
+            handlePauseProspector={handlePauseProspector}
+            handleStartProspector={handleStartProspector}
+            burstLeadCount={burstLeadCount}
+            setBurstLeadCount={setBurstLeadCount}
+            selectedProspectorChannel={selectedProspectorChannel}
+            setSelectedProspectorChannel={setSelectedProspectorChannel}
+            handleTriggerBurst={handleTriggerBurst}
+            handleBatchRefreshStale={handleBatchRefreshStale}
+            sweepingStaleRecords={sweepingStaleRecords}
             pipeline={pipeline}
-            selectedBacklogLeads={selectedBacklogLeads}
-            setSelectedBacklogLeads={setSelectedBacklogLeads}
-            allBacklogSelected={allBacklogSelected}
-            handleToggleSelectAllBacklog={handleToggleSelectAllBacklog}
-            handleToggleSelectBacklogLead={handleToggleSelectBacklogLead}
-            batchApprovingPitches={batchApprovingPitches}
-            handleBatchApprovePitches={handleBatchApprovePitches}
-            handleTriggerBatchScout={handleTriggerBatchScout}
-            scoutSearchTerm={scoutSearchTerm}
-            setScoutSearchTerm={setScoutSearchTerm}
-            scoutJurisdiction={scoutJurisdiction}
-            setScoutJurisdiction={setScoutJurisdiction}
-            scoutCategory={scoutCategory}
-            setScoutCategory={setScoutCategory}
-            scoutLimit={scoutLimit}
-            setScoutLimit={setScoutLimit}
-            showToast={showToast}
+            backlogLeads={backlogLeads}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            backlogPage={backlogPage}
+            setBacklogPage={setBacklogPage}
+            backlogPageSize={backlogPageSize}
+            freshnessRefreshingLeadId={freshnessRefreshingLeadId}
+            renderDiscoveryBadge={renderDiscoveryBadge}
+            handleRefreshFreshness={handleRefreshFreshness}
+            setScoreModal={setScoreModal}
+            handleAdvance={handleAdvance}
+            actionInProgress={actionInProgress}
           />
         )}
 
         {/* TAB 1: BESPOKE ACTIVE DEALS & VERIFIED WORKSPACES */}
         {activeTab === 'deals' && (
           <DealsTab
-            categoryFilter={categoryFilter}
-            setCategoryFilter={setCategoryFilter}
-            searchTerm={searchTerm}
-            setSearchTerm={setSearchTerm}
-            filteredDeals={filteredDeals}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            dealsPage={dealsPage}
+            setDealsPage={setDealsPage}
+            dealsPageSize={dealsPageSize}
+            setDealsPageSize={setDealsPageSize}
+            stateFilter={stateFilter}
+            setStateFilter={setStateFilter}
+            paymentFilter={paymentFilter}
+            setPaymentFilter={setPaymentFilter}
+            scoreFilter={scoreFilter}
+            setScoreFilter={setScoreFilter}
             pipeline={pipeline}
-            handleOpenScoreModal={handleOpenScoreModal}
+            filteredLeads={filteredLeads}
+            loading={loading}
+            batchApproving={batchApproving}
+            handleBatchApprove={handleBatchApprove}
+            scoutingInProgress={scoutingInProgress}
+            handleTriggerWebScout={handleTriggerWebScout}
+            loadAdminData={loadAdminData}
+            setScoreModal={setScoreModal}
+            handleCopyText={handleCopyText}
+            renderDiscoveryBadge={renderDiscoveryBadge}
+            handleAdvance={handleAdvance}
+            handleCancelOutreach={handleCancelOutreach}
             handleTriggerSwarm={handleTriggerSwarm}
-            triggeringLeadId={triggeringLeadId}
-            handleOpenDataModal={handleOpenDataModal}
-            handleViewScraperCode={handleViewScraperCode}
-            handleRunScraper={handleRunScraper}
-            runningScraperId={runningScraperId}
-            handleOpenQaOverride={handleOpenQaOverride}
-            handleAdvanceState={handleAdvanceState}
-            advancingLeadId={advancingLeadId}
+            handleViewAudit={handleViewAudit}
             handleDeleteLead={handleDeleteLead}
-            deletingLeadId={deletingLeadId}
-            handleDeepEnrichLead={handleDeepEnrichLead}
-            deepEnrichingLeadId={deepEnrichingLeadId}
-            handleCancelAutoOutreach={handleCancelAutoOutreach}
-            cancellingLeadId={cancellingLeadId}
-            showToast={showToast}
+            actionInProgress={actionInProgress}
           />
         )}
 
@@ -2057,23 +2048,13 @@ export default function AdminPage() {
         {activeTab === 'kanban' && (
           <KanbanTab
             pipeline={pipeline}
-            handleAdvanceState={handleAdvanceState}
-            handleTriggerSwarm={handleTriggerSwarm}
-            handleOpenQaOverride={handleOpenQaOverride}
-            handleViewScraperCode={handleViewScraperCode}
-            handleRunScraper={handleRunScraper}
-            handleOpenScoreModal={handleOpenScoreModal}
-            handleOpenDataModal={handleOpenDataModal}
-            handleDeleteLead={handleDeleteLead}
-            handleDeepEnrichLead={handleDeepEnrichLead}
-            handleCancelAutoOutreach={handleCancelAutoOutreach}
-            triggeringLeadId={triggeringLeadId}
-            advancingLeadId={advancingLeadId}
-            deletingLeadId={deletingLeadId}
-            runningScraperId={runningScraperId}
-            deepEnrichingLeadId={deepEnrichingLeadId}
-            cancellingLeadId={cancellingLeadId}
-            showToast={showToast}
+            handleBatchApprove={handleBatchApprove}
+            batchApproving={batchApproving}
+            setScoreModal={setScoreModal}
+            renderDiscoveryBadge={renderDiscoveryBadge}
+            handleAdvance={handleAdvance}
+            actionInProgress={actionInProgress}
+            handleViewAudit={handleViewAudit}
           />
         )}
 
@@ -2081,72 +2062,56 @@ export default function AdminPage() {
         {activeTab === 'archived' && (
           <ArchivedLeadsTab
             archivedLeads={archivedLeads}
-            archivedSearch={archivedSearch}
-            setArchivedSearch={setArchivedSearch}
-            archivedCategoryFilter={archivedCategoryFilter}
-            setArchivedCategoryFilter={setArchivedCategoryFilter}
-            archivedStateFilter={archivedStateFilter}
-            setArchivedStateFilter={setArchivedStateFilter}
-            filteredArchivedLeads={filteredArchivedLeads}
-            loadingArchived={loadingArchived}
-            batchEnrichingArchived={batchEnrichingArchived}
+            loadArchivedLeads={loadArchivedLeads}
             handleBatchEnrichArchived={handleBatchEnrichArchived}
-            handleEnrichLeadContact={handleEnrichLeadContact}
+            batchEnriching={batchEnriching}
             enrichingLeadId={enrichingLeadId}
-            handleDeepEnrichLead={handleDeepEnrichLead}
-            deepEnrichingLeadId={deepEnrichingLeadId}
-            handleOpenScoreModal={handleOpenScoreModal}
-            handleSingleLeadPitch={handleSingleLeadPitch}
-            showToast={showToast}
+            handleEnrichLead={handleEnrichLead}
+            handleDeleteLead={handleDeleteLead}
           />
         )}
 
         {/* TAB 4: AUTONOMOUS SWARM MONITOR */}
         {activeTab === 'swarm' && (
           <SwarmTab
-            swarmProgress={swarmProgress}
-            activeBuilds={activeBuilds}
-            swarmLoading={swarmLoading}
-            pollInterval={pollInterval}
-            setPollInterval={setPollInterval}
-            handleTriggerSwarm={handleTriggerSwarm}
-            triggeringLeadId={triggeringLeadId}
             pipeline={pipeline}
-            showToast={showToast}
+            renderDiscoveryBadge={renderDiscoveryBadge}
+            handleViewSwarmProgress={handleViewSwarmProgress}
+            handleOpenQaOverride={handleOpenQaOverride}
+            handleTriggerSwarm={handleTriggerSwarm}
+            actionInProgress={actionInProgress}
           />
         )}
 
         {/* TAB 5: FINANCIAL TELEMETRY & STRIPE / PAYPAL SPRINT AUDIT */}
         {activeTab === 'accounting' && (
           <AccountingTab
-            accountingData={accountingData}
-            accountingLoading={accountingLoading}
             pipeline={pipeline}
-            showToast={showToast}
+            depositTotal={depositTotal}
+            releasedTotal={releasedTotal}
+            activeMrr={activeMrr}
           />
         )}
 
         {/* TAB 6: SCRAPERS CATALOG */}
         {activeTab === 'scrapers' && (
           <ScrapersTab
-            scrapersCatalog={scrapersCatalog}
+            loadScrapers={loadScrapers}
             scrapersLoading={scrapersLoading}
-            handleViewScraperCode={handleViewScraperCode}
+            scrapers={scrapers}
             handleRunScraper={handleRunScraper}
-            runningScraperId={runningScraperId}
-            handleOpenDataModal={handleOpenDataModal}
-            showToast={showToast}
+            handleViewCode={handleViewCode}
+            handleViewOutput={handleViewOutput}
+            actionInProgress={actionInProgress}
           />
         )}
 
         {/* TAB 7: DAILY DELIVERY FEEDS */}
         {activeTab === 'daily' && (
           <DailyDeliveryTab
-            dailyGrid={dailyGrid}
-            dailyLoading={dailyLoading}
+            loadDailyGrid={loadDailyGrid}
+            pipeline={pipeline}
             handleTriggerDailyDelivery={handleTriggerDailyDelivery}
-            delivering={delivering}
-            showToast={showToast}
           />
         )}
 

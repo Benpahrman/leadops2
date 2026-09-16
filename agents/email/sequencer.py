@@ -22,7 +22,7 @@ from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from ..domain import Lead, State, SequenceState
-from ..scout_runner import is_office_hours
+from ..office_hours import is_office_hours
 from ..logging_config import get_logger
 
 logger = get_logger("sequencer")

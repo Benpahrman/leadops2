@@ -3,7 +3,7 @@
 import json
 from typing import Any
 
-from ..build_loop import BuildPlan, TeamRole
+from agents.swarm.build_loop import BuildPlan, TeamRole
 from ..domain import Lead
 from ..llm_client import LLMAgentEngine
 from .dom_pruner import prune_dom

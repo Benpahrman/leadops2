@@ -3,7 +3,7 @@
 import hashlib
 from dataclasses import dataclass, field
 
-from .build_loop import TeamRole, DEFAULT_TEAM_ROLES
+from agents.swarm.build_loop import TeamRole, DEFAULT_TEAM_ROLES
 
 
 @dataclass(frozen=True)

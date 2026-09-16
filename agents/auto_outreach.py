@@ -28,7 +28,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
 
 from .domain import Lead, State
-from .scout_runner import is_office_hours
+from .office_hours import is_office_hours
 
 logger = logging.getLogger("leadops.auto_outreach")
 

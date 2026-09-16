@@ -3,7 +3,9 @@
 from dataclasses import dataclass, field
 from enum import Enum
 
-from .build_loop import TeamRole
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from agents.swarm.build_loop import TeamRole
 
 
 class ProgressStatus(str, Enum):
@@ -33,6 +35,7 @@ class ProgressFeed:
         return event
 
     def publish_team_status(self, status: ProgressStatus) -> None:
+        from agents.swarm.build_loop import TeamRole
         for role in TeamRole:
             self.publish(role.value, status, self._message(role, status))
 
@@ -48,7 +51,8 @@ class ProgressFeed:
         ]
 
     @staticmethod
-    def _message(role: TeamRole, status: ProgressStatus) -> str:
+    def _message(role: "TeamRole", status: ProgressStatus) -> str:
+        from agents.swarm.build_loop import TeamRole
         labels = {
             TeamRole.NETWORK_ENGINEER: "Checking permitted source connectivity",
             TeamRole.FRONTEND_DOM_SPECIALIST: "Mapping the source portal structure",

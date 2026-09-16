@@ -1,222 +1,222 @@
 {
-  "current_state_code": "FL",
-  "current_state_index": 2,
-  "current_county_index": 8,
-  "active_county_name": "Orange County",
-  "active_city": "Orlando",
-  "active_portal_name": "Orange County Comptroller & Official Records",
-  "active_portal_url": "https://www.occompt.com/",
-  "cycle_count": 0,
+  "current_state_code": "TX",
+  "current_state_index": 1,
+  "current_county_index": 6,
+  "active_county_name": "Harris County",
+  "active_city": "Houston",
+  "active_portal_name": "Harris County District Clerk & County Clerk",
+  "active_portal_url": "https://www.cclerk.hctx.net/",
+  "cycle_count": 1,
   "total_states_configured": 51,
   "locked_state_focus": null,
   "jurisdiction_stats": {
     "WA:Adams County": {
       "state": "WA",
       "county": "Adams County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 1,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T04:19:23.810074+00:00"
+      "last_visited_at": "2026-09-16T18:34:20.316862+00:00"
     },
     "WA:Asotin County": {
       "state": "WA",
       "county": "Asotin County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 1,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T04:19:28.989991+00:00"
+      "last_visited_at": "2026-09-16T18:34:26.395590+00:00"
     },
     "WA:Benton County": {
       "state": "WA",
       "county": "Benton County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 1,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T04:19:34.401205+00:00"
+      "last_visited_at": "2026-09-16T18:35:07.374665+00:00"
     },
     "WA:Chelan County": {
       "state": "WA",
       "county": "Chelan County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 1,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T04:20:27.337371+00:00"
+      "last_visited_at": "2026-09-16T18:35:18.889853+00:00"
     },
     "WA:Clallam County": {
       "state": "WA",
       "county": "Clallam County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 1,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T04:20:32.652108+00:00"
+      "last_visited_at": "2026-09-16T18:35:51.414748+00:00"
     },
     "WA:Clark County": {
       "state": "WA",
       "county": "Clark County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 1,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T04:20:37.973134+00:00"
+      "last_visited_at": "2026-09-16T18:36:05.836991+00:00"
     },
     "WA:Columbia County": {
       "state": "WA",
       "county": "Columbia County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 1,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T06:19:28.849248+00:00"
+      "last_visited_at": "2026-09-16T18:36:12.956893+00:00"
     },
     "WA:Cowlitz County": {
       "state": "WA",
       "county": "Cowlitz County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 1,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T06:19:33.887348+00:00"
+      "last_visited_at": "2026-09-16T18:36:33.598951+00:00"
     },
     "WA:Douglas County": {
       "state": "WA",
       "county": "Douglas County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 1,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T06:19:38.854513+00:00"
+      "last_visited_at": "2026-09-16T18:36:56.967701+00:00"
     },
     "WA:Ferry County": {
       "state": "WA",
       "county": "Ferry County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 1,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T06:30:28.131025+00:00"
+      "last_visited_at": "2026-09-16T18:37:23.023523+00:00"
     },
     "WA:Franklin County": {
       "state": "WA",
       "county": "Franklin County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 1,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T06:30:33.217862+00:00"
+      "last_visited_at": "2026-09-16T18:37:26.614963+00:00"
     },
     "WA:Garfield County": {
       "state": "WA",
       "county": "Garfield County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 1,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T06:30:38.323720+00:00"
+      "last_visited_at": "2026-09-16T18:37:54.206026+00:00"
     },
     "WA:Grant County": {
       "state": "WA",
       "county": "Grant County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 6,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T16:58:05.867348+00:00"
+      "last_visited_at": "2026-09-16T18:38:13.870351+00:00"
     },
     "WA:Grays Harbor County": {
       "state": "WA",
       "county": "Grays Harbor County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T16:56:40.655679+00:00"
+      "last_visited_at": "2026-09-16T18:38:42.660439+00:00"
     },
     "WA:Island County": {
       "state": "WA",
       "county": "Island County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T16:56:57.858345+00:00"
+      "last_visited_at": "2026-09-16T18:38:42.814579+00:00"
     },
     "WA:Jefferson County": {
       "state": "WA",
       "county": "Jefferson County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T16:57:11.353893+00:00"
+      "last_visited_at": "2026-09-16T18:39:17.734455+00:00"
     },
     "WA:King County": {
       "state": "WA",
       "county": "King County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T16:57:28.853082+00:00"
+      "last_visited_at": "2026-09-16T18:39:34.041044+00:00"
     },
     "WA:Kitsap County": {
       "state": "WA",
       "county": "Kitsap County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T16:57:30.785257+00:00"
+      "last_visited_at": "2026-09-16T18:40:03.447570+00:00"
     },
     "WA:Kittitas County": {
       "state": "WA",
       "county": "Kittitas County",
-      "visited_count": 1,
-      "leads_discovered": 7,
+      "visited_count": 2,
+      "leads_discovered": 14,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:34:18.565045+00:00"
+      "last_visited_at": "2026-09-16T18:40:07.515496+00:00"
     },
     "WA:Klickitat County": {
       "state": "WA",
       "county": "Klickitat County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:30:58.835798+00:00"
+      "last_visited_at": "2026-09-16T18:40:38.291243+00:00"
     },
     "WA:Lewis County": {
       "state": "WA",
       "county": "Lewis County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:31:36.577590+00:00"
+      "last_visited_at": "2026-09-16T18:40:55.096135+00:00"
     },
     "WA:Lincoln County": {
       "state": "WA",
       "county": "Lincoln County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:32:11.448874+00:00"
+      "last_visited_at": "2026-09-16T18:41:25.141368+00:00"
     },
     "WA:Mason County": {
       "state": "WA",
       "county": "Mason County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:32:40.384219+00:00"
+      "last_visited_at": "2026-09-16T18:41:44.642438+00:00"
     },
     "WA:Okanogan County": {
       "state": "WA",
       "county": "Okanogan County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:33:35.504013+00:00"
+      "last_visited_at": "2026-09-16T18:42:24.454135+00:00"
     },
     "WA:Pacific County": {
       "state": "WA",
       "county": "Pacific County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:33:53.064202+00:00"
+      "last_visited_at": "2026-09-16T18:42:29.233457+00:00"
     },
     "WA:Pend Oreille County": {
       "state": "WA",
       "county": "Pend Oreille County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:34:18.566077+00:00"
+      "last_visited_at": "2026-09-16T18:43:05.704088+00:00"
     },
     "TX:Kittitas County": {
       "state": "TX",
@@ -229,90 +229,90 @@
     "WA:Pierce County": {
       "state": "WA",
       "county": "Pierce County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:35:46.875046+00:00"
+      "last_visited_at": "2026-09-16T18:43:34.139635+00:00"
     },
     "WA:San Juan County": {
       "state": "WA",
       "county": "San Juan County",
-      "visited_count": 1,
-      "leads_discovered": 7,
+      "visited_count": 2,
+      "leads_discovered": 15,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:42:42.416317+00:00"
+      "last_visited_at": "2026-09-16T18:44:01.978545+00:00"
     },
     "WA:Skagit County": {
       "state": "WA",
       "county": "Skagit County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:37:32.950299+00:00"
+      "last_visited_at": "2026-09-16T18:44:04.598481+00:00"
     },
     "WA:Skamania County": {
       "state": "WA",
       "county": "Skamania County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:38:15.471234+00:00"
+      "last_visited_at": "2026-09-16T18:44:39.499822+00:00"
     },
     "WA:Snohomish County": {
       "state": "WA",
       "county": "Snohomish County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:38:36.561622+00:00"
+      "last_visited_at": "2026-09-16T18:44:43.023675+00:00"
     },
     "WA:Spokane County": {
       "state": "WA",
       "county": "Spokane County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:39:14.530898+00:00"
+      "last_visited_at": "2026-09-16T18:45:19.968436+00:00"
     },
     "WA:Stevens County": {
       "state": "WA",
       "county": "Stevens County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:39:22.939116+00:00"
+      "last_visited_at": "2026-09-16T18:45:55.250560+00:00"
     },
     "WA:Thurston County": {
       "state": "WA",
       "county": "Thurston County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:39:35.772653+00:00"
+      "last_visited_at": "2026-09-16T18:46:26.042363+00:00"
     },
     "WA:Wahkiakum County": {
       "state": "WA",
       "county": "Wahkiakum County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:39:59.948629+00:00"
+      "last_visited_at": "2026-09-16T18:46:28.083013+00:00"
     },
     "WA:Walla Walla County": {
       "state": "WA",
       "county": "Walla Walla County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:40:06.218740+00:00"
+      "last_visited_at": "2026-09-16T18:46:50.467026+00:00"
     },
     "WA:Whatcom County": {
       "state": "WA",
       "county": "Whatcom County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:40:49.757396+00:00"
+      "last_visited_at": "2026-09-16T18:47:09.008659+00:00"
     },
     "FL:Kittitas County": {
       "state": "FL",
@@ -325,66 +325,66 @@
     "WA:Whitman County": {
       "state": "WA",
       "county": "Whitman County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:40:52.147099+00:00"
+      "last_visited_at": "2026-09-16T18:47:33.486296+00:00"
     },
     "WA:Yakima County": {
       "state": "WA",
       "county": "Yakima County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:41:24.211686+00:00"
+      "last_visited_at": "2026-09-16T18:47:40.888808+00:00"
     },
     "TX:Bexar County": {
       "state": "TX",
       "county": "Bexar County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:41:46.472518+00:00"
+      "last_visited_at": "2026-09-16T18:48:11.843666+00:00"
     },
     "TX:Collin County": {
       "state": "TX",
       "county": "Collin County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:41:49.461541+00:00"
+      "last_visited_at": "2026-09-16T18:48:56.318109+00:00"
     },
     "TX:Dallas County": {
       "state": "TX",
       "county": "Dallas County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:42:20.604551+00:00"
+      "last_visited_at": "2026-09-16T18:49:24.071599+00:00"
     },
     "TX:Denton County": {
       "state": "TX",
       "county": "Denton County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:42:42.416317+00:00"
+      "last_visited_at": "2026-09-16T18:50:06.320957+00:00"
     },
     "TX:El Paso County": {
       "state": "TX",
       "county": "El Paso County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:42:49.877582+00:00"
+      "last_visited_at": "2026-09-16T18:50:57.570127+00:00"
     },
     "TX:Fort Bend County": {
       "state": "TX",
       "county": "Fort Bend County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:43:29.000451+00:00"
+      "last_visited_at": "2026-09-16T18:52:00.461008+00:00"
     },
     "TX:San Juan County": {
       "state": "TX",
@@ -397,10 +397,10 @@
     "TX:Harris County": {
       "state": "TX",
       "county": "Harris County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:43:51.578733+00:00"
+      "last_visited_at": "2026-09-16T18:52:45.179621+00:00"
     },
     "TX:Lubbock County": {
       "state": "TX",
@@ -470,9 +470,9 @@
       "state": "CA",
       "county": "Kittitas County",
       "visited_count": 1,
-      "leads_discovered": 4,
+      "leads_discovered": 9,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:48:45.078400+00:00"
+      "last_visited_at": "2026-09-16T17:51:04.421563+00:00"
     },
     "FL:Alachua County": {
       "state": "FL",
@@ -526,9 +526,9 @@
       "state": "FL",
       "county": "San Juan County",
       "visited_count": 1,
-      "leads_discovered": 2,
+      "leads_discovered": 9,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:49:06.036168+00:00"
+      "last_visited_at": "2026-09-16T17:52:26.083729+00:00"
     },
     "FL:Leon County": {
       "state": "FL",
@@ -553,7 +553,927 @@
       "leads_discovered": 0,
       "forms_submitted": 0,
       "last_visited_at": "2026-09-16T17:49:06.037167+00:00"
-    }
-  },
-  "last_updated_at": "2026-09-16T17:49:06.037167+00:00"
-}
+    },
+    "FL:Palm Beach County": {
+      "state": "FL",
+      "county": "Palm Beach County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:49:18.815248+00:00"
+    },
+    "FL:Pinellas County": {
+      "state": "FL",
+      "county": "Pinellas County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:49:25.926826+00:00"
+    },
+    "FL:Sarasota County": {
+      "state": "FL",
+      "county": "Sarasota County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:49:35.592427+00:00"
+    },
+    "CA:Alameda County": {
+      "state": "CA",
+      "county": "Alameda County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:49:58.776165+00:00"
+    },
+    "CA:Fresno County": {
+      "state": "CA",
+      "county": "Fresno County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:50:14.357980+00:00"
+    },
+    "CA:Kern County": {
+      "state": "CA",
+      "county": "Kern County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:50:16.165059+00:00"
+    },
+    "CA:Los Angeles County": {
+      "state": "CA",
+      "county": "Los Angeles County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:50:36.922924+00:00"
+    },
+    "CA:Orange County": {
+      "state": "CA",
+      "county": "Orange County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:50:45.225110+00:00"
+    },
+    "CA:Riverside County": {
+      "state": "CA",
+      "county": "Riverside County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:51:04.424567+00:00"
+    },
+    "CA:Sacramento County": {
+      "state": "CA",
+      "county": "Sacramento County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:51:23.968197+00:00"
+    },
+    "CA:San Bernardino County": {
+      "state": "CA",
+      "county": "San Bernardino County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:51:59.978359+00:00"
+    },
+    "CA:San Diego County": {
+      "state": "CA",
+      "county": "San Diego County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:52:10.977595+00:00"
+    },
+    "CA:San Francisco County": {
+      "state": "CA",
+      "county": "San Francisco County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:52:26.086730+00:00"
+    },
+    "CA:Santa Clara County": {
+      "state": "CA",
+      "county": "Santa Clara County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:52:50.576316+00:00"
+    },
+    "CA:San Juan County": {
+      "state": "CA",
+      "county": "San Juan County",
+      "visited_count": 1,
+      "leads_discovered": 9,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:58:06.465373+00:00"
+    },
+    "AZ:Coconino County": {
+      "state": "AZ",
+      "county": "Coconino County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:53:26.232612+00:00"
+    },
+    "AZ:Maricopa County": {
+      "state": "AZ",
+      "county": "Maricopa County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:53:55.725890+00:00"
+    },
+    "AZ:Pima County": {
+      "state": "AZ",
+      "county": "Pima County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:53:55.725890+00:00"
+    },
+    "AZ:Yavapai County": {
+      "state": "AZ",
+      "county": "Yavapai County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:54:18.263870+00:00"
+    },
+    "AZ:Yuma County": {
+      "state": "AZ",
+      "county": "Yuma County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:54:36.028273+00:00"
+    },
+    "IL:Cook County": {
+      "state": "IL",
+      "county": "Cook County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:55:07.360657+00:00"
+    },
+    "IL:Dupage County": {
+      "state": "IL",
+      "county": "Dupage County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:55:12.248329+00:00"
+    },
+    "IL:Kane County": {
+      "state": "IL",
+      "county": "Kane County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:55:43.683955+00:00"
+    },
+    "IL:Lake County": {
+      "state": "IL",
+      "county": "Lake County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:55:56.440261+00:00"
+    },
+    "IL:Peoria County": {
+      "state": "IL",
+      "county": "Peoria County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:56:07.886295+00:00"
+    },
+    "IL:Sangamon County": {
+      "state": "IL",
+      "county": "Sangamon County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:56:32.164658+00:00"
+    },
+    "IL:Will County": {
+      "state": "IL",
+      "county": "Will County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:57:05.747858+00:00"
+    },
+    "IL:Winnebago County": {
+      "state": "IL",
+      "county": "Winnebago County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:57:39.362593+00:00"
+    },
+    "GA:Chatham County": {
+      "state": "GA",
+      "county": "Chatham County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:58:06.499910+00:00"
+    },
+    "GA:Cobb County": {
+      "state": "GA",
+      "county": "Cobb County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:59:09.194618+00:00"
+    },
+    "GA:Dekalb County": {
+      "state": "GA",
+      "county": "Dekalb County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:00:03.022676+00:00"
+    },
+    "GA:Fulton County": {
+      "state": "GA",
+      "county": "Fulton County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:01:10.203991+00:00"
+    },
+    "GA:Gwinnett County": {
+      "state": "GA",
+      "county": "Gwinnett County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:01:46.480304+00:00"
+    },
+    "GA:Richmond County": {
+      "state": "GA",
+      "county": "Richmond County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:02:32.643960+00:00"
+    },
+    "NC:Durham County": {
+      "state": "NC",
+      "county": "Durham County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:03:26.293190+00:00"
+    },
+    "NC:Forsyth County": {
+      "state": "NC",
+      "county": "Forsyth County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:04:07.395126+00:00"
+    },
+    "NC:Guilford County": {
+      "state": "NC",
+      "county": "Guilford County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:04:27.553343+00:00"
+    },
+    "IL:San Juan County": {
+      "state": "IL",
+      "county": "San Juan County",
+      "visited_count": 1,
+      "leads_discovered": 9,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:09:06.214527+00:00"
+    },
+    "NC:Mecklenburg County": {
+      "state": "NC",
+      "county": "Mecklenburg County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:05:14.516067+00:00"
+    },
+    "NC:Wake County": {
+      "state": "NC",
+      "county": "Wake County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:05:53.127644+00:00"
+    },
+    "OH:Cuyahoga County": {
+      "state": "OH",
+      "county": "Cuyahoga County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:06:16.176885+00:00"
+    },
+    "OH:Franklin County": {
+      "state": "OH",
+      "county": "Franklin County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:07:02.461683+00:00"
+    },
+    "OH:Hamilton County": {
+      "state": "OH",
+      "county": "Hamilton County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:07:27.861819+00:00"
+    },
+    "OH:Lucas County": {
+      "state": "OH",
+      "county": "Lucas County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:07:44.612301+00:00"
+    },
+    "OH:Summit County": {
+      "state": "OH",
+      "county": "Summit County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:08:28.348461+00:00"
+    },
+    "CO:Boulder County": {
+      "state": "CO",
+      "county": "Boulder County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:08:48.942699+00:00"
+    },
+    "CO:Denver County": {
+      "state": "CO",
+      "county": "Denver County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:09:06.216530+00:00"
+    },
+    "GA:San Juan County": {
+      "state": "GA",
+      "county": "San Juan County",
+      "visited_count": 1,
+      "leads_discovered": 4,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:10:46.147215+00:00"
+    },
+    "CO:El Paso County": {
+      "state": "CO",
+      "county": "El Paso County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:09:53.859795+00:00"
+    },
+    "CO:Larimer County": {
+      "state": "CO",
+      "county": "Larimer County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:10:25.060969+00:00"
+    },
+    "NV:Clark County": {
+      "state": "NV",
+      "county": "Clark County",
+      "visited_count": 2,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:28:22.039089+00:00"
+    },
+    "NV:Washoe County": {
+      "state": "NV",
+      "county": "Washoe County",
+      "visited_count": 2,
+      "leads_discovered": 9,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:47:33.482296+00:00"
+    },
+    "NY:Bronx County": {
+      "state": "NY",
+      "county": "Bronx County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:12:48.718591+00:00"
+    },
+    "NY:Erie County": {
+      "state": "NY",
+      "county": "Erie County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:13:22.354091+00:00"
+    },
+    "NY:Kings County": {
+      "state": "NY",
+      "county": "Kings County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:14:16.181567+00:00"
+    },
+    "NY:Monroe County": {
+      "state": "NY",
+      "county": "Monroe County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:14:42.093253+00:00"
+    },
+    "NY:New York County": {
+      "state": "NY",
+      "county": "New York County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:15:16.515824+00:00"
+    },
+    "NY:Queens County": {
+      "state": "NY",
+      "county": "Queens County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:15:59.844621+00:00"
+    },
+    "NY:Richmond County": {
+      "state": "NY",
+      "county": "Richmond County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:16:22.799941+00:00"
+    },
+    "TX:Washoe County": {
+      "state": "TX",
+      "county": "Washoe County",
+      "visited_count": 1,
+      "leads_discovered": 8,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:21:27.060794+00:00"
+    },
+    "TN:Davidson County": {
+      "state": "TN",
+      "county": "Davidson County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:17:06.787487+00:00"
+    },
+    "TN:Hamilton County": {
+      "state": "TN",
+      "county": "Hamilton County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:17:37.085265+00:00"
+    },
+    "TN:Knox County": {
+      "state": "TN",
+      "county": "Knox County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:18:25.865771+00:00"
+    },
+    "TN:Shelby County": {
+      "state": "TN",
+      "county": "Shelby County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:18:58.630191+00:00"
+    },
+    "PA:Allegheny County": {
+      "state": "PA",
+      "county": "Allegheny County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:19:50.904252+00:00"
+    },
+    "PA:Philadelphia County": {
+      "state": "PA",
+      "county": "Philadelphia County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:20:33.160206+00:00"
+    },
+    "MI:Kent County": {
+      "state": "MI",
+      "county": "Kent County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:20:57.926801+00:00"
+    },
+    "MI:Wayne County": {
+      "state": "MI",
+      "county": "Wayne County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:21:27.065499+00:00"
+    },
+    "FL:Washoe County": {
+      "state": "FL",
+      "county": "Washoe County",
+      "visited_count": 1,
+      "leads_discovered": 7,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:25:47.640624+00:00"
+    },
+    "VA:Statewide Primary County": {
+      "state": "VA",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:22:16.725376+00:00"
+    },
+    "MA:Statewide Primary County": {
+      "state": "MA",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:22:42.488279+00:00"
+    },
+    "MD:Statewide Primary County": {
+      "state": "MD",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:23:24.611314+00:00"
+    },
+    "NJ:Statewide Primary County": {
+      "state": "NJ",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:23:53.296807+00:00"
+    },
+    "MO:Statewide Primary County": {
+      "state": "MO",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 8,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:28:52.641738+00:00"
+    },
+    "IN:Statewide Primary County": {
+      "state": "IN",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:25:26.692018+00:00"
+    },
+    "WI:Statewide Primary County": {
+      "state": "WI",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:25:31.394947+00:00"
+    },
+    "MN:Hennepin County": {
+      "state": "MN",
+      "county": "Hennepin County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:25:47.643612+00:00"
+    },
+    "MN:Ramsey County": {
+      "state": "MN",
+      "county": "Ramsey County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:25:59.160560+00:00"
+    },
+    "CA:Washoe County": {
+      "state": "CA",
+      "county": "Washoe County",
+      "visited_count": 1,
+      "leads_discovered": 6,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:28:22.037085+00:00"
+    },
+    "SC:Statewide Primary County": {
+      "state": "SC",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:26:22.263936+00:00"
+    },
+    "AL:Statewide Primary County": {
+      "state": "AL",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:26:26.229927+00:00"
+    },
+    "LA:Statewide Primary County": {
+      "state": "LA",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:26:46.345240+00:00"
+    },
+    "KY:Statewide Primary County": {
+      "state": "KY",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:26:56.840554+00:00"
+    },
+    "OR:Statewide Primary County": {
+      "state": "OR",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:27:14.168827+00:00"
+    },
+    "OK:Statewide Primary County": {
+      "state": "OK",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:27:22.482127+00:00"
+    },
+    "CT:Statewide Primary County": {
+      "state": "CT",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:27:31.397589+00:00"
+    },
+    "UT:Statewide Primary County": {
+      "state": "UT",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:27:53.482211+00:00"
+    },
+    "IA:Statewide Primary County": {
+      "state": "IA",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:28:04.430305+00:00"
+    },
+    "AR:Statewide Primary County": {
+      "state": "AR",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:28:52.645742+00:00"
+    },
+    "WA:Washoe County": {
+      "state": "WA",
+      "county": "Washoe County",
+      "visited_count": 1,
+      "leads_discovered": 7,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:32:08.333119+00:00"
+    },
+    "MS:Statewide Primary County": {
+      "state": "MS",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:29:01.224504+00:00"
+    },
+    "TX:Statewide Primary County": {
+      "state": "TX",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 7,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:32:59.093834+00:00"
+    },
+    "KS:Statewide Primary County": {
+      "state": "KS",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:29:23.081804+00:00"
+    },
+    "NM:Statewide Primary County": {
+      "state": "NM",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:29:26.280801+00:00"
+    },
+    "NE:Statewide Primary County": {
+      "state": "NE",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:29:54.029576+00:00"
+    },
+    "ID:Statewide Primary County": {
+      "state": "ID",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:29:59.316080+00:00"
+    },
+    "WV:Statewide Primary County": {
+      "state": "WV",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:30:26.721253+00:00"
+    },
+    "HI:Statewide Primary County": {
+      "state": "HI",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:30:34.803753+00:00"
+    },
+    "NH:Statewide Primary County": {
+      "state": "NH",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:30:56.844975+00:00"
+    },
+    "ME:Statewide Primary County": {
+      "state": "ME",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:30:57.309127+00:00"
+    },
+    "RI:Statewide Primary County": {
+      "state": "RI",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:31:27.789641+00:00"
+    },
+    "MT:Statewide Primary County": {
+      "state": "MT",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:31:42.630880+00:00"
+    },
+    "DE:Statewide Primary County": {
+      "state": "DE",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:32:08.335120+00:00"
+    },
+    "SD:Statewide Primary County": {
+      "state": "SD",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:32:13.778325+00:00"
+    },
+    "ND:Statewide Primary County": {
+      "state": "ND",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:32:59.227649+00:00"
+    },
+    "IL:Washoe County": {
+      "state": "IL",
+      "county": "Washoe County",
+      "visited_count": 1,
+      "leads_discovered": 6,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:36:33.595442+00:00"
+    },
+    "AK:Statewide Primary County": {
+      "state": "AK",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:33:05.107726+00:00"
+    },
+    "VT:Statewide Primary County": {
+      "state": "VT",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:33:34.171468+00:00"
+    },
+    "FL:Statewide Primary County": {
+      "state": "FL",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 7,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:37:22.947106+00:00"
+    },
+    "WY:Statewide Primary County": {
+      "state": "WY",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:33:43.374635+00:00"
+    },
+    "GA:Washoe County": {
+      "state": "GA",
+      "county": "Washoe County",
+      "visited_count": 1,
+      "leads_discovered": 6,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:40:38.287052+00:00"
+    },
+    "CA:Statewide Primary County": {
+      "state": "CA",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 6,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:41:25.085834+00:00"
+    },
+    "AZ:Washoe County": {
+      "state": "AZ",
+      "county": "Washoe County",
+      "visited_count": 1,
+      "leads_discovered": 7,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:46:26.859268+00:00"
+    },
+    "WA:Statewide Primary County": {
+      "state": "WA",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 7,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:46:50.463028+00:00"
+    },
+    "IL:Statewide Primary County": {
+      "state": "IL",
+      "county": "Statewide Primary County",
+      "visited_count": 1,
+      "leads_discovered": 6,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T18:50:57.567126+00:00"
+    },
+    "GA:Statewide Primary County": {
+      "state": "GA",
+      "c

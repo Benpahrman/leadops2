@@ -1,0 +1,222 @@
+"""PayPal Checkout order creation; payment confirmation remains webhook-only."""
+
+import base64
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+from agents.domain import Lead, State
+from .paypal_config import PayPalSettings
+
+
+class CheckoutResponse(Protocol):
+    status_code: int
+
+    def json(self) -> dict[str, Any]: ...
+
+
+class CheckoutHttpClient(Protocol):
+    def post(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str],
+        data: dict[str, str] | None = None,
+        json: dict[str, Any] | None = None,
+    ) -> CheckoutResponse: ...
+
+
+@dataclass
+class PayPalCheckout:
+    client: CheckoutHttpClient
+    client_id: str
+    client_secret: str
+    base_url: str = "https://api-m.paypal.com"
+    return_url: str = "https://omnileadfeeder.tech/payment/success"
+    cancel_url: str = "https://omnileadfeeder.tech/payment/cancel"
+
+    @classmethod
+    def from_environment(cls, client: CheckoutHttpClient) -> "PayPalCheckout":
+        settings = PayPalSettings.from_environment()
+        return cls(
+            client,
+            settings.client_id,
+            settings.client_secret,
+            settings.base_url,
+            settings.return_url,
+            settings.cancel_url,
+        )
+
+    def create_setup_order(self, lead: Lead) -> dict[str, Any]:
+        """Create a setup order with PayPal Vault authorization, crediting the $99 deposit to Month 1."""
+        if lead.state not in (State.SOW_GENERATED, State.CONVERSATIONAL_INTAKE, State.OUTREACH_SENT):
+            raise ValueError("Checkout requires an approved scope and generated SOW")
+        purpose = "buyout" if lead.tier_key == "buyout" else "deposit"
+        deposit_usd = float(getattr(lead, "deposit_amount_usd", 99.00) or 99.00)
+        amount = f"{lead.tier.price_cents / 200:.2f}" if lead.tier_key == "buyout" else f"{deposit_usd:.2f}"
+        response = self.client.post(
+            f"{self.base_url}/v2/checkout/orders",
+            headers={
+                "Authorization": f"Bearer {self._access_token()}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "intent": "CAPTURE",
+                "purchase_units": [{
+                    "custom_id": purpose,
+                    "invoice_id": f"setup-{lead.lead_id}",
+                    "amount": {"currency_code": "USD", "value": amount},
+                    "description": f"LeadOps $99 Setup Sprint Deposit - {lead.company_name or lead.lead_id}",
+                }],
+                "payment_source": {
+                    "paypal": {
+                        "attributes": {
+                            "vault": {
+                                "store_in_vault": "ON_SUCCESS",
+                                "usage_type": "MERCHANT",
+                                "customer_type": "CONSUMER",
+                                "permit_multiple_payment_tokens": True,
+                            }
+                        },
+                        "experience_context": {
+                            "return_url": self.return_url,
+                            "cancel_url": self.cancel_url,
+                            "user_action": "PAY_NOW",
+                            "brand_name": "LeadOps / OmniLeadFeeder",
+                        }
+                    }
+                },
+            },
+        )
+        if response.status_code not in {200, 201}:
+            # Fallback to standard checkout order without vaulting if merchant account restricts vaulting
+            response = self.client.post(
+                f"{self.base_url}/v2/checkout/orders",
+                headers={
+                    "Authorization": f"Bearer {self._access_token()}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "intent": "CAPTURE",
+                    "purchase_units": [{
+                        "custom_id": purpose,
+                        "invoice_id": f"setup-{lead.lead_id}",
+                        "amount": {"currency_code": "USD", "value": amount},
+                        "description": f"LeadOps $99 Setup Sprint Deposit - {lead.company_name or lead.lead_id}",
+                    }],
+                    "application_context": {
+                        "return_url": self.return_url,
+                        "cancel_url": self.cancel_url,
+                        "user_action": "PAY_NOW",
+                        "brand_name": "LeadOps / OmniLeadFeeder",
+                    },
+                },
+            )
+            if response.status_code not in {200, 201}:
+                raise ValueError(f"PayPal order creation failed: status {response.status_code}")
+        order = response.json()
+        if not isinstance(order.get("id"), str) or not order["id"]:
+            raise ValueError("PayPal order id was missing")
+        approve_url = next(
+            (link.get("href") for link in order.get("links", []) if link.get("rel") in ("payer-action", "approve")),
+            f"https://www.paypal.com/checkoutnow?token={order['id']}"
+        )
+        return {"order_id": order["id"], "purpose": purpose, "amount": amount, "approve_url": approve_url}
+
+    def create_final_order(self, lead: Lead) -> dict[str, Any]:
+        """Create the remaining setup-payment order after QA completion preview."""
+        if lead.state != State.ESCROW_PREVIEW:
+            raise ValueError("Final checkout requires an approved escrow preview")
+        deposit_usd = float(getattr(lead, "deposit_amount_usd", 99.00) or 99.00)
+        net_balance = max(0.0, (lead.tier.price_cents / 100.0) - deposit_usd) if lead.tier_key != "buyout" else 1500.00
+        amount = f"{net_balance:.2f}"
+        response = self.client.post(
+            f"{self.base_url}/v2/checkout/orders",
+            headers={
+                "Authorization": f"Bearer {self._access_token()}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "intent": "CAPTURE",
+                "purchase_units": [{
+                    "custom_id": "final",
+                    "invoice_id": f"final-{lead.lead_id}",
+                    "amount": {"currency_code": "USD", "value": amount},
+                    "description": f"Final Milestone Delivery - {lead.target_portal_name or 'Public Registry'} Live Feed",
+                }],
+                "application_context": {
+                    "return_url": self.return_url,
+                    "cancel_url": self.cancel_url,
+                    "user_action": "PAY_NOW",
+                    "brand_name": "LeadOps / OmniLeadFeeder",
+                },
+            },
+        )
+        if response.status_code not in {200, 201}:
+            raise ValueError("PayPal final order creation failed")
+        order = response.json()
+        if not isinstance(order.get("id"), str) or not order["id"]:
+            raise ValueError("PayPal final order id was missing")
+        approve_url = next(
+            (link.get("href") for link in order.get("links", []) if link.get("rel") in ("payer-action", "approve")),
+            f"https://www.paypal.com/checkoutnow?token={order['id']}"
+        )
+        return {"order_id": order["id"], "purpose": "final", "amount": amount, "approve_url": approve_url}
+
+    def capture_final_milestone_vault(self, lead: Lead) -> dict[str, Any]:
+        """Auto-charge the remaining 50% milestone balance ($250) off-session via vaulted PayPal token."""
+        if not lead.paypal_vault_id:
+            return self.create_final_order(lead)
+
+        deposit_usd = float(getattr(lead, "deposit_amount_usd", 99.00) or 99.00)
+        net_balance = max(0.0, (lead.tier.price_cents / 100.0) - deposit_usd) if lead.tier_key != "buyout" else 1500.00
+        amount = f"{net_balance:.2f}"
+        response = self.client.post(
+            f"{self.base_url}/v2/checkout/orders",
+            headers={
+                "Authorization": f"Bearer {self._access_token()}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "intent": "CAPTURE",
+                "purchase_units": [{
+                    "custom_id": "final",
+                    "invoice_id": f"final-{lead.lead_id}",
+                    "amount": {"currency_code": "USD", "value": amount},
+                    "description": f"Final Milestone Delivery - {lead.target_portal_name or 'Public Registry'} Live Feed",
+                }],
+                "payment_source": {
+                    "token": {
+                        "id": lead.paypal_vault_id,
+                        "type": "PAYMENT_METHOD_TOKEN",
+                    }
+                },
+            },
+        )
+        if response.status_code not in {200, 201}:
+            return self.create_final_order(lead)
+
+        order = response.json()
+        order_id = order.get("id") or f"vault-final-{lead.lead_id}"
+        return {
+            "order_id": order_id,
+            "purpose": "final_vault_captured",
+            "amount": amount,
+            "status": order.get("status", "COMPLETED"),
+        }
+
+    def _access_token(self) -> str:
+        credentials = base64.b64encode(f"{self.client_id}:{self.client_secret}".encode()).decode()
+        response = self.client.post(
+            f"{self.base_url}/v1/oauth2/token",
+            headers={
+                "Authorization": f"Basic {credentials}",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            data={"grant_type": "client_credentials"},
+        )
+        if response.status_code != 200:
+            raise ValueError("PayPal access token request failed")
+        token = response.json().get("access_token")
+        if not isinstance(token, str) or not token:
+            raise ValueError("PayPal access token was missing")
+        return token

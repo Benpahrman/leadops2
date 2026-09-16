@@ -1,6 +1,6 @@
 {
-  "start_time": "2026-09-16T17:22:43.037005+00:00",
-  "end_time": "2026-09-30T17:22:43.037005+00:00",
+  "start_time": "2026-09-16T18:37:40.605270+00:00",
+  "end_time": "2026-09-30T18:37:40.605270+00:00",
   "campaign_duration_days": 14,
   "is_active": false,
   "volume_per_cycle": 4,
@@ -30,8 +30,8 @@
       "company_name": "Lone Star Concrete LLC",
       "contact_email": "ops@lonestarconcrete.com",
       "slug": "lone-star-concrete",
-      "discovered_at": "2026-09-16T17:22:38.984821+00:00"
+      "discovered_at": "2026-09-16T18:37:37.004686+00:00"
     }
   },
-  "saved_at": "2026-09-16T17:22:43.046549+00:00"
+  "saved_at": "2026-09-16T18:37:40.614780+00:00"
 }
