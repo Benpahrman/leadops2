@@ -17,11 +17,37 @@ class ScoutRunnerTests(unittest.TestCase):
                 f"dataset_key '{dataset_key}' in vertical '{vertical}' was not found in AUTHENTIC_REGISTRY_DATASETS."
             )
 
+    @patch("agents.scout_runner.extract_contact_info_from_url")
+    @patch("agents.scout_runner.search_company_intelligence")
+    @patch("agents.scout_runner.search_web")
+    @patch("agents.scout_runner.search_job_board_intent")
     @patch("agents.scout_runner.generate_browser_headers")
     @patch("agents.scout_runner.probe_waf_signatures")
     @patch("httpx.Client")
-    def test_discover_next_candidate_all_verticals(self, mock_httpx_client_class, mock_probe_waf, mock_gen_headers):
+    def test_discover_next_candidate_all_verticals(
+        self,
+        mock_httpx_client_class,
+        mock_probe_waf,
+        mock_gen_headers,
+        mock_search_jobs,
+        mock_search_web,
+        mock_search_intel,
+        mock_extract_contact,
+    ):
         """Verify discover_next_candidate can process every single vertical in VERTICAL_CATALOG without KeyError or crash."""
+        # Mock external web search & job search calls
+        mock_search_jobs.return_value = []
+        mock_search_web.return_value = [
+            {"title": "Sample Target Corp", "url": "https://samplecorp123.com", "snippet": "Leading corporate entity"}
+        ]
+        mock_search_intel.return_value = {"website": "https://samplecorp123.com", "company_name": "Sample Target Corp"}
+        mock_extract_contact.return_value = {
+            "website": "https://samplecorp123.com",
+            "verified_email": "contact@samplecorp123.com",
+            "verified_phone": "555-0199",
+            "title": "Sample Target Corp",
+        }
+        
         # Mock WAF probe to return safe to scrape
         mock_probe_waf.return_value = {
             "detected_waf": None,

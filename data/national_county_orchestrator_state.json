@@ -1,11 +1,11 @@
 {
   "current_state_code": "WA",
   "current_state_index": 0,
-  "current_county_index": 6,
-  "active_county_name": "Columbia County",
-  "active_city": "Dayton",
-  "active_portal_name": "Columbia County Auditor Recording",
-  "active_portal_url": "https://www.columbiaco.com/auditor",
+  "current_county_index": 12,
+  "active_county_name": "Grant County",
+  "active_city": "Moses Lake",
+  "active_portal_name": "Grant County Auditor Recording",
+  "active_portal_url": "https://www.grantcountywa.gov/auditor",
   "cycle_count": 0,
   "total_states_configured": 51,
   "locked_state_focus": null,
@@ -62,10 +62,58 @@
       "state": "WA",
       "county": "Columbia County",
       "visited_count": 1,
+      "leads_discovered": 1,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T06:19:28.849248+00:00"
+    },
+    "WA:Cowlitz County": {
+      "state": "WA",
+      "county": "Cowlitz County",
+      "visited_count": 1,
+      "leads_discovered": 1,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T06:19:33.887348+00:00"
+    },
+    "WA:Douglas County": {
+      "state": "WA",
+      "county": "Douglas County",
+      "visited_count": 1,
+      "leads_discovered": 1,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T06:19:38.854513+00:00"
+    },
+    "WA:Ferry County": {
+      "state": "WA",
+      "county": "Ferry County",
+      "visited_count": 1,
+      "leads_discovered": 1,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T06:30:28.131025+00:00"
+    },
+    "WA:Franklin County": {
+      "state": "WA",
+      "county": "Franklin County",
+      "visited_count": 1,
+      "leads_discovered": 1,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T06:30:33.217862+00:00"
+    },
+    "WA:Garfield County": {
+      "state": "WA",
+      "county": "Garfield County",
+      "visited_count": 1,
+      "leads_discovered": 1,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T06:30:38.323720+00:00"
+    },
+    "WA:Grant County": {
+      "state": "WA",
+      "county": "Grant County",
+      "visited_count": 1,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T04:20:37.974135+00:00"
+      "last_visited_at": "2026-09-16T06:30:38.324720+00:00"
     }
   },
-  "last_updated_at": "2026-09-16T04:20:37.974135+00:00"
+  "last_updated_at": "2026-09-16T06:30:38.324720+00:00"
 }
