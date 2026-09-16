@@ -577,7 +577,7 @@ class SqliteStorageBackend:
                 """
             )
             # Migration check for existing DBs
-            for col in ["company_name", "contact_name", "contact_role", "contact_email", "contact_phone", "target_portal_name", "source_url", "jurisdiction", "slug", "outreach_subject", "outreach_body", "repo_url"]:
+            for col in ["company_name", "contact_name", "contact_role", "contact_email", "contact_phone", "target_portal_name", "source_url", "website", "jurisdiction", "slug", "outreach_subject", "outreach_body", "repo_url"]:
                 try:
                     cursor.execute(f"ALTER TABLE leads ADD COLUMN {col} TEXT DEFAULT ''")
                 except sqlite3.OperationalError:
@@ -1432,16 +1432,18 @@ class SqliteStorageBackend:
         PUBLIC_MAIL_DOMAINS = {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com", "aol.com"}
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT lead_id, company_name, contact_email, website FROM leads")
+            cursor.execute("SELECT * FROM leads")
             rows = cursor.fetchall()
             for r in rows:
                 if exclude_lead_id and r["lead_id"] == exclude_lead_id:
                     continue
 
-                l_email = (r["contact_email"] or "").lower().strip()
-                l_comp = r["company_name"] or ""
+                r_dict = dict(r)
+                l_email = (r_dict.get("contact_email") or "").lower().strip()
+                l_comp = r_dict.get("company_name") or ""
                 l_comp_norm = normalize_company_name(l_comp)
-                l_website = normalize_domain(r["website"] or "")
+                raw_web = r_dict.get("website") or r_dict.get("source_url") or ""
+                l_website = normalize_domain(raw_web)
 
                 # A. Exact Email Match
                 if email_clean and l_email and email_clean == l_email:
