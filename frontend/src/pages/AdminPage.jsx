@@ -1830,7 +1830,7 @@ export default function AdminPage() {
                   ? '#f87171'
                   : 'var(--cyan)'
               }}>
-                🛡️ TestMail Deliverability
+                🛡️ 4-Vector Deliverability Suite
               </div>
               <span className={
                 deliverabilityReport?.fleet_status === 'HEALTHY'

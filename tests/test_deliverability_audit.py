@@ -1,14 +1,25 @@
-"""Unit and integration tests for Morning Deliverability & TestMail Spam Assessment Subsystem."""
+"""Unit and integration tests for the Enterprise Deliverability & Inbox Placement Suite and Admin API Endpoints."""
 
 import os
 import json
 import pytest
 from datetime import datetime, timezone
 from fastapi.testclient import TestClient
+from unittest.mock import MagicMock, patch
 
 from agents.email.config import EmailSettings, InboxAccountConfig
-from agents.email.client import EmailClient
-from agents.email.deliverability_tester import DeliverabilityTester
+from agents.email.deliverability_suite import (
+    DeliverabilitySuite,
+    DnsMatrixAuditor,
+    RblBlacklistScanner,
+    ContentSpamAuditor,
+    MultiProviderPlacementProbe,
+    DnsAuthVector,
+    RblBlacklistVector,
+    ContentSpamVector,
+    ProviderPlacementVector,
+    get_deliverability_suite,
+)
 from agents.storage import InMemoryStorageBackend, SqliteStorageBackend
 from agents.api import create_app
 
@@ -16,187 +27,152 @@ from agents.api import create_app
 @pytest.fixture
 def mock_inbox():
     return InboxAccountConfig(
-        id="zoho_test",
-        email_address="alex.clientops@getyomnileadfeeder.cyou",
+        id="olf_ben",
+        email_address="ben@olfmailer.com",
         password="test-password",
-        provider="zoho",
-        from_name="Alex | OmniLeadFeeder",
+        provider="olfmailer",
+        from_name="Ben | LeadOps",
     )
 
 
-def test_generate_cold_email_probe(mock_inbox):
-    tester = DeliverabilityTester()
-    probe = tester.generate_cold_email_probe(mock_inbox)
-
-    assert "subject" in probe
-    assert "body" in probe
-    assert probe["sender_email"] == "alex.clientops@getyomnileadfeeder.cyou"
-
-    body = probe["body"]
-    words = body.split()
-    # LeadOps swarm rule: 35-55 words
-    assert 30 <= len(words) <= 65, f"Probe word count {len(words)} outside target range"
-
-    # Zero-link rule
-    assert "http://" not in body
-    assert "https://" not in body
-    assert ".com" not in body
-    assert "www." not in body
-
-    # Permission-first hook
-    assert "?" in body
-    assert "Alex" in body
-
-
-def test_evaluate_inbox_health_healthy(mock_inbox):
-    tester = DeliverabilityTester()
-    send_result = {"ok": True, "latency_ms": 250}
-    testmail_data = {
-        "SPF": "pass",
-        "dkim": "pass",
-        "spam": "-0.5",
-        "spam_report": "Content analysis details: -0.5 points",
-        "date": 1726040000000,
-    }
-
-    eval_res = tester.evaluate_inbox_health(mock_inbox, testmail_data, send_result)
-    assert eval_res["status"] == "HEALTHY"
-    assert eval_res["score"] >= 95
-    assert "pass" in eval_res["spf"]
-    assert "pass" in eval_res["dkim"]
-    assert eval_res["spam_score"] == -0.5
-    assert eval_res["received_in_testmail"] is True
-
-
-def test_evaluate_inbox_health_dkim_warning(mock_inbox):
-    tester = DeliverabilityTester()
-    send_result = {"ok": True, "latency_ms": 300}
-    testmail_data = {
-        "SPF": "pass",
-        "dkim": "none",
-        "spam": "0.1",
-        "spam_report": "DKIM missing",
-        "date": 1726040000000,
-    }
-
-    eval_res = tester.evaluate_inbox_health(mock_inbox, testmail_data, send_result)
-    assert eval_res["status"] == "WARNING"
-    assert eval_res["score"] < 95
-    assert "DKIM missing" in eval_res["diagnostic"] or "DKIM" in eval_res["diagnostic"]
-
-
-def test_evaluate_inbox_health_send_failure(mock_inbox):
-    tester = DeliverabilityTester()
-    send_result = {"ok": False, "error": "SMTPAuthenticationError: 535 Authentication Failed", "latency_ms": 120}
-
-    eval_res = tester.evaluate_inbox_health(mock_inbox, None, send_result)
-    assert eval_res["status"] == "CRITICAL"
-    assert eval_res["score"] == 0
-    assert eval_res["received_in_testmail"] is False
-    assert "Authentication Failed" in eval_res["spam_report"]
-
-
-def test_storage_persistence_in_memory():
-    storage = InMemoryStorageBackend()
-    report = {
-        "run_id": "AUDIT-12345",
-        "audited_at": datetime.now(timezone.utc).isoformat(),
-        "fleet_status": "HEALTHY",
-        "average_score": 98.5,
-        "inbox_count": 5,
-        "healthy_count": 5,
-        "warning_count": 0,
-        "critical_count": 0,
-        "inboxes": [
-            {"email_address": "alex@getyomnileadfeeder.cyou", "status": "HEALTHY", "score": 100}
-        ],
-    }
-
-    storage.save_deliverability_audit(report)
-    latest = storage.get_latest_deliverability_audit()
-
-    assert latest is not None
-    assert latest["run_id"] == "AUDIT-12345"
-    assert latest["fleet_status"] == "HEALTHY"
-    assert latest["average_score"] == 98.5
-    assert len(latest["inboxes"]) == 1
-
-    audits = storage.list_deliverability_audits(limit=5)
-    assert len(audits) == 1
-
-
-def test_storage_persistence_sqlite(tmp_path):
-    db_path = str(tmp_path / "test_deliv.db")
-    storage = SqliteStorageBackend(db_path=db_path)
-
-    report = {
-        "run_id": "AUDIT-SQLITE-999",
-        "audited_at": datetime.now(timezone.utc).isoformat(),
-        "fleet_status": "WARNING",
-        "average_score": 82.0,
-        "inbox_count": 2,
-        "healthy_count": 1,
-        "warning_count": 1,
-        "critical_count": 0,
-        "inboxes": [
-            {"email_address": "chris.founder@getyomnileadfeeder.cyou", "status": "HEALTHY", "score": 95},
-            {"email_address": "alex.sales@getyomnileadfeeder.cyou", "status": "WARNING", "score": 75},
-        ],
-    }
-
-    storage.save_deliverability_audit(report)
-    latest = storage.get_latest_deliverability_audit()
-
-    assert latest is not None
-    assert latest["run_id"] == "AUDIT-SQLITE-999"
-    assert latest["fleet_status"] == "WARNING"
-    assert latest["average_score"] == 82.0
-    assert len(latest["inboxes"]) == 2
-
-
-def test_run_fleet_audit_mocked_transports(monkeypatch, mock_inbox):
-    storage = InMemoryStorageBackend()
-    settings = EmailSettings(inbox_pool=[mock_inbox])
-
-    # Mock EmailClient transport hook to avoid live network
-    client = EmailClient(settings=settings)
-    client.transport_hook = lambda payload: {"ok": True, "message_id": "test-msg-123"}
-
-    tester = DeliverabilityTester(
-        settings=settings,
-        email_client=client,
-        storage_backend=storage,
+def test_content_spam_auditor_zero_link_policy():
+    """Verify zero-link policy is enforced strictly."""
+    auditor = ContentSpamAuditor()
+    subject = "morning docket records for your jurisdiction"
+    body = (
+        "Hi there,\n\n"
+        "Our automated scraper indexed today's morning public records and filings "
+        "for your target jurisdiction into a clean spreadsheet.\n\n"
+        "Would it be helpful if I passed over the sample dataset so your team can review it?\n\n"
+        "Best,\nAlex\nOmniLeadFeeder"
     )
+    res = auditor.analyze_copy(subject, body)
+    assert res.zero_link_passed is True
+    assert res.link_count == 0
+    assert res.score >= 90.0
+    assert res.status == "PASS"
 
-    # Mock fetch_testmail_report to return valid SPF/DKIM payload
-    monkeypatch.setattr(
-        tester,
-        "fetch_testmail_report",
-        lambda tag, **kwargs: {
-            "SPF": "pass",
-            "dkim": "pass",
-            "spam": "0.0",
-            "spam_report": "Clean test payload",
-            "date": 1726040000000,
-        },
-    )
 
-    report = tester.run_fleet_audit(force=True, wait_seconds=0)
+def test_content_spam_auditor_flags_links():
+    """Verify links in body are caught and penalize score."""
+    auditor = ContentSpamAuditor()
+    subject = "Special Offer"
+    body = "Click here https://example.com to view records now!"
+    res = auditor.analyze_copy(subject, body)
+    assert res.zero_link_passed is False
+    assert res.link_count == 1
+    assert any("Remove all 1 hyperlink" in r for r in res.recommendations)
 
-    assert report["ok"] is True
-    assert report["fleet_status"] == "HEALTHY"
-    assert report["healthy_count"] == 1
-    assert report["warning_count"] == 0
-    assert len(report["inboxes"]) == 1
-    assert report["inboxes"][0]["email_address"] == mock_inbox.email_address
 
-    # Verify persisted in storage
-    stored = storage.get_latest_deliverability_audit()
-    assert stored is not None
-    assert stored["run_id"] == report["run_id"]
+def test_rbl_blacklist_scanner_pristine():
+    """Verify RBL scanner marks clean domains as PRISTINE."""
+    scanner = RblBlacklistScanner(timeout=1.0)
+    with patch.object(scanner, "_query_rbl") as mock_q:
+        mock_q.return_value = {
+            "rbl_name": "Spamhaus ZEN",
+            "rbl_host": "zen.spamhaus.org",
+            "impact": "critical",
+            "is_listed": False,
+            "return_code": "",
+            "status": "CLEAN",
+        }
+        res = scanner.scan_target("olfmailer.com")
+        assert res.listed_count == 0
+        assert res.status == "PRISTINE"
+        assert res.score == 100.0
+
+
+def test_rbl_blacklist_scanner_listed():
+    """Verify RBL scanner marks listed domains as LISTED."""
+    scanner = RblBlacklistScanner(timeout=1.0)
+    with patch.object(scanner, "_query_rbl") as mock_q:
+        mock_q.return_value = {
+            "rbl_name": "Spamhaus ZEN",
+            "rbl_host": "zen.spamhaus.org",
+            "impact": "critical",
+            "is_listed": True,
+            "return_code": "127.0.0.2",
+            "status": "LISTED",
+        }
+        res = scanner.scan_target("127.0.0.2")
+        assert res.listed_count > 0
+        assert res.status == "LISTED"
+
+
+def test_sqlite_deliverability_persistence(tmp_path):
+    """Verify deliverability report persistence and retrieval in SQLite."""
+    db_path = tmp_path / "test_deliv.db"
+    suite = DeliverabilitySuite(domain="olfmailer.com", db_path=db_path)
+
+    suite.dns_auditor.audit_domain = MagicMock(return_value=DnsAuthVector(
+        domain="olfmailer.com",
+        spf_status="PASS",
+        spf_record="v=spf1 ~all",
+        spf_lookup_count=1,
+        spf_details="Valid",
+        dkim_status="PASS",
+        dkim_selectors=[],
+        dkim_details="Valid",
+        dmarc_status="PASS",
+        dmarc_record="v=DMARC1; p=quarantine;",
+        dmarc_policy="quarantine",
+        dmarc_details="Valid",
+        mx_status="PASS",
+        mx_records=["mx.example.com"],
+        mx_details="Valid",
+        ptr_status="PASS",
+        ptr_record="Valid",
+        score=100.0,
+        recommendations=[],
+    ))
+    suite.rbl_scanner.scan_target = MagicMock(return_value=RblBlacklistVector(
+        target_ip_or_domain="olfmailer.com",
+        total_scanned=12,
+        listed_count=0,
+        clean_count=12,
+        status="PRISTINE",
+        rbl_results=[],
+        score=100.0,
+        details="Clean",
+    ))
+    suite.content_auditor.analyze_copy = MagicMock(return_value=ContentSpamVector(
+        subject="test",
+        word_count=40,
+        link_count=0,
+        links_found=[],
+        zero_link_passed=True,
+        spam_score=0.0,
+        spam_triggers_found=[],
+        reading_grade="Grade 7",
+        has_tracking_pixels=False,
+        header_compliance={},
+        score=100.0,
+        status="PASS",
+        recommendations=[],
+    ))
+    suite.placement_prober.evaluate_providers = MagicMock(return_value=ProviderPlacementVector(
+        google_status="DELIVERABLE",
+        microsoft_status="DELIVERABLE",
+        corporate_status="DELIVERABLE",
+        acs_port443_status="OPERATIONAL",
+        average_latency_ms=35,
+        probes_summary=[],
+        score=100.0,
+        status="PRISTINE",
+    ))
+
+    report = suite.run_full_audit()
+    assert report.composite_score == 100.0
+    assert report.tier == "PRISTINE"
+
+    saved = suite.get_latest_saved_report()
+    assert saved is not None
+    assert saved["domain"] == "olfmailer.com"
+    assert saved["composite_score"] == 100.0
 
 
 def test_admin_deliverability_api_endpoints(monkeypatch):
+    """Test comprehensive deliverability endpoints in FastAPI admin routes."""
     storage = InMemoryStorageBackend()
     app = create_app(storage=storage)
     client = TestClient(app)
@@ -211,36 +187,33 @@ def test_admin_deliverability_api_endpoints(monkeypatch):
         is_admin=True,
     )
 
-    # 1. Initial status with no audits yet
+    # 1. GET /api/admin/deliverability/status
     res = client.get("/api/admin/deliverability/status")
     assert res.status_code == 200
     data = res.json()
     assert data["ok"] is True
-    assert data["report"]["fleet_status"] in ("PENDING_AUDIT", "HEALTHY", "WARNING")
+    assert "report" in data
 
-    # 2. Trigger on-demand audit in synchronous wait mode with mocked tester
-    def mock_run_fleet_audit(self, inboxes=None, force=False):
-        return {
-            "ok": True,
-            "run_id": "AUDIT-MOCK-API",
-            "audited_at": datetime.now(timezone.utc).isoformat(),
-            "fleet_status": "HEALTHY",
-            "average_score": 100.0,
-            "inbox_count": 1,
-            "healthy_count": 1,
-            "warning_count": 0,
-            "critical_count": 0,
-            "inboxes": [{"email_address": "test@domain.com", "status": "HEALTHY", "score": 100}],
-        }
-
-    monkeypatch.setattr(DeliverabilityTester, "run_fleet_audit", mock_run_fleet_audit)
-
-    trigger_res = client.post(
-        "/api/admin/deliverability/run-audit",
-        json={"force": True, "wait": True},
+    # 2. POST /api/admin/deliverability/content-audit
+    content_res = client.post(
+        "/api/admin/deliverability/content-audit",
+        json={
+            "subject": "morning docket filings",
+            "body": "Hi there,\n\nWe pulled today's public docket filings. Would you like a copy?\n\nBest,\nAlex",
+        },
     )
-    assert trigger_res.status_code == 200
-    trigger_data = trigger_res.json()
-    assert trigger_data["ok"] is True
-    assert trigger_data["report"]["run_id"] == "AUDIT-MOCK-API"
-    assert trigger_data["report"]["fleet_status"] == "HEALTHY"
+    assert content_res.status_code == 200
+    content_data = content_res.json()
+    assert content_data["ok"] is True
+    assert content_data["result"]["zero_link_passed"] is True
+    assert content_data["result"]["status"] == "PASS"
+
+    # 3. POST /api/admin/deliverability/rbl-check
+    rbl_res = client.post(
+        "/api/admin/deliverability/rbl-check",
+        json={"target": "olfmailer.com"},
+    )
+    assert rbl_res.status_code == 200
+    rbl_data = rbl_res.json()
+    assert rbl_data["ok"] is True
+    assert "status" in rbl_data["result"]

@@ -82,12 +82,12 @@ def run_daily_automation(
     except Exception as e:
         log.warning(f"Database backup error: {e}")
 
-    # 7:30 AM CST: Daily Morning Deliverability & TestMail Spam Assessment
+    # 7:30 AM CST: Daily Morning Deliverability & Placement Suite Assessment
     try:
-        from agents.email.deliverability_tester import DeliverabilityTester
-        tester = DeliverabilityTester(storage_backend=storage)
-        tester.run_fleet_audit(force=False)
-        log.info("🛡️ [DELIVERABILITY AUDIT] Daily morning TestMail spam & deliverability audit completed")
+        from agents.email.deliverability_suite import get_deliverability_suite
+        suite = get_deliverability_suite()
+        suite.run_full_audit()
+        log.info("🛡️ [DELIVERABILITY SUITE] Daily morning 4-vector deliverability audit completed")
     except Exception as e:
         log.warning(f"Deliverability audit daily sweep notice: {e}")
 

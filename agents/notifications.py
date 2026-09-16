@@ -1494,7 +1494,7 @@ class NotificationManager:
                 self.discord.send_embed(
                     title=f"{icon} Morning Deliverability & Spam Report — {fleet_status}",
                     description=(
-                        f"### {icon} TestMail Cold Email Fleet Assessment\n"
+                        f"### {icon} Enterprise 4-Vector Deliverability Assessment\n"
                         f"*{verdict_text}*\n"
                         f"────────────────────────────────────────"
                     ),
@@ -1504,7 +1504,7 @@ class NotificationManager:
                         "name": "LEADOPS DELIVERABILITY SHIELD",
                         "icon_url": "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
                     },
-                    footer="LeadOps Swarm • TestMail Integration Engine",
+                    footer="LeadOps Swarm • Deliverability & Placement Suite",
                     footer_icon_url="https://cdn-icons-png.flaticon.com/512/906/906334.png",
                     username="LeadOps Deliverability Shield",
                     avatar_url="https://cdn-icons-png.flaticon.com/512/3135/3135715.png",

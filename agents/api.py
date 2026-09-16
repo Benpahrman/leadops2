@@ -37,16 +37,16 @@ async def lifespan(app: FastAPI):
         inbound_watcher.start()
 
     # Startup Fleet Deliverability & TestMail Spam Assessment (non-blocking)
+    # Enterprise 4-Vector Deliverability Suite Initial Check
     if os.environ.get("DELIVERABILITY_AUDIT_ON_STARTUP", "true").lower() in ("true", "1", "yes") and not os.environ.get("PYTEST_CURRENT_TEST"):
         import threading
-        storage = getattr(app.state, "storage", None)
         def _bg_startup_audit():
             try:
                 import time
-                time.sleep(4)
-                from .email.deliverability_tester import DeliverabilityTester
-                tester = DeliverabilityTester(storage_backend=storage)
-                tester.run_fleet_audit(force=False)
+                time.sleep(3)
+                from .email.deliverability_suite import get_deliverability_suite
+                suite = get_deliverability_suite()
+                suite.run_full_audit()
             except Exception as e:
                 logger.warning(f"Startup deliverability audit error: {e}")
         threading.Thread(target=_bg_startup_audit, daemon=True).start()
