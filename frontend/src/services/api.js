@@ -812,6 +812,67 @@ export async function fetchDeliverabilityStatus(token = '') {
   return res.json();
 }
 
+export async function fetchComprehensiveDeliverabilityReport(domain = 'olfmailer.com', token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/deliverability/comprehensive-latest?domain=${encodeURIComponent(domain)}`, { headers });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function runComprehensiveDeliverabilityAudit(options = {}, token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/deliverability/comprehensive-audit`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(options),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function checkRBLBlacklists(target = 'olfmailer.com', token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/deliverability/rbl-check`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ target }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function checkContentSpamScore(subject = '', body = '', token = '') {
+  const headers = { 'Content-Type': 'application/json' };
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const res = await fetch(`${API_BASE}/api/admin/deliverability/content-audit`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ subject, body }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function runDeliverabilityAudit(options = {}, token = '') {
   const headers = { 'Content-Type': 'application/json' };
   const resolved = resolveAdminAuth(token);
