@@ -274,7 +274,7 @@ resource apiApp 'Microsoft.App/containerApps@2023-05-01' = {
         }
       ]
       scale: {
-        minReplicas: 1
+        minReplicas: 0 // Scale to 0 when idle to eliminate 24/7 compute fees
         maxReplicas: environmentName == 'production' ? 10 : 3
         rules: [
           {

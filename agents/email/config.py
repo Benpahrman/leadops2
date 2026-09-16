@@ -283,6 +283,8 @@ class EmailSettings:
     @classmethod
     def from_environment(cls) -> "EmailSettings":
         """Load email configuration dynamically from environment variables."""
+        from dotenv import load_dotenv
+        load_dotenv(override=True)
         user = (
             os.environ.get("INBOX_WATCHER_EMAIL")
             or os.environ.get("OUTLOOK_USER")
