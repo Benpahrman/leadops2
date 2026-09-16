@@ -24,7 +24,9 @@ export default function ChatWidget({ slug = 'lead-apex-roofing' }) {
           }));
           setMessages(formatted);
         }
-      }).catch(() => {});
+      }).catch((err) => {
+        console.debug('No prior chat history available:', err);
+      });
     }
   }, [isOpen, slug]);
 

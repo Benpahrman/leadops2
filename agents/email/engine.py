@@ -10,6 +10,7 @@ Coordinates:
 """
 
 import argparse
+import contextlib
 import email
 import email.utils
 import imaplib
@@ -45,6 +46,12 @@ DEFAULT_DB_PATH = Path(__file__).parent.parent.parent / "leadops_email_engine.db
 DEFAULT_PRIMARY_DOMAIN = "olfmailer.com"
 DEFAULT_SECONDARY_DOMAIN = "olfmailer.net"
 DEFAULT_SENDER_IDENTITY = "ben@olfmailer.com"
+
+DEFAULT_SENDER_MAILBOXES: list[dict[str, str]] = [
+    {"email": "ben@olfmailer.com", "name": "Ben | OmniLeadFeeder", "short_name": "Ben"},
+    {"email": "alex@olfmailer.com", "name": "Alex | OmniLeadFeeder", "short_name": "Alex"},
+    {"email": "contact@olfmailer.com", "name": "OmniLeadFeeder Operations", "short_name": "Operations"},
+]
 
 
 @dataclass
@@ -212,10 +219,15 @@ class EmailEngineQueue:
         self.db_path = db_path
         self._init_db()
 
-    def _get_conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path))
+    @contextlib.contextmanager
+    def _get_conn(self):
+        conn = sqlite3.connect(str(self.db_path), timeout=15.0)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _init_db(self) -> None:
         """Create required tables and run migrations if columns are missing."""
@@ -389,8 +401,16 @@ class EmailEngineQueue:
                 (status, now, lead_id),
             )
 
-    def get_next_warmup_target(self) -> dict[str, Any] | None:
+    def get_next_warmup_target(self, exclude_email: str = "") -> dict[str, Any] | None:
+        """Select next active warm receiver, excluding the current sender to prevent self-sends."""
         with self._get_conn() as conn:
+            if exclude_email:
+                row = conn.execute(
+                    "SELECT * FROM warmup_targets WHERE status = 'active' AND lower(email) != lower(?) ORDER BY last_sent_at ASC, id ASC LIMIT 1",
+                    (exclude_email.strip(),),
+                ).fetchone()
+                if row:
+                    return dict(row)
             row = conn.execute(
                 "SELECT * FROM warmup_targets WHERE status = 'active' ORDER BY last_sent_at ASC, id ASC LIMIT 1"
             ).fetchone()
@@ -556,6 +576,14 @@ class PeerInboxWarmupWatcher:
                                 responder_name=target.get("name") or "Alex",
                             )
 
+                            # Calculate humanized response jitter (45 to 180 seconds delay in live operations)
+                            resp_jitter = random.uniform(45.0, 180.0) if not os.environ.get("PYTEST_CURRENT_TEST") else 0.0
+                            if resp_jitter > 0:
+                                logger.info(
+                                    f"⏳ [RESPONSE JITTER] Holding {resp_jitter:.1f}s ({resp_jitter/60:.1f} min) before dispatching peer reply to {from_sender}..."
+                                )
+                                time.sleep(resp_jitter)
+
                             # Dispatch reply via SMTP
                             smtp_host = target.get("smtp_host") or ("smtp.gmail.com" if "gmail" in email_addr else "smtp-mail.outlook.com")
                             smtp_port = int(target.get("smtp_port") or (465 if "gmail" in email_addr else 587))
@@ -658,6 +686,7 @@ class EmailEngine:
         warmup_agent: WarmupAgent | None = None,
         knowlez_client: KnowlezDeliverabilityClient | None = None,
         sender_identity: str = DEFAULT_SENDER_IDENTITY,
+        sender_mailboxes: list[dict[str, str]] | None = None,
     ) -> None:
         self.queue = queue or EmailEngineQueue()
         self.acs_client = acs_client or AzureCommunicationEmailClient()
@@ -665,6 +694,16 @@ class EmailEngine:
         self.knowlez_client = knowlez_client or get_knowlez_client()
         self.inbox_watcher = PeerInboxWarmupWatcher(self.queue, self.warmup_agent)
         self.sender_identity = sender_identity
+        self.sender_mailboxes = sender_mailboxes or list(DEFAULT_SENDER_MAILBOXES)
+        self._sender_index = 0
+
+    def get_next_sender(self) -> dict[str, str]:
+        """Rotate across all 3 configured sending mailboxes (ben@, alex@, contact@olfmailer.com)."""
+        if not self.sender_mailboxes:
+            return {"email": self.sender_identity, "name": "Ben | OmniLeadFeeder", "short_name": "Ben"}
+        mailbox = self.sender_mailboxes[self._sender_index % len(self.sender_mailboxes)]
+        self._sender_index += 1
+        return mailbox
 
     def get_current_day(self) -> int:
         """Calculate the current day of the warm-up cycle."""
@@ -695,26 +734,27 @@ class EmailEngine:
         jitter = random.gauss(mean, std_dev)
         return max(float(stage.min_jitter_seconds), min(float(stage.max_jitter_seconds), jitter))
 
-    def dispatch_test_email(self, recipient: str) -> dict[str, Any]:
+    def dispatch_test_email(self, recipient: str, sender_address: str = "") -> dict[str, Any]:
         """Dispatch a single diagnostic test email to verify SPF, DKIM, and deliverability alignment."""
+        sender = sender_address or self.get_next_sender()["email"]
         subject = f"Deliverability Verification - {datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}"
         body = (
             "Deliverability telemetry check.\n\n"
             "Verifying Azure Communication Services DKIM signing, Cloudflare SPF alignment, and DMARC compliance.\n\n"
             "Status: System Operational"
         )
-        logger.info(f"🧪 Dispatching diagnostic test email to: {recipient}")
+        logger.info(f"🧪 Dispatching diagnostic test email from {sender} to: {recipient}")
         result = self.acs_client.send_email(
             to_email=recipient,
             to_name="Deliverability Tester",
             subject=subject,
             text_body=body,
-            sender_address=self.sender_identity,
+            sender_address=sender,
             is_transactional=True,
         )
         self.queue.log_dispatch(
             recipient=recipient,
-            sender=self.sender_identity,
+            sender=sender,
             subject=subject,
             dispatch_type="test",
             status=result.get("status", "unknown"),
@@ -774,26 +814,31 @@ class EmailEngine:
 
         # Execute selected dispatch
         if dispatch_type == "peer_warmup":
-            target = self.queue.get_next_warmup_target()
+            sender_box = self.get_next_sender()
+            sender_addr = sender_box["email"]
+            sender_short = sender_box["short_name"]
+
+            # Exclude current sender to avoid self-sends
+            target = self.queue.get_next_warmup_target(exclude_email=sender_addr)
             if not target:
                 logger.warning("⚠️ No active peer warm-up inboxes registered in queue. Enqueue targets via CLI.")
                 return
 
-            # Generate via LLM Warmup Agent
-            subject, text_body = self.warmup_agent.generate_warmup_email(sender_name="Ben")
-            logger.info(f"📤 [PEER WARM-UP] Sending to {target['email']} via LLM Agent...")
+            # Generate via LLM Warmup Agent with authentic persona
+            subject, text_body = self.warmup_agent.generate_warmup_email(sender_name=sender_short)
+            logger.info(f"📤 [PEER WARM-UP] Sending from {sender_addr} -> {target['email']} via LLM Agent...")
             res = self.acs_client.send_email(
                 to_email=target["email"],
                 to_name=target.get("name") or "Team Member",
                 subject=subject,
                 text_body=text_body,
-                sender_address=self.sender_identity,
+                sender_address=sender_addr,
             )
             jitter = self.calculate_gaussian_jitter(stage)
             self.queue.record_warmup_sent(target["id"])
             self.queue.log_dispatch(
                 recipient=target["email"],
-                sender=self.sender_identity,
+                sender=sender_addr,
                 subject=subject,
                 dispatch_type="peer_warmup",
                 status=res.get("status", "sent"),
@@ -805,6 +850,10 @@ class EmailEngine:
             if not lead:
                 logger.info("ℹ️ No pending cold leads in queue.")
                 return
+
+            sender_box = self.get_next_sender()
+            sender_addr = sender_box["email"]
+            sender_short = sender_box["short_name"]
 
             # Pre-flight bounce shield using Knowlez Deliverability Suite
             if self.knowlez_client and self.knowlez_client.is_configured:
@@ -818,7 +867,7 @@ class EmailEngine:
                         self.queue.mark_lead_sent(lead["id"], status=f"suppressed_{rej_reason}")
                         self.queue.log_dispatch(
                             recipient=lead["email"],
-                            sender=self.sender_identity,
+                            sender=sender_addr,
                             subject="Suppressed Pre-Flight",
                             dispatch_type="cold_outreach",
                             status=f"suppressed_{rej_reason}",
@@ -827,20 +876,20 @@ class EmailEngine:
                         )
                         return
 
-            subject, text_body = SpintaxGenerator.generate_outreach_spintax(lead)
-            logger.info(f"📤 [COLD OUTREACH] Sending to {lead['email']} ({lead.get('company')})...")
+            subject, text_body = SpintaxGenerator.generate_outreach_spintax(lead, sender_name=sender_short)
+            logger.info(f"📤 [COLD OUTREACH] Sending from {sender_addr} -> {lead['email']} ({lead.get('company')})...")
             res = self.acs_client.send_email(
                 to_email=lead["email"],
                 to_name=lead.get("first_name") or "Contact",
                 subject=subject,
                 text_body=text_body,
-                sender_address=self.sender_identity,
+                sender_address=sender_addr,
             )
             jitter = self.calculate_gaussian_jitter(stage)
             self.queue.mark_lead_sent(lead["id"], status=res.get("status", "sent"))
             self.queue.log_dispatch(
                 recipient=lead["email"],
-                sender=self.sender_identity,
+                sender=sender_addr,
                 subject=subject,
                 dispatch_type="cold_outreach",
                 status=res.get("status", "sent"),

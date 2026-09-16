@@ -4,7 +4,7 @@ import { fetchSandbox } from '../services/api';
 import { useToast } from '../context/ToastContext';
 import DataTable from '../components/sandbox/DataTable';
 import SchemaSelector from '../components/sandbox/SchemaSelector';
-import EscrowCheckoutModal from '../components/sandbox/EscrowCheckoutModal';
+import SetupSprintCheckoutModal from '../components/sandbox/SetupSprintCheckoutModal';
 
 export default function SandboxPage() {
   const { slug } = useParams();
@@ -252,40 +252,40 @@ export default function SandboxPage() {
           </div>
         </div>
 
-        {/* Modern Refundable Down Payment Pipeline Ribbon */}
-        <div className="escrow-pipeline-bar">
-          <div className="escrow-step-item">
-            <div className="escrow-step-circle" style={{ background: 'rgba(56, 189, 248, 0.15)', border: '1px solid var(--cyan)', color: 'var(--cyan)' }}>
+        {/* Modern Setup Sprint Pipeline Ribbon */}
+        <div className="sprint-pipeline-bar">
+          <div className="sprint-step-item">
+            <div className="sprint-step-circle" style={{ background: 'rgba(56, 189, 248, 0.15)', border: '1px solid var(--cyan)', color: 'var(--cyan)' }}>
               1
             </div>
             <div>
-              <div style={{ fontSize: '13px', fontWeight: 800, color: '#fff' }}>Stage 1: $99 Refundable Down Payment</div>
+              <div style={{ fontSize: '13px', fontWeight: 800, color: '#fff' }}>Stage 1: $99 Setup Sprint Deposit</div>
               <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                100% credited toward Month 1 • Fully refundable if unfulfilled
+                100% credited toward Month 1 • Auto-refunded if unfulfilled
               </div>
             </div>
           </div>
 
-          <div className="escrow-step-item">
-            <div className="escrow-step-circle" style={{ background: 'rgba(168, 85, 247, 0.15)', border: '1px solid var(--purple)', color: 'var(--purple)' }}>
+          <div className="sprint-step-item">
+            <div className="sprint-step-circle" style={{ background: 'rgba(168, 85, 247, 0.15)', border: '1px solid var(--purple)', color: 'var(--purple)' }}>
               2
             </div>
             <div>
-              <div style={{ fontSize: '13px', fontWeight: 800, color: '#fff' }}>Stage 2: 7-Agent Swarm Extraction</div>
+              <div style={{ fontSize: '13px', fontWeight: 800, color: '#fff' }}>Stage 2: Autonomous Swarm Assembly</div>
               <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
                 Autonomous DOM parsing &amp; anti-bot WAF bypass
               </div>
             </div>
           </div>
 
-          <div className="escrow-step-item">
-            <div className="escrow-step-circle" style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid var(--green)', color: 'var(--green)' }}>
+          <div className="sprint-step-item">
+            <div className="sprint-step-circle" style={{ background: 'rgba(168, 85, 247, 0.15)', border: '1px solid var(--green)', color: 'var(--green)' }}>
               3
             </div>
             <div>
-              <div style={{ fontSize: '13px', fontWeight: 800, color: '#fff' }}>Stage 3: QA Pass &amp; Continuous Feed</div>
+              <div style={{ fontSize: '13px', fontWeight: 800, color: '#fff' }}>Stage 3: QA Pass (≥95%) &amp; Live Feed</div>
               <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                $151 net balance due only upon &gt;=95% verification pass
+                $151 net balance due only upon &ge;95% verification pass
               </div>
             </div>
           </div>
@@ -371,8 +371,8 @@ export default function SandboxPage() {
         </div>
       </div>
 
-      {/* Escrow Checkout Modal */}
-      <EscrowCheckoutModal
+      {/* $99 Setup Sprint Checkout Modal */}
+      <SetupSprintCheckoutModal
         isOpen={isCheckoutOpen}
         onClose={() => setIsCheckoutOpen(false)}
         slug={slug}

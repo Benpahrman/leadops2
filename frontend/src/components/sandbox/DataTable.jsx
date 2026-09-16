@@ -304,8 +304,12 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
 
     return () => {
       isMounted = false;
-      if (buttonsInstance && buttonsInstance.close) {
-        try { buttonsInstance.close(); } catch (e) {}
+      if (buttonsInstance && typeof buttonsInstance.close === 'function') {
+        try { 
+          buttonsInstance.close(); 
+        } catch (closeErr) {
+          console.debug('PayPal backlog instance cleanup:', closeErr);
+        }
       }
     };
   }, [isBacklogModalOpen, slug, companyName, sourceUrl, showToast]);

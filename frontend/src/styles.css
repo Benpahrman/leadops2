@@ -1192,6 +1192,7 @@ th.sortable-th:hover {
   font-size: 12px;
 }
 
+.sprint-pipeline-bar,
 .escrow-pipeline-bar {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -1205,12 +1206,14 @@ th.sortable-th:hover {
   position: relative;
 }
 
+.sprint-step-item,
 .escrow-step-item {
   display: flex;
   align-items: flex-start;
   gap: 14px;
 }
 
+.sprint-step-circle,
 .escrow-step-circle {
   width: 32px;
   height: 32px;

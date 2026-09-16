@@ -454,8 +454,16 @@ class MicrosoftGraphClient:
                     original_body=body,
                     responder_name=self.tokens.account_name or "Alex",
                 )
+                import os
+                import random
+                resp_jitter = random.uniform(45.0, 180.0) if not os.environ.get("PYTEST_CURRENT_TEST") else 0.0
+                if resp_jitter > 0:
+                    logger.info(
+                        f"⏳ [GRAPH RESPONSE JITTER] Holding {resp_jitter:.1f}s delay before Microsoft Graph reply from {self.account_email} -> {from_addr}..."
+                    )
+                    time.sleep(resp_jitter)
                 if self.send_mail(from_addr, f"Re: {subject.replace('Re: ', '')}", reply_text):
-                    logger.info(f"💬 [GRAPH REPLY SENT] Sent 2-way reply from {self.account_email} -> {from_addr}")
+                    logger.info(f"💬 [GRAPH REPLY SENT] Sent 2-way reply ({resp_jitter:.1f}s jitter) from {self.account_email} -> {from_addr}")
                     replied += 1
                 self.mark_as_read(msg["id"])
         return replied

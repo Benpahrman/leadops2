@@ -4,6 +4,7 @@ import { ToastProvider } from './context/ToastContext';
 import Header from './components/layout/Header';
 import Footer from './components/layout/Footer';
 import ChatWidget from './components/common/ChatWidget';
+import ErrorBoundary from './components/common/ErrorBoundary';
 
 import LandingPage from './pages/LandingPage';
 import SandboxPage from './pages/SandboxPage';
@@ -27,37 +28,39 @@ export default function App() {
         url.searchParams.delete('__clerk_handshake');
         window.history.replaceState(null, '', url.toString());
       } catch (e) {
-        // silent
+        console.debug('Clerk URL cleanup handled:', e);
       }
     }
   }, []);
 
   return (
     <ToastProvider>
-      <BrowserRouter>
-        <div className="app-shell">
-          <Header />
-          <Suspense fallback={<div className="loading-container" style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div className="spinner"></div></div>}>
-            <Routes>
-              <Route path="/" element={<LandingPage />} />
-              <Route path="/get-started" element={<PipelineIntakePage />} />
-              <Route path="/build" element={<Navigate to="/get-started" replace />} />
-              <Route path="/pipeline/new" element={<Navigate to="/get-started" replace />} />
-              <Route path="/p/:slug" element={<SandboxPage />} />
-              <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/dashboard/:leadId" element={<DashboardPage />} />
-              <Route path="/admin" element={<AdminPage />} />
-              <Route path="/terms" element={<TermsPage />} />
-              <Route path="/privacy" element={<PrivacyPage />} />
-              <Route path="/checkout/success" element={<CheckoutSuccessPage />} />
-              <Route path="/checkout/cancel" element={<CheckoutCancelPage />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </Suspense>
-          <ChatWidget />
-          <Footer />
-        </div>
-      </BrowserRouter>
+      <ErrorBoundary>
+        <BrowserRouter>
+          <div className="app-shell">
+            <Header />
+            <Suspense fallback={<div className="loading-container" style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div className="spinner"></div></div>}>
+              <Routes>
+                <Route path="/" element={<LandingPage />} />
+                <Route path="/get-started" element={<PipelineIntakePage />} />
+                <Route path="/build" element={<Navigate to="/get-started" replace />} />
+                <Route path="/pipeline/new" element={<Navigate to="/get-started" replace />} />
+                <Route path="/p/:slug" element={<SandboxPage />} />
+                <Route path="/dashboard" element={<DashboardPage />} />
+                <Route path="/dashboard/:leadId" element={<DashboardPage />} />
+                <Route path="/admin" element={<AdminPage />} />
+                <Route path="/terms" element={<TermsPage />} />
+                <Route path="/privacy" element={<PrivacyPage />} />
+                <Route path="/checkout/success" element={<CheckoutSuccessPage />} />
+                <Route path="/checkout/cancel" element={<CheckoutCancelPage />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </Suspense>
+            <ChatWidget />
+            <Footer />
+          </div>
+        </BrowserRouter>
+      </ErrorBoundary>
     </ToastProvider>
   );
 }

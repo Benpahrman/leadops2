@@ -59,7 +59,9 @@ export default function IntegrationsTab({ leadId, dashState, onRefresh, token = 
       .then((data) => {
         if (data) setSheetsInfo(data);
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.debug('Google Sheets info fetch fallback:', err);
+      });
   }, []);
 
   const handleCopy = (text, label) => {

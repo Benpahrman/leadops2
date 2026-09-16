@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { initializePipeline } from '../services/api';
 import { useToast } from '../context/ToastContext';
-import EscrowCheckoutModal from '../components/sandbox/EscrowCheckoutModal';
+import SetupSprintCheckoutModal from '../components/sandbox/SetupSprintCheckoutModal';
 
 const PACKAGES = [
   {
@@ -876,7 +876,7 @@ export default function PipelineIntakePage() {
 
       {/* PayPal Checkout Modal — opens inline with direct redirect to Customer Portal upon payment approval */}
       {checkoutSlug && (
-        <EscrowCheckoutModal
+        <SetupSprintCheckoutModal
           isOpen={isCheckoutOpen}
           onClose={handleCheckoutClose}
           slug={checkoutSlug}

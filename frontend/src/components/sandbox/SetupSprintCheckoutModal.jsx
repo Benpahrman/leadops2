@@ -3,7 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { payDeposit } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 
-export default function EscrowCheckoutModal({ isOpen, onClose, slug, companyName, defaultEmail = '', defaultTargetUrl = '', redirectTo = null }) {
+export default function SetupSprintCheckoutModal({ 
+  isOpen, 
+  onClose, 
+  slug, 
+  companyName, 
+  defaultEmail = '', 
+  defaultTargetUrl = '', 
+  redirectTo = null 
+}) {
   const navigate = useNavigate();
   const { showToast } = useToast();
 
@@ -37,7 +45,6 @@ export default function EscrowCheckoutModal({ isOpen, onClose, slug, companyName
     }
   }, [defaultEmail]);
 
-  // Render official PayPal Buttons when modal is opened
   const [loadError, setLoadError] = useState(null);
 
   useEffect(() => {
@@ -64,7 +71,9 @@ export default function EscrowCheckoutModal({ isOpen, onClose, slug, companyName
           script.id = 'paypal-js-sdk';
           script.src = `https://www.paypal.com/sdk/js?client-id=${clientId}&currency=USD`;
           script.onload = () => { if (isMounted) renderPayPal(); };
-          script.onerror = () => { if (isMounted) setLoadError('Unable to reach PayPal servers. Please check your network or disable content blockers.'); };
+          script.onerror = () => { 
+            if (isMounted) setLoadError('Unable to reach PayPal servers. Please check your network or disable content blockers.'); 
+          };
           document.head.appendChild(script);
         }
 
@@ -131,7 +140,7 @@ export default function EscrowCheckoutModal({ isOpen, onClose, slug, companyName
             // Fallback: Client-side SDK order creation
             return actions.order.create({
               purchase_units: [{
-                description: `LeadOps $99 Setup Sprint Refundable Deposit - ${companyName || 'Custom Feed'}`,
+                description: `LeadOps $99 Setup Sprint Deposit - ${companyName || 'Custom Feed'}`,
                 custom_id: 'deposit',
                 invoice_id: `setup-${slug}`,
                 amount: {
@@ -145,7 +154,7 @@ export default function EscrowCheckoutModal({ isOpen, onClose, slug, companyName
                   }
                 },
                 items: [{
-                  name: '$99 Setup Sprint Refundable Deposit',
+                  name: '$99 Setup Sprint Deposit',
                   description: '100% credited toward Month 1 ($151 net balance due only upon >=95% QA pass)',
                   unit_amount: {
                     currency_code: 'USD',
@@ -163,7 +172,7 @@ export default function EscrowCheckoutModal({ isOpen, onClose, slug, companyName
           },
           onApprove: async (data, actions) => {
             setIsProcessing(true);
-            showToast('✓ Authorizing $99.00 Refundable Deposit...', 'info');
+            showToast('✓ Authorizing $99.00 Setup Sprint Deposit...', 'info');
 
             try {
               let captureId = data.orderID;
@@ -201,7 +210,7 @@ export default function EscrowCheckoutModal({ isOpen, onClose, slug, companyName
                 depositAmount: 99.0,
               });
 
-              showToast('✓ Down Payment Secured ($99.00)! SOW Signed & Autonomous Swarm Initiated!', 'success', 6000);
+              showToast('✓ Deposit Secured ($99.00)! SOW Signed & Autonomous Dev Swarm Initiated!', 'success', 6000);
               if (res.lead_id) {
                 localStorage.setItem('leadops_active_lead_id', res.lead_id);
               }
@@ -241,8 +250,12 @@ export default function EscrowCheckoutModal({ isOpen, onClose, slug, companyName
 
     return () => {
       isMounted = false;
-      if (buttonsInstance && buttonsInstance.close) {
-        try { buttonsInstance.close(); } catch (e) {}
+      if (buttonsInstance && typeof buttonsInstance.close === 'function') {
+        try { 
+          buttonsInstance.close(); 
+        } catch (closeErr) {
+          console.debug('PayPal button cleanup completed:', closeErr);
+        }
       }
     };
   }, [isOpen, slug, companyName, showToast, onClose, navigate]);
@@ -257,29 +270,29 @@ export default function EscrowCheckoutModal({ isOpen, onClose, slug, companyName
         <div style={{ textAlign: 'center', marginBottom: '18px' }}>
           <div style={{ fontSize: '32px', marginBottom: '6px' }}>🛡️</div>
           <h2 style={{ fontSize: '20px', fontWeight: 800, color: '#fff' }}>
-            Authorize $99 Setup Sprint Refundable Down Payment
+            Authorize $99 Setup Sprint Deposit
           </h2>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
             Statement of Work (SOW) for <b style={{ color: 'var(--cyan)' }}>{companyName}</b> • <span style={{ color: 'var(--green)', fontWeight: 700 }}>100% Credited to Month 1</span>
           </div>
         </div>
 
-        {/* Down Payment Terms Box */}
+        {/* Deposit Terms Box */}
         <div style={{ background: 'var(--card-alt)', border: '1px solid var(--border)', borderRadius: '8px', padding: '14px', marginBottom: '16px', fontSize: '12px', lineHeight: 1.6 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-            <span style={{ color: 'var(--text-muted)' }}>Milestone #1 Setup Sprint Down Payment:</span>
-            <span style={{ color: '#fff', fontWeight: 800, fontFamily: 'var(--mono)' }}>$99.00 USD (Due Now, 100% Refundable)</span>
+            <span style={{ color: 'var(--text-muted)' }}>Milestone #1 Setup Sprint Deposit:</span>
+            <span style={{ color: '#fff', fontWeight: 800, fontFamily: 'var(--mono)' }}>$99.00 USD (100% Credited to Month 1)</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-            <span style={{ color: 'var(--text-muted)' }}>Milestone #2 Final Balance:</span>
-            <span style={{ color: 'var(--cyan)', fontFamily: 'var(--mono)', fontWeight: 600 }}>$151.00 ($250 plan − $99 credit; due ONLY upon QA pass)</span>
+            <span style={{ color: 'var(--text-muted)' }}>Milestone #2 Final Month 1 Balance:</span>
+            <span style={{ color: 'var(--cyan)', fontFamily: 'var(--mono)', fontWeight: 600 }}>$151.00 ($250 plan − $99 credit; due ONLY upon &ge;95% QA pass)</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
             <span style={{ color: 'var(--text-muted)' }}>Recurring Delivery Retainer:</span>
             <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--mono)' }}>$250.00/month begins 30 days after live delivery</span>
           </div>
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: '6px', marginTop: '6px', color: 'var(--green)', fontWeight: 600, fontSize: '11px' }}>
-            ✓ 100% Refundable Guarantee: Your $99 down payment is 100% credited to Month 1. If our 7-agent dev swarm does not deliver verified live data with &gt;=95% accuracy within 24 hours, it is immediately refunded in full.
+            ✓ 100% Satisfaction Guarantee: Your $99 deposit is 100% credited to Month 1. If our autonomous dev swarm does not deliver verified live data with &ge;95% accuracy within 24 hours, it is immediately refunded in full.
           </div>
         </div>
 
@@ -359,7 +372,7 @@ export default function EscrowCheckoutModal({ isOpen, onClose, slug, companyName
                 style={{ marginTop: '2px', accentColor: 'var(--cyan)' }}
               />
               <span>
-                <b>I agree to the Statement of Work (SOW) &amp; Terms:</b> I authorize the $99.00 refundable down payment (100% credited to Month 1; $151 balance due only upon &gt;=95% QA pass). Auto-refunded if unfulfilled within 24 hours.
+                <b>I agree to the Statement of Work (SOW) &amp; Terms:</b> I authorize the $99.00 setup sprint deposit (100% credited to Month 1; $151 balance due only upon &ge;95% QA pass). Auto-refunded if unfulfilled within 24 hours.
               </span>
             </label>
             <div style={{ display: 'flex', gap: '10px', marginTop: '4px', fontSize: '10px', color: 'var(--text-muted)', paddingLeft: '22px' }}>
@@ -399,7 +412,7 @@ export default function EscrowCheckoutModal({ isOpen, onClose, slug, companyName
 
           {sdkReady && !isProcessing && (
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '8px' }}>
-              Select payment method below to authorize $99 refundable down payment:
+              Select payment method below to authorize $99 setup sprint deposit:
             </div>
           )}
 

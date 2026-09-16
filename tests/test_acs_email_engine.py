@@ -294,3 +294,51 @@ class TestWarmupAgentAndWatcher:
         except Exception:
             pass
 
+    def test_multi_mailbox_rotation_across_olfmailer(self) -> None:
+        """Verify EmailEngine rotates dispatches across all 3 olfmailer mailboxes (ben@, alex@, contact@)."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        queue = EmailEngineQueue(db_path=tmp_path)
+        engine = EmailEngine(queue=queue)
+
+        senders = [engine.get_next_sender()["email"] for _ in range(6)]
+        assert senders == [
+            "ben@olfmailer.com",
+            "alex@olfmailer.com",
+            "contact@olfmailer.com",
+            "ben@olfmailer.com",
+            "alex@olfmailer.com",
+            "contact@olfmailer.com",
+        ]
+
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except Exception:
+            pass
+
+    def test_target_exclusion_prevents_self_sends(self) -> None:
+        """Verify get_next_warmup_target never returns the sender mailbox."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        queue = EmailEngineQueue(db_path=tmp_path)
+        queue.enqueue_warmup_target("ben@olfmailer.com", "Ben OLF")
+        queue.enqueue_warmup_target("alex@olfmailer.com", "Alex OLF")
+        queue.enqueue_warmup_target("contact@olfmailer.com", "Contact OLF")
+
+        target_for_ben = queue.get_next_warmup_target(exclude_email="ben@olfmailer.com")
+        assert target_for_ben is not None
+        assert target_for_ben["email"] != "ben@olfmailer.com"
+        assert target_for_ben["email"] in ("alex@olfmailer.com", "contact@olfmailer.com")
+
+        target_for_alex = queue.get_next_warmup_target(exclude_email="alex@olfmailer.com")
+        assert target_for_alex is not None
+        assert target_for_alex["email"] != "alex@olfmailer.com"
+
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except Exception:
+            pass
+
+

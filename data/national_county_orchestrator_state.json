@@ -1,11 +1,11 @@
 {
-  "current_state_code": "WA",
-  "current_state_index": 0,
-  "current_county_index": 12,
-  "active_county_name": "Grant County",
-  "active_city": "Moses Lake",
-  "active_portal_name": "Grant County Auditor Recording",
-  "active_portal_url": "https://www.grantcountywa.gov/auditor",
+  "current_state_code": "FL",
+  "current_state_index": 2,
+  "current_county_index": 8,
+  "active_county_name": "Orange County",
+  "active_city": "Orlando",
+  "active_portal_name": "Orange County Comptroller & Official Records",
+  "active_portal_url": "https://www.occompt.com/",
   "cycle_count": 0,
   "total_states_configured": 51,
   "locked_state_focus": null,
@@ -110,10 +110,450 @@
       "state": "WA",
       "county": "Grant County",
       "visited_count": 1,
+      "leads_discovered": 6,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T16:58:05.867348+00:00"
+    },
+    "WA:Grays Harbor County": {
+      "state": "WA",
+      "county": "Grays Harbor County",
+      "visited_count": 1,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T06:30:38.324720+00:00"
+      "last_visited_at": "2026-09-16T16:56:40.655679+00:00"
+    },
+    "WA:Island County": {
+      "state": "WA",
+      "county": "Island County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T16:56:57.858345+00:00"
+    },
+    "WA:Jefferson County": {
+      "state": "WA",
+      "county": "Jefferson County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T16:57:11.353893+00:00"
+    },
+    "WA:King County": {
+      "state": "WA",
+      "county": "King County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T16:57:28.853082+00:00"
+    },
+    "WA:Kitsap County": {
+      "state": "WA",
+      "county": "Kitsap County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T16:57:30.785257+00:00"
+    },
+    "WA:Kittitas County": {
+      "state": "WA",
+      "county": "Kittitas County",
+      "visited_count": 1,
+      "leads_discovered": 7,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:34:18.565045+00:00"
+    },
+    "WA:Klickitat County": {
+      "state": "WA",
+      "county": "Klickitat County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:30:58.835798+00:00"
+    },
+    "WA:Lewis County": {
+      "state": "WA",
+      "county": "Lewis County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:31:36.577590+00:00"
+    },
+    "WA:Lincoln County": {
+      "state": "WA",
+      "county": "Lincoln County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:32:11.448874+00:00"
+    },
+    "WA:Mason County": {
+      "state": "WA",
+      "county": "Mason County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:32:40.384219+00:00"
+    },
+    "WA:Okanogan County": {
+      "state": "WA",
+      "county": "Okanogan County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:33:35.504013+00:00"
+    },
+    "WA:Pacific County": {
+      "state": "WA",
+      "county": "Pacific County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:33:53.064202+00:00"
+    },
+    "WA:Pend Oreille County": {
+      "state": "WA",
+      "county": "Pend Oreille County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:34:18.566077+00:00"
+    },
+    "TX:Kittitas County": {
+      "state": "TX",
+      "county": "Kittitas County",
+      "visited_count": 1,
+      "leads_discovered": 7,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:39:59.947628+00:00"
+    },
+    "WA:Pierce County": {
+      "state": "WA",
+      "county": "Pierce County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:35:46.875046+00:00"
+    },
+    "WA:San Juan County": {
+      "state": "WA",
+      "county": "San Juan County",
+      "visited_count": 1,
+      "leads_discovered": 7,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:42:42.416317+00:00"
+    },
+    "WA:Skagit County": {
+      "state": "WA",
+      "county": "Skagit County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:37:32.950299+00:00"
+    },
+    "WA:Skamania County": {
+      "state": "WA",
+      "county": "Skamania County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:38:15.471234+00:00"
+    },
+    "WA:Snohomish County": {
+      "state": "WA",
+      "county": "Snohomish County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:38:36.561622+00:00"
+    },
+    "WA:Spokane County": {
+      "state": "WA",
+      "county": "Spokane County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:39:14.530898+00:00"
+    },
+    "WA:Stevens County": {
+      "state": "WA",
+      "county": "Stevens County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:39:22.939116+00:00"
+    },
+    "WA:Thurston County": {
+      "state": "WA",
+      "county": "Thurston County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:39:35.772653+00:00"
+    },
+    "WA:Wahkiakum County": {
+      "state": "WA",
+      "county": "Wahkiakum County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:39:59.948629+00:00"
+    },
+    "WA:Walla Walla County": {
+      "state": "WA",
+      "county": "Walla Walla County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:40:06.218740+00:00"
+    },
+    "WA:Whatcom County": {
+      "state": "WA",
+      "county": "Whatcom County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:40:49.757396+00:00"
+    },
+    "FL:Kittitas County": {
+      "state": "FL",
+      "county": "Kittitas County",
+      "visited_count": 1,
+      "leads_discovered": 9,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:46:00.688663+00:00"
+    },
+    "WA:Whitman County": {
+      "state": "WA",
+      "county": "Whitman County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:40:52.147099+00:00"
+    },
+    "WA:Yakima County": {
+      "state": "WA",
+      "county": "Yakima County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:41:24.211686+00:00"
+    },
+    "TX:Bexar County": {
+      "state": "TX",
+      "county": "Bexar County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:41:46.472518+00:00"
+    },
+    "TX:Collin County": {
+      "state": "TX",
+      "county": "Collin County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:41:49.461541+00:00"
+    },
+    "TX:Dallas County": {
+      "state": "TX",
+      "county": "Dallas County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:42:20.604551+00:00"
+    },
+    "TX:Denton County": {
+      "state": "TX",
+      "county": "Denton County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:42:42.416317+00:00"
+    },
+    "TX:El Paso County": {
+      "state": "TX",
+      "county": "El Paso County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:42:49.877582+00:00"
+    },
+    "TX:Fort Bend County": {
+      "state": "TX",
+      "county": "Fort Bend County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:43:29.000451+00:00"
+    },
+    "TX:San Juan County": {
+      "state": "TX",
+      "county": "San Juan County",
+      "visited_count": 1,
+      "leads_discovered": 8,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:48:16.102090+00:00"
+    },
+    "TX:Harris County": {
+      "state": "TX",
+      "county": "Harris County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:43:51.578733+00:00"
+    },
+    "TX:Lubbock County": {
+      "state": "TX",
+      "county": "Lubbock County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:43:59.605090+00:00"
+    },
+    "TX:Montgomery County": {
+      "state": "TX",
+      "county": "Montgomery County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:44:35.922995+00:00"
+    },
+    "TX:Nueces County": {
+      "state": "TX",
+      "county": "Nueces County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:45:00.641421+00:00"
+    },
+    "TX:Potter County": {
+      "state": "TX",
+      "county": "Potter County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:45:35.139706+00:00"
+    },
+    "TX:Tarrant County": {
+      "state": "TX",
+      "county": "Tarrant County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:45:37.977006+00:00"
+    },
+    "TX:Travis County": {
+      "state": "TX",
+      "county": "Travis County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:46:00.690839+00:00"
+    },
+    "TX:Webb County": {
+      "state": "TX",
+      "county": "Webb County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:46:11.094602+00:00"
+    },
+    "TX:Williamson County": {
+      "state": "TX",
+      "county": "Williamson County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:46:48.830611+00:00"
+    },
+    "CA:Kittitas County": {
+      "state": "CA",
+      "county": "Kittitas County",
+      "visited_count": 1,
+      "leads_discovered": 4,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:48:45.078400+00:00"
+    },
+    "FL:Alachua County": {
+      "state": "FL",
+      "county": "Alachua County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:47:00.013967+00:00"
+    },
+    "FL:Broward County": {
+      "state": "FL",
+      "county": "Broward County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:47:33.971136+00:00"
+    },
+    "FL:Collier County": {
+      "state": "FL",
+      "county": "Collier County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:47:37.345165+00:00"
+    },
+    "FL:Duval County": {
+      "state": "FL",
+      "county": "Duval County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:47:57.478750+00:00"
+    },
+    "FL:Hillsborough County": {
+      "state": "FL",
+      "county": "Hillsborough County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:48:06.141033+00:00"
+    },
+    "FL:Lee County": {
+      "state": "FL",
+      "county": "Lee County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:48:16.103606+00:00"
+    },
+    "FL:San Juan County": {
+      "state": "FL",
+      "county": "San Juan County",
+      "visited_count": 1,
+      "leads_discovered": 2,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:49:06.036168+00:00"
+    },
+    "FL:Leon County": {
+      "state": "FL",
+      "county": "Leon County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:48:41.180791+00:00"
+    },
+    "FL:Miami-Dade County": {
+      "state": "FL",
+      "county": "Miami-Dade County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:48:45.080450+00:00"
+    },
+    "FL:Orange County": {
+      "state": "FL",
+      "county": "Orange County",
+      "visited_count": 1,
+      "leads_discovered": 0,
+      "forms_submitted": 0,
+      "last_visited_at": "2026-09-16T17:49:06.037167+00:00"
     }
   },
-  "last_updated_at": "2026-09-16T06:30:38.324720+00:00"
+  "last_updated_at": "2026-09-16T17:49:06.037167+00:00"
 }

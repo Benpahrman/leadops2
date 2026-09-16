@@ -2145,7 +2145,13 @@ def list_admin_inboxes(
     fleet_summary["available_inbox"] = warmup.get_available_inbox(check_jitter=True)
 
     # Compute Fleet Warmup Progression Roadmap
-    warmup_start_raw = settings.warmup_start_date or os.environ.get("WARMUP_START_DATE", "")
+    try:
+        from ..email.engine import EmailEngineQueue
+        queue = EmailEngineQueue()
+        queue_start = queue.get_state("warmup_start_date")
+    except Exception:
+        queue_start = None
+    warmup_start_raw = queue_start or settings.warmup_start_date or os.environ.get("WARMUP_START_DATE", "")
     now = datetime.now(timezone.utc)
     if warmup_start_raw:
         try:
@@ -2522,18 +2528,27 @@ def dispatch_warmup_batch(
     errors = []
 
     target_count = max(1, min(count, 20))
+    all_inboxes = warmup_mgr.get_all_configured_accounts(outbound_only=True)
+    active_inboxes = [acc for acc in all_inboxes if acc.is_active] or [None]
+
     for i in range(target_count):
-        acc = warmup_mgr.get_available_inbox_account(check_jitter=False)
-        target = targets[i % len(targets)]
+        acc = active_inboxes[i % len(active_inboxes)]
+        sender_email = acc.email_address if acc else settings.azure_communication_sender_email
+
+        # Exclude sender from target candidates to ensure cross-peer warming
+        eligible_targets = [t for t in targets if t.get("email", "").lower().strip() != sender_email.lower().strip()]
+        if not eligible_targets:
+            eligible_targets = targets
+        target = eligible_targets[i % len(eligible_targets)]
         target_email = target.get("email")
         if not target_email:
             continue
 
-        subj, body = agent.generate_warmup_email(sender_name=acc.from_name if acc else "Alex")
+        subj, body = agent.generate_warmup_email(sender_name=acc.from_name.split()[0] if acc and acc.from_name else "Alex")
         try:
             res = client.send_email(
                 to_email=target_email,
-                to_name=target.get("first_name") or "Peer",
+                to_name=target.get("first_name") or target.get("name") or "Peer",
                 subject=subj,
                 text_body=body,
                 inbox=acc,
@@ -2543,9 +2558,9 @@ def dispatch_warmup_batch(
             warmup_mgr.record_send(inbox_id=inbox_id, recipient=target_email)
             queue.log_dispatch(
                 recipient=target_email,
-                sender=acc.email_address if acc else settings.smtp_user,
+                sender=sender_email,
                 subject=subj,
-                dispatch_type="warmup",
+                dispatch_type="peer_warmup",
                 status=res.get("status", "sent"),
                 jitter_seconds=0.0,
                 message_id=res.get("message_id", ""),
@@ -2554,7 +2569,7 @@ def dispatch_warmup_batch(
                 queue.record_warmup_sent(target["id"])
             dispatched.append({
                 "inbox_id": inbox_id,
-                "sender": acc.email_address if acc else settings.smtp_user,
+                "sender": sender_email,
                 "recipient": target_email,
                 "subject": subj,
                 "status": res.get("status", "sent"),

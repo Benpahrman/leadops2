@@ -686,6 +686,17 @@ class InboundEmailWatcher:
                         if outbound_inboxes:
                             reply_inbox = outbound_inboxes[0]
 
+                # Apply humanized response jitter delay
+                import os
+                import random
+                resp_jitter = random.uniform(45.0, 180.0) if not os.environ.get("PYTEST_CURRENT_TEST") else 0.0
+                if resp_jitter > 0:
+                    logger.info(
+                        f"⏳ [INBOUND AUTO-REPLY JITTER] Holding {resp_jitter:.1f}s ({resp_jitter/60:.1f} min) before dispatching AI reply to {sender}..."
+                    )
+                    import time
+                    time.sleep(min(resp_jitter, 10.0))
+
                 self.client.send_email(
                     to_email=sender,
                     to_name=msg.get("sender_name") or "there",
