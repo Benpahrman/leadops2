@@ -4808,7 +4808,7 @@ export default function AdminPage() {
                             <span className="badge-tag badge-green">✓ DELIVERABLE</span>
                           </div>
                           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                            Target Seed: <code style={{ color: 'var(--cyan)' }}>christopher.ben.pahrman@gmail.com</code>
+                            Target Seed: <code style={{ color: 'var(--cyan)' }}>omnileadfeeder.tech@gmail.com</code>
                           </div>
                           <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
                             Auth Alignment: SPF pass + DKIM pass • Latency: ~35ms
@@ -4818,11 +4818,11 @@ export default function AdminPage() {
                         {/* Microsoft Placement */}
                         <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                            <span style={{ fontWeight: 800, color: '#fff', fontSize: '13px' }}>Microsoft 365 / Hotmail</span>
+                            <span style={{ fontWeight: 800, color: '#fff', fontSize: '13px' }}>Microsoft 365 / Outlook</span>
                             <span className="badge-tag badge-green">✓ DELIVERABLE</span>
                           </div>
                           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                            Target Seed: <code style={{ color: 'var(--cyan)' }}>submittohim520n@hotmail.com</code>
+                            Target Seed: <code style={{ color: 'var(--cyan)' }}>omnileadfeeder@outlook.com</code>
                           </div>
                           <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
                             Auth Alignment: SmartScreen Approved • Latency: ~40ms
