@@ -96,7 +96,7 @@ class DeliverabilityTester:
     ) -> dict[str, Any]:
         """Dispatch cold email probe conforming strictly to live production Touch 1 rules."""
         probe = self.generate_cold_email_probe(inbox)
-        recipient = recipient_override or f"{self.namespace}.{test_tag}@inbox.testmail.app"
+        recipient = recipient_override or f"{self.namespace.lower()}.{test_tag}@inbox.testmail.app"
         start_t = time.time()
 
         # Rule 1: Pre-flight deliverability verification before any test dispatch
@@ -176,7 +176,7 @@ class DeliverabilityTester:
         if wait_seconds > 0:
             time.sleep(wait_seconds)
 
-        url = f"{self.base_api_url}?apikey={self.api_key}&namespace={self.namespace}&tag={tag}"
+        url = f"{self.base_api_url}?apikey={self.api_key}&namespace={self.namespace.lower()}&tag={tag}"
 
         for attempt in range(1, max_retries + 1):
             try:

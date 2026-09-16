@@ -134,14 +134,15 @@ class EmailClient:
             (sender_email.endswith("@olfmailer.com") or sender_email.endswith("@olfmailer.net") or inbox is None)
             and self.settings.is_azure_communication_ready()
         ):
-            logger.info(f"🚀 [ACS ROUTING] Dispatching for '{sender_email}' via Azure Communication Services.")
+            acs_sender = sender_email if (sender_email.endswith("@olfmailer.com") or sender_email.endswith("@olfmailer.net")) else (self.settings.azure_communication_sender_email or "ben@olfmailer.com")
+            logger.info(f"🚀 [ACS ROUTING] Dispatching for '{acs_sender}' via Azure Communication Services.")
             acs_res = self.acs_client.send_email(
                 to_email=actual_recipient,
                 to_name=actual_name,
                 subject=email_subject,
                 text_body=text_body,
                 html_body=html_body,
-                sender_address=sender_email,
+                sender_address=acs_sender,
                 is_transactional=is_transactional or is_warmup,
             )
             return {
