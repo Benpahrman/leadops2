@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useAuth, useUser, SignIn } from '@clerk/clerk-react';
 import { resolveAdminAuth } from '../services/api';
 import { useToast } from '../context/ToastContext';
@@ -355,6 +355,11 @@ export default function AdminPage() {
             sweepingStaleRecords={prospector.sweepingStaleRecords}
             pipeline={pipeline.pipeline}
             backlogLeads={prospector.backlogLeads}
+            candidateScope={prospector.candidateScope}
+            setCandidateScope={prospector.setCandidateScope}
+            candidateEvaluations={prospector.candidateEvaluations}
+            evaluationsLoading={prospector.evaluationsLoading}
+            loadCandidateEvaluations={prospector.loadCandidateEvaluations}
             searchQuery={pipeline.searchQuery}
             setSearchQuery={pipeline.setSearchQuery}
             backlogPage={prospector.backlogPage}

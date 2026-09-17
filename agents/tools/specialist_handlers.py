@@ -43,7 +43,7 @@ def build_specialist_handlers(lead: Lead | None = None, llm: LLMAgentEngine | No
             "recommended_proxy": ai_assessment.get("recommended_proxy", "Residential US pool"),
             "notes": f"Network Engineer AI Agent: Source connectivity to {target_url} confirmed. {ai_assessment.get('headers_assessment', '')}",
         }
-        return json.dumps(report)
+        return json.dumps(report, default=str)
 
     def frontend_dom_specialist(plan: BuildPlan) -> str:
         from ..datasets import AUTHENTIC_REGISTRY_DATASETS
@@ -98,7 +98,7 @@ def build_specialist_handlers(lead: Lead | None = None, llm: LLMAgentEngine | No
             "strategy_notes": ai_dom.get("strategy_notes", "DOM structure mapped by AI Specialist"),
             "notes": f"Frontend DOM AI Specialist: Mapped {len(selected_fields)} target fields with multi-strategy cascade.",
         }
-        return json.dumps(report)
+        return json.dumps(report, default=str)
 
     shared_schema_plan = {}
 
@@ -121,7 +121,7 @@ def build_specialist_handlers(lead: Lead | None = None, llm: LLMAgentEngine | No
             "validation_rules": ai_schema.get("validation_rules", ["Strict Pydantic type validation"]),
             "notes": f"Systems Architect AI Agent: Pydantic contracts enforced for {len(selected_fields)} fields.",
         }
-        return json.dumps(report)
+        return json.dumps(report, default=str)
 
     def junior_developer(plan: BuildPlan) -> str:
         field_selectors = {f: f"td:nth-child({idx})" for idx, f in enumerate(selected_fields, start=1)}
@@ -177,7 +177,7 @@ def build_specialist_handlers(lead: Lead | None = None, llm: LLMAgentEngine | No
             "sample_rows_generated": 25,
             "notes": f"Junior Developer AI Agent: Production Playwright extraction script authored for {target_url}.",
         }
-        return json.dumps(report)
+        return json.dumps(report, default=str)
 
     def internal_qa(plan: BuildPlan) -> str:
         res = engine.run_internal_qa_agent(
@@ -196,7 +196,7 @@ def build_specialist_handlers(lead: Lead | None = None, llm: LLMAgentEngine | No
             "feedback": res.get("feedback", []),
             "notes": "Internal QA Gatekeeper evaluation completed.",
         }
-        return json.dumps(report)
+        return json.dumps(report, default=str)
 
     return {
         # Backwards compatibility

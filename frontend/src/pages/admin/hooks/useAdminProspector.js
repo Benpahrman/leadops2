@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   startProspectorCampaign,
   pauseProspectorCampaign,
@@ -12,6 +12,7 @@ import {
   triggerScoutDiscovery,
   triggerBatchScout,
   toggleProspector247Mode,
+  fetchCandidateEvaluations,
 } from '../../../services/api';
 
 /**
@@ -50,20 +51,32 @@ export function useAdminProspector({
   const [selectedScoutChannel, setSelectedScoutChannel] = useState('');
   const [scoutSearchQuery, setScoutSearchQuery] = useState('');
 
+  // Candidate Scope Filter ('STAGED' | 'ALL' | 'OUTREACH_SENT' | 'EVALUATED')
+  const [candidateScope, setCandidateScope] = useState('STAGED');
+  const [candidateEvaluations, setCandidateEvaluations] = useState([]);
+  const [evaluationsLoading, setEvaluationsLoading] = useState(false);
+
   // Pagination for backlog
   const [backlogPage, setBacklogPage] = useState(1);
   const backlogPageSize = 25;
 
-  // Vetted Backlog Leads (for 14-Day High-Volume Prospector)
+  // Vetted Backlog & Evaluated Leads (for 14-Day High-Volume Prospector)
   const backlogLeads = useMemo(() => {
     return pipeline.filter((l) => {
       if (l.state === 'ARCHIVED') return false;
-      const isBacklog =
-        l.outreach_status === 'BACKLOG_VETTED' ||
-        l.state === 'REVIEW' ||
-        l.state === 'PITCH_PENDING_APPROVAL' ||
-        l.state === 'PROSPECTING';
-      if (!isBacklog) return false;
+
+      if (candidateScope === 'STAGED') {
+        const isBacklog =
+          l.outreach_status === 'BACKLOG_VETTED' ||
+          l.state === 'REVIEW' ||
+          l.state === 'PITCH_PENDING_APPROVAL' ||
+          l.state === 'PROSPECTING';
+        if (!isBacklog) return false;
+      } else if (candidateScope === 'OUTREACH_SENT') {
+        if (l.state !== 'OUTREACH_SENT') return false;
+      }
+      // if candidateScope === 'ALL', include all non-archived evaluated candidates
+
       const q = searchQuery.toLowerCase().trim();
       const matchesSearch =
         !q ||
@@ -79,7 +92,7 @@ export function useAdminProspector({
       }
       return matchesSearch && matchesChannel;
     });
-  }, [pipeline, searchQuery, selectedProspectorChannel]);
+  }, [pipeline, searchQuery, selectedProspectorChannel, candidateScope]);
 
   // Handlers
   const handleStartProspector = useCallback(async (days = 14, volume = 3) => {
@@ -295,6 +308,27 @@ export function useAdminProspector({
     ]
   );
 
+  const loadCandidateEvaluations = useCallback(async () => {
+    setEvaluationsLoading(true);
+    try {
+      const token = await resolveToken();
+      const res = await fetchCandidateEvaluations(100, selectedProspectorChannel, null, token);
+      if (res && res.evaluations) {
+        setCandidateEvaluations(res.evaluations);
+      }
+    } catch (err) {
+      console.warn('Could not load candidate evaluations:', err);
+    } finally {
+      setEvaluationsLoading(false);
+    }
+  }, [resolveToken, selectedProspectorChannel]);
+
+  useEffect(() => {
+    if (candidateScope === 'EVALUATED') {
+      loadCandidateEvaluations();
+    }
+  }, [candidateScope, selectedProspectorChannel, loadCandidateEvaluations]);
+
   return {
     prospectorStatus,
     setProspectorStatus,
@@ -319,6 +353,11 @@ export function useAdminProspector({
     setBacklogPage,
     backlogPageSize,
     backlogLeads,
+    candidateScope,
+    setCandidateScope,
+    candidateEvaluations,
+    evaluationsLoading,
+    loadCandidateEvaluations,
     handleStartProspector,
     handlePauseProspector,
     handleResumeProspector,

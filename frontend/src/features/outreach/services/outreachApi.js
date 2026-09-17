@@ -583,3 +583,19 @@ export async function setCountyOrchestratorStateFocus(stateCode = null, token = 
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
+
+export async function fetchCandidateEvaluations(limit = 100, channel = null, status = null, token = '') {
+  const headers = {};
+  const resolved = resolveAdminAuth(token);
+  if (resolved) headers['Authorization'] = `Bearer ${resolved}`;
+
+  const params = new URLSearchParams();
+  if (limit) params.set('limit', String(limit));
+  if (channel && channel !== 'ALL') params.set('channel', channel);
+  if (status) params.set('status', status);
+
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  const res = await fetch(`${API_BASE}/api/admin/scout/candidate-evaluations${qs}`, { headers });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}

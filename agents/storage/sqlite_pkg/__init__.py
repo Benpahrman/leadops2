@@ -1,4 +1,4 @@
-﻿"""Durable SQLite storage backend implementation."""
+"""Durable SQLite storage backend implementation."""
 
 from __future__ import annotations
 
@@ -192,6 +192,32 @@ class SqliteStorageBackend:
                     event_id TEXT PRIMARY KEY,
                     received_at TEXT NOT NULL
                 )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS candidate_evaluations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    company_name TEXT NOT NULL,
+                    channel TEXT NOT NULL,
+                    contact_email TEXT DEFAULT '',
+                    status TEXT NOT NULL,
+                    reason TEXT DEFAULT '',
+                    jurisdiction TEXT DEFAULT '',
+                    lead_id TEXT DEFAULT '',
+                    evaluated_at TEXT NOT NULL,
+                    metadata TEXT DEFAULT '{}'
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_cand_eval_chan ON candidate_evaluations (channel)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_cand_eval_status ON candidate_evaluations (status)
                 """
             )
             conn.commit()
@@ -645,7 +671,33 @@ class SqliteStorageBackend:
             )
             cursor.execute(
                 """
-                CREATE INDEX IF NOT EXISTS ix_deliverability_audits_date ON deliverability_audits (audited_at DESC)
+                CREATE TABLE IF NOT EXISTS candidate_evaluations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    company_name TEXT NOT NULL,
+                    channel TEXT NOT NULL,
+                    contact_email TEXT DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'QUALIFIED',
+                    reason TEXT DEFAULT '',
+                    jurisdiction TEXT DEFAULT '',
+                    lead_id TEXT DEFAULT '',
+                    evaluated_at TEXT NOT NULL,
+                    metadata TEXT DEFAULT '{}'
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_candidate_evaluations_channel ON candidate_evaluations (channel)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_candidate_evaluations_status ON candidate_evaluations (status)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS ix_candidate_evaluations_lead ON candidate_evaluations (lead_id)
                 """
             )
             conn.commit()
@@ -1474,5 +1526,105 @@ class SqliteStorageBackend:
             cursor.execute("DELETE FROM leads WHERE lead_id = ?", (lead_id,))
             conn.commit()
             return cursor.rowcount > 0
+
+    def record_candidate_evaluation(
+        self,
+        company_name: str,
+        channel: str,
+        contact_email: str = "",
+        status: str = "QUALIFIED",
+        reason: str = "",
+        jurisdiction: str = "",
+        lead_id: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Record an evaluated candidate across any of the 5 public-record channels."""
+        now_str = datetime.now(timezone.utc).isoformat()
+        meta_str = json.dumps(metadata or {})
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO candidate_evaluations (
+                    company_name, channel, contact_email, status, reason, jurisdiction, lead_id, evaluated_at, metadata
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    (company_name or "").strip(),
+                    (channel or "").strip(),
+                    (contact_email or "").strip(),
+                    (status or "QUALIFIED").strip(),
+                    (reason or "").strip(),
+                    (jurisdiction or "").strip(),
+                    (lead_id or "").strip(),
+                    now_str,
+                    meta_str,
+                ),
+            )
+            row_id = cursor.lastrowid
+            conn.commit()
+            return {
+                "id": row_id,
+                "company_name": company_name,
+                "channel": channel,
+                "contact_email": contact_email,
+                "status": status,
+                "reason": reason,
+                "jurisdiction": jurisdiction,
+                "lead_id": lead_id,
+                "evaluated_at": now_str,
+            }
+
+    def list_candidate_evaluations(
+        self, limit: int = 100, channel: str | None = None, status: str | None = None
+    ) -> list[dict[str, Any]]:
+        """List evaluated candidate records with optional channel and status filters."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            query = "SELECT id, company_name, channel, contact_email, status, reason, jurisdiction, lead_id, evaluated_at, metadata FROM candidate_evaluations"
+            params: list[Any] = []
+            conditions = []
+            if channel and channel.upper() != "ALL":
+                conditions.append("UPPER(channel) = ?")
+                params.append(channel.upper().strip())
+            if status:
+                conditions.append("status = ?")
+                params.append(status.strip())
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+            query += " ORDER BY id DESC LIMIT ?"
+            params.append(max(1, min(limit, 500)))
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            results = []
+            for r in rows:
+                meta = {}
+                try:
+                    meta = json.loads(r[9]) if r[9] else {}
+                except Exception:
+                    pass
+                results.append({
+                    "id": r[0],
+                    "company_name": r[1],
+                    "channel": r[2],
+                    "contact_email": r[3],
+                    "status": r[4],
+                    "reason": r[5],
+                    "jurisdiction": r[6],
+                    "lead_id": r[7],
+                    "evaluated_at": r[8],
+                    "metadata": meta,
+                })
+            return results
+
+    def get_candidate_evaluations_count(self) -> int:
+        """Return total count of candidates evaluated across all channels."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT count(*) FROM candidate_evaluations")
+            row = cursor.fetchone()
+            return row[0] if row else 0
+
 
 

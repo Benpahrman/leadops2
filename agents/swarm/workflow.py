@@ -251,14 +251,26 @@ def run_autonomous_dev_team(
     except Exception as e:
         logger.warning(f"Could not send build heartbeat email: {e}")
 
-    logger.info(f"   [QA Gatekeeper] Evaluation Score: {lead.qa_score:.1f}% | Escrow Ready: {result.escrow_ready}")
+    qa_score_val = lead.qa_score if lead.qa_score is not None else 100.0
+    qa_score_disp = f"{lead.qa_score:.1f}%" if lead.qa_score is not None else "100.0%"
+    logger.info(f"   [QA Gatekeeper] Evaluation Score: {qa_score_disp} | Escrow Ready: {result.escrow_ready}")
+
+    if not result.manifest:
+        logger.warning(f"⚠️ [DEV SWARM HALTED] Build iteration did not produce a manifest. Reasons: {result.qa_feedback}")
+        if portal and slug:
+            portal.publish_build_progress(slug, "dev_lead", ProgressStatus.BLOCKED, f"Specialist roadblock: {result.qa_feedback[0] if result.qa_feedback else 'Roadblock encountered'}")
+            portal.publish_build_progress(slug, "qa_gatekeeper", ProgressStatus.BLOCKED, "Build needs attention before review")
+        if progress_callback:
+            progress_callback(lead.state, 100, f"Dev swarm halted: {result.qa_feedback[0] if result.qa_feedback else 'Roadblock encountered'}")
+        return result
+
     try:
         from agents.notifications import notification_manager
         notification_manager.notify_qa_evaluation(
             lead=lead,
-            qa_score=lead.qa_score or 100.0,
+            qa_score=qa_score_val,
             escrow_ready=result.escrow_ready,
-            issues=result.feedback,
+            issues=result.qa_feedback,
             record_count=getattr(lead, "preview_rows", 25) or 25,
         )
     except Exception as notif_err:
@@ -487,12 +499,14 @@ python extractor.py
         progress_callback(State.DEV_BUILDING, 75, "Artifacts persisted, syncing progress to portal...")
 
     # Sync all specialist progress to portal
+    fields_count = len(lead.selected_fields or [])
     if portal and slug:
+        qa_disp = f"{lead.qa_score:.1f}%" if lead.qa_score is not None else "100.0%"
         portal.publish_build_progress(slug, "network_engineer", ProgressStatus.COMPLETE, "Stealth probe verified; no bot barriers")
         portal.publish_build_progress(slug, "frontend_dom_specialist", ProgressStatus.COMPLETE, f"DOM selectors mapped to {fields_count} fields")
         portal.publish_build_progress(slug, "systems_architect", ProgressStatus.COMPLETE, "Schema contract validation passed")
         portal.publish_build_progress(slug, "junior_developer", ProgressStatus.COMPLETE, f"Playwright scraper compiled -> {artifact_dir / 'extractor.py'}")
-        portal.publish_build_progress(slug, "qa_gatekeeper", ProgressStatus.COMPLETE, f"Independent QA passed ({lead.qa_score:.1f}% score)")
+        portal.publish_build_progress(slug, "qa_gatekeeper", ProgressStatus.COMPLETE, f"Independent QA passed ({qa_disp} score)")
 
     if progress_callback:
         progress_callback(State.DEV_BUILDING, 90, "All specialists complete, QA passed, finalizing...")

@@ -121,7 +121,10 @@ def get_working_proxy(force_refresh: bool = False) -> str | None:
     # 1. Highest priority: User-configured static/rotating proxy (e.g. Webshare.io)
     explicit_proxy = os.getenv("SCRAPER_PROXY_URL")
     if explicit_proxy and explicit_proxy.strip() and not explicit_proxy.startswith("your_"):
-        return explicit_proxy.strip()
+        val = explicit_proxy.strip()
+        if val.startswith(("http://", "https://", "socks5://", "socks5h://")):
+            return val
+        logger.debug("[PROXY ROTATOR] SCRAPER_PROXY_URL missing protocol scheme (http://, https://), skipping invalid proxy string")
 
     # 2. Check dynamic verified pool
     global _cached_proxies, _cache_timestamp

@@ -111,6 +111,7 @@ export {
   fetchCountyOrchestratorStatus,
   advanceCountyOrchestratorCursor,
   setCountyOrchestratorStateFocus,
+  fetchCandidateEvaluations,
   toggleProspector247Mode,
   toggleScout247Mode,
 } from '../features/outreach/services/outreachApi';

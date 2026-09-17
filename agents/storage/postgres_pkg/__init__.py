@@ -238,7 +238,27 @@ class PostgresStorageBackend:
                 )
             """))
             conn.execute(text("""
-                CREATE INDEX IF NOT EXISTS ix_deliverability_audits_date ON deliverability_audits (audited_at DESC)
+                CREATE TABLE IF NOT EXISTS candidate_evaluations (
+                    id SERIAL PRIMARY KEY,
+                    company_name VARCHAR(255) NOT NULL,
+                    channel VARCHAR(64) NOT NULL,
+                    contact_email VARCHAR(255) DEFAULT '',
+                    status VARCHAR(64) NOT NULL DEFAULT 'QUALIFIED',
+                    reason TEXT DEFAULT '',
+                    jurisdiction VARCHAR(255) DEFAULT '',
+                    lead_id VARCHAR(255) DEFAULT '',
+                    evaluated_at VARCHAR(100) NOT NULL,
+                    metadata TEXT DEFAULT '{}'
+                )
+            """))
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_pg_cand_eval_channel ON candidate_evaluations (channel)
+            """))
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_pg_cand_eval_status ON candidate_evaluations (status)
+            """))
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_pg_cand_eval_lead ON candidate_evaluations (lead_id)
             """))
 
     def save_lead(self, lead: Lead) -> None:
@@ -1036,5 +1056,106 @@ class PostgresStorageBackend:
             conn.execute(text("DELETE FROM sandboxes WHERE lead_id = :lid OR slug LIKE :pat"), {"lid": lead_id, "pat": f"%{lead_id}%"})
             res = conn.execute(text("DELETE FROM leads WHERE lead_id = :lid"), {"lid": lead_id})
             return res.rowcount > 0
+
+    def record_candidate_evaluation(
+        self,
+        company_name: str,
+        channel: str,
+        contact_email: str = "",
+        status: str = "QUALIFIED",
+        reason: str = "",
+        jurisdiction: str = "",
+        lead_id: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from sqlalchemy import text
+        now_str = datetime.now(timezone.utc).isoformat()
+        meta_str = json.dumps(metadata or {})
+        stmt = text("""
+            INSERT INTO candidate_evaluations (
+                company_name, channel, contact_email, status, reason, jurisdiction, lead_id, evaluated_at, metadata
+            ) VALUES (
+                :company_name, :channel, :contact_email, :status, :reason, :jurisdiction, :lead_id, :evaluated_at, :metadata
+            ) RETURNING id
+        """)
+        with self.engine.begin() as conn:
+            res = conn.execute(stmt, {
+                "company_name": (company_name or "").strip(),
+                "channel": (channel or "").strip(),
+                "contact_email": (contact_email or "").strip(),
+                "status": (status or "QUALIFIED").strip(),
+                "reason": (reason or "").strip(),
+                "jurisdiction": (jurisdiction or "").strip(),
+                "lead_id": (lead_id or "").strip(),
+                "evaluated_at": now_str,
+                "metadata": meta_str,
+            })
+            row_id = res.scalar() or 0
+        return {
+            "id": row_id,
+            "company_name": company_name,
+            "channel": channel,
+            "contact_email": contact_email,
+            "status": status,
+            "reason": reason,
+            "jurisdiction": jurisdiction,
+            "lead_id": lead_id,
+            "evaluated_at": now_str,
+        }
+
+    def list_candidate_evaluations(
+        self, limit: int = 100, channel: str | None = None, status: str | None = None
+    ) -> list[dict[str, Any]]:
+        from sqlalchemy import text
+        query = "SELECT id, company_name, channel, contact_email, status, reason, jurisdiction, lead_id, evaluated_at, metadata FROM candidate_evaluations"
+        params: dict[str, Any] = {"limit": max(1, min(limit, 500))}
+        conditions = []
+        if channel and channel.upper() != "ALL":
+            conditions.append("UPPER(channel) = :channel")
+            params["channel"] = channel.upper().strip()
+        if status:
+            conditions.append("status = :status")
+            params["status"] = status.strip()
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY id DESC LIMIT :limit"
+
+        try:
+            with self.engine.connect() as conn:
+                res = conn.execute(text(query), params)
+                rows = res.mappings().fetchall()
+                results = []
+                for r in rows:
+                    meta = {}
+                    try:
+                        meta = json.loads(r["metadata"]) if r["metadata"] else {}
+                    except Exception:
+                        pass
+                    results.append({
+                        "id": r["id"],
+                        "company_name": r["company_name"],
+                        "channel": r["channel"],
+                        "contact_email": r["contact_email"],
+                        "status": r["status"],
+                        "reason": r["reason"],
+                        "jurisdiction": r["jurisdiction"],
+                        "lead_id": r["lead_id"],
+                        "evaluated_at": r["evaluated_at"],
+                        "metadata": meta,
+                    })
+                return results
+        except Exception as ex:
+            logger.debug(f"Postgres list_candidate_evaluations error: {ex}")
+            return []
+
+    def get_candidate_evaluations_count(self) -> int:
+        from sqlalchemy import text
+        try:
+            with self.engine.connect() as conn:
+                res = conn.execute(text("SELECT count(*) FROM candidate_evaluations"))
+                return int(res.scalar() or 0)
+        except Exception as ex:
+            logger.debug(f"Postgres get_candidate_evaluations_count error: {ex}")
+            return 0
 
 

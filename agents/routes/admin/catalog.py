@@ -65,10 +65,14 @@ def launch_dev_swarm(
     slug = getattr(lead, "slug", "") or lead.lead_id
     if lead.state in {State.PROSPECTING, State.REVIEW, State.PITCH_PENDING_APPROVAL, State.OUTREACH_SENT, State.CONVERSATIONAL_INTAKE}:
         lead.transition(State.SOW_GENERATED, "Admin initiated build")
-    if not lead.deposit_paid:
+    if lead.state == State.SOW_GENERATED:
         lead.record_payment(PaymentEvent.DEPOSIT_PAID)
-    if lead.state != State.DEV_BUILDING:
+    else:
+        lead.deposit_paid = True
+    if lead.state == State.DEPOSIT_PAID:
         lead.transition(State.DEV_BUILDING, "Admin launched dev swarm")
+    elif lead.state == State.BLOCKED_NEEDS_REVIEW:
+        lead.transition(State.DEV_BUILDING, "Admin retried build")
     storage_backend.save_lead(lead)
     
     def _run_swarm_bg():

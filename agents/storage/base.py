@@ -143,5 +143,25 @@ class StorageBackend(Protocol):
 
     def list_deliverability_audits(self, limit: int = 10) -> list[dict[str, Any]]: ...
 
+    # Candidate evaluation audit operations
+    def record_candidate_evaluation(
+        self,
+        company_name: str,
+        channel: str,
+        contact_email: str = "",
+        status: str = "QUALIFIED",
+        reason: str = "",
+        jurisdiction: str = "",
+        lead_id: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]: ...
+
+    def list_candidate_evaluations(
+        self, limit: int = 100, channel: str | None = None, status: str | None = None
+    ) -> list[dict[str, Any]]: ...
+
+    def get_candidate_evaluations_count(self) -> int: ...
+
+
 
 

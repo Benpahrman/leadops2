@@ -488,3 +488,25 @@ def get_archived_leads(
     """Retrieve all archived leads with failure reasons and recovery history."""
     archived = admin_service.get_archived_leads()
     return {"ok": True, "count": len(archived), "leads": archived}
+
+
+@router.get("/api/admin/scout/candidate-evaluations", tags=["Admin Operations"])
+def list_candidate_evaluations_endpoint(
+    limit: int = 100,
+    channel: Optional[str] = None,
+    status: Optional[str] = None,
+    storage_backend=Depends(get_storage),
+    _: ClerkUser = Depends(require_admin),
+):
+    """Retrieve audit trail of evaluated candidates across the 5 public-record channels."""
+    if hasattr(storage_backend, "list_candidate_evaluations"):
+        evals = storage_backend.list_candidate_evaluations(limit=limit, channel=channel, status=status)
+    else:
+        evals = []
+    total = storage_backend.get_candidate_evaluations_count() if hasattr(storage_backend, "get_candidate_evaluations_count") else len(evals)
+    return {
+        "ok": True,
+        "count": len(evals),
+        "total_evaluated": total,
+        "evaluations": evals,
+    }

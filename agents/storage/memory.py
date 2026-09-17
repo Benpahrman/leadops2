@@ -371,10 +371,52 @@ class InMemoryStorageBackend:
             return None
         return dict(self._deliverability_audits[-1])
 
-    def list_deliverability_audits(self, limit: int = 10) -> list[dict[str, Any]]:
-        if not hasattr(self, "_deliverability_audits"):
+    def record_candidate_evaluation(
+        self,
+        company_name: str,
+        channel: str,
+        contact_email: str = "",
+        status: str = "QUALIFIED",
+        reason: str = "",
+        jurisdiction: str = "",
+        lead_id: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if not hasattr(self, "_candidate_evaluations"):
+            self._candidate_evaluations = []
+        now_str = datetime.now(timezone.utc).isoformat()
+        rec_id = len(self._candidate_evaluations) + 1
+        record = {
+            "id": rec_id,
+            "company_name": company_name,
+            "channel": channel,
+            "contact_email": contact_email,
+            "status": status,
+            "reason": reason,
+            "jurisdiction": jurisdiction,
+            "lead_id": lead_id,
+            "evaluated_at": now_str,
+            "metadata": dict(metadata or {}),
+        }
+        self._candidate_evaluations.append(record)
+        return record
+
+    def list_candidate_evaluations(
+        self, limit: int = 100, channel: str | None = None, status: str | None = None
+    ) -> list[dict[str, Any]]:
+        if not hasattr(self, "_candidate_evaluations"):
             return []
-        return [dict(a) for a in reversed(self._deliverability_audits[-limit:])]
+        res = list(self._candidate_evaluations)
+        if channel and channel.upper() != "ALL":
+            res = [r for r in res if r.get("channel", "").upper() == channel.upper().strip()]
+        if status:
+            res = [r for r in res if r.get("status", "") == status.strip()]
+        return list(reversed(res))[:limit]
+
+    def get_candidate_evaluations_count(self) -> int:
+        if not hasattr(self, "_candidate_evaluations"):
+            return 0
+        return len(self._candidate_evaluations)
 
 
 

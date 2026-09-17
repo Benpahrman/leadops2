@@ -177,11 +177,20 @@ class HighVolumeProspectorEngine:
     def get_status(self) -> dict[str, Any]:
         is_open, wait_sec, status_msg = is_office_hours()
         
-        # Count current backlog leads from storage
-        backlog_count = 0
+        # Sync candidate evaluations count and backlog leads from storage
+        if hasattr(self.storage, "get_candidate_evaluations_count"):
+            try:
+                eval_count = self.storage.get_candidate_evaluations_count()
+                if eval_count > 0:
+                    self.metrics.total_evaluated = max(self.metrics.total_evaluated, eval_count)
+            except Exception:
+                pass
+
         if hasattr(self.storage, "list_leads"):
             try:
                 leads = self.storage.list_leads()
+                if not hasattr(self.storage, "get_candidate_evaluations_count") or self.metrics.total_evaluated == 0:
+                    self.metrics.total_evaluated = max(self.metrics.total_evaluated, len(leads))
                 backlog_count = sum(
                     1 for l in leads
                     if l.state in (State.REVIEW, State.PITCH_PENDING_APPROVAL, State.PROSPECTING)

@@ -20,6 +20,11 @@ export default function ProspectorTab({
   sweepingStaleRecords,
   pipeline = [],
   backlogLeads = [],
+  candidateScope = 'STAGED',
+  setCandidateScope,
+  candidateEvaluations = [],
+  evaluationsLoading = false,
+  loadCandidateEvaluations,
   searchQuery,
   setSearchQuery,
   backlogPage,
@@ -298,52 +303,201 @@ export default function ProspectorTab({
         </div>
       </div>
 
-      {/* Backlog Table Toolbar */}
-      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '14px', background: 'var(--card)', padding: '12px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-        <input
-          type="text"
-          placeholder="🔍 Search backlog by company, contact, or jurisdiction..."
-          value={searchQuery}
-          onChange={(e) => { setSearchQuery(e.target.value); setBacklogPage(1); }}
-          style={{ flex: '1 1 220px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 12px', color: '#fff', fontSize: '12px' }}
-        />
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700 }}>CHANNEL:</span>
-          {['ALL', 'COUNTY_FILING_PARTY', 'STATE_BAR', 'SOS_ENTITY', 'LOCAL_BUSINESS'].map((c) => (
-            <button
-              key={c}
-              className={`btn ${selectedProspectorChannel === c ? 'btn-primary' : 'btn-outline'}`}
-              style={{ fontSize: '10px', padding: '4px 8px', borderRadius: '4px' }}
-              onClick={() => { setSelectedProspectorChannel(c); setBacklogPage(1); }}
-            >
-              {c.replace(/_/g, ' ')}
-            </button>
-          ))}
+      {/* Backlog Table Toolbar & Scope Switcher */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '14px', background: 'var(--card)', padding: '14px 16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+        {/* Row 1: Scope Switcher Tabs */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', borderBottom: '1px solid rgba(255, 255, 255, 0.06)', paddingBottom: '10px' }}>
+          <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700, marginRight: '4px' }}>VIEW SCOPE:</span>
+          {[
+            { key: 'STAGED', label: '🎯 Staged Backlog', count: pipeline.filter(l => l.outreach_status === 'BACKLOG_VETTED' || ['REVIEW', 'PITCH_PENDING_APPROVAL', 'PROSPECTING'].includes(l.state)).length },
+            { key: 'ALL', label: '📋 All Active Leads', count: pipeline.filter(l => l.state !== 'ARCHIVED').length },
+            { key: 'OUTREACH_SENT', label: '📬 Outreach Sent', count: pipeline.filter(l => l.state === 'OUTREACH_SENT').length },
+            { key: 'EVALUATED', label: '🔍 Evaluated Candidates Audit Log', count: prospectorStatus?.metrics?.total_evaluated ?? (candidateEvaluations.length || pipeline.length) },
+          ].map((scope) => {
+            const isActive = (candidateScope || 'STAGED') === scope.key;
+            return (
+              <button
+                key={scope.key}
+                className={`btn ${isActive ? 'btn-primary' : 'btn-outline'}`}
+                style={{
+                  fontSize: '11px',
+                  padding: '5px 12px',
+                  borderRadius: '6px',
+                  fontWeight: isActive ? 700 : 500,
+                  background: isActive ? 'var(--cyan)' : 'transparent',
+                  color: isActive ? '#000' : 'var(--text)',
+                }}
+                onClick={() => {
+                  if (setCandidateScope) setCandidateScope(scope.key);
+                  setBacklogPage(1);
+                  if (scope.key === 'EVALUATED' && loadCandidateEvaluations) {
+                    loadCandidateEvaluations();
+                  }
+                }}
+              >
+                {scope.label} <span style={{ opacity: 0.8, fontSize: '10px', marginLeft: '4px' }}>({scope.count})</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Row 2: Search & Channel Filter */}
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            type="text"
+            placeholder={candidateScope === 'EVALUATED' ? "🔍 Search evaluated candidates by company, email, or jurisdiction..." : "🔍 Search backlog by company, contact, or jurisdiction..."}
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setBacklogPage(1); }}
+            style={{ flex: '1 1 240px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 12px', color: '#fff', fontSize: '12px' }}
+          />
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontWeight: 700 }}>CHANNEL:</span>
+            {['ALL', 'COUNTY_FILING_PARTY', 'STATE_BAR', 'SOS_ENTITY', 'LOCAL_BUSINESS'].map((c) => (
+              <button
+                key={c}
+                className={`btn ${selectedProspectorChannel === c ? 'btn-primary' : 'btn-outline'}`}
+                style={{ fontSize: '10px', padding: '4px 8px', borderRadius: '4px' }}
+                onClick={() => { setSelectedProspectorChannel(c); setBacklogPage(1); }}
+              >
+                {c.replace(/_/g, ' ')}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Backlog Table with Pagination */}
+      {/* Backlog / Evaluated Table with Pagination */}
       <div className="table-responsive" style={{ background: 'var(--card)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>Company &amp; Decision Maker</th>
-              <th>Discovery Channel &amp; Docket Proof</th>
-              <th>Deliverability &amp; ESP</th>
-              <th>Opportunity Score</th>
-              <th>Same-Day Freshness</th>
-              <th>Sandbox Link</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {backlogLeads.length === 0 ? (
+        {candidateScope === 'EVALUATED' ? (
+          <table className="admin-table">
+            <thead>
               <tr>
-                <td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                  No vetted backlog leads match the current filters. Click "Run Burst Now" to scout fresh leads.
-                </td>
+                <th>Candidate Company</th>
+                <th>Channel</th>
+                <th>Verdict / Status</th>
+                <th>Disqualification / Pass Reason</th>
+                <th>Jurisdiction</th>
+                <th>Evaluated Timestamp</th>
               </tr>
-            ) : (
+            </thead>
+            <tbody>
+              {evaluationsLoading ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'var(--cyan)' }}>
+                    ⏳ Loading candidate evaluation audit trail...
+                  </td>
+                </tr>
+              ) : candidateEvaluations.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                    No candidate evaluations recorded yet. Run a scout burst or 24/7 autonomous loop to record evaluations.
+                  </td>
+                </tr>
+              ) : (
+                candidateEvaluations
+                  .filter(ev => {
+                    const q = (searchQuery || '').toLowerCase().trim();
+                    if (!q) return true;
+                    return (
+                      (ev.company_name && ev.company_name.toLowerCase().includes(q)) ||
+                      (ev.contact_email && ev.contact_email.toLowerCase().includes(q)) ||
+                      (ev.jurisdiction && ev.jurisdiction.toLowerCase().includes(q)) ||
+                      (ev.reason && ev.reason.toLowerCase().includes(q))
+                    );
+                  })
+                  .slice((backlogPage - 1) * backlogPageSize, backlogPage * backlogPageSize)
+                  .map((ev) => {
+                    const isQualified = ev.status === 'QUALIFIED';
+                    const isDup = ev.status?.includes('DUPLICATE');
+                    const isGov = ev.status?.includes('GOVERNMENT');
+                    const isUndeliv = ev.status?.includes('UNDELIVERABLE') || ev.status?.includes('EMAIL');
+
+                    const badgeColor = isQualified
+                      ? 'var(--green)'
+                      : isDup
+                      ? '#fbbf24'
+                      : isGov
+                      ? 'var(--purple)'
+                      : 'var(--red)';
+
+                    return (
+                      <tr key={ev.id}>
+                        <td>
+                          <div style={{ fontWeight: 700, color: '#fff' }}>{ev.company_name}</div>
+                          {ev.contact_email && (
+                            <div style={{ fontSize: '11px', color: 'var(--cyan)', fontFamily: 'var(--mono)' }}>
+                              {ev.contact_email}
+                            </div>
+                          )}
+                          {ev.lead_id && (
+                            <div style={{ fontSize: '10px', color: 'var(--text-dim)', fontFamily: 'var(--mono)' }}>
+                              {ev.lead_id}
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          <span className="badge-tag badge-cyan" style={{ fontSize: '10px' }}>
+                            {(ev.channel || 'SCOUT').replace(/_/g, ' ')}
+                          </span>
+                        </td>
+                        <td>
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              color: badgeColor,
+                              border: `1px solid ${badgeColor}`,
+                              background: 'rgba(255, 255, 255, 0.04)',
+                            }}
+                          >
+                            {isQualified ? '✅ QUALIFIED' : isDup ? '⏭️ BLOCKED DUP' : isGov ? '🏛️ GOV ENTITY' : isUndeliv ? '❌ UNDELIVERABLE' : ev.status}
+                          </span>
+                        </td>
+                        <td>
+                          <div style={{ fontSize: '12px', color: isQualified ? 'var(--green)' : 'var(--text-dim)', maxWidth: '380px' }}>
+                            {ev.reason || 'Candidate evaluated'}
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
+                            {ev.jurisdiction || 'N/A'}
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            {ev.evaluated_at ? new Date(ev.evaluated_at).toLocaleString() : 'Recent'}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+              )}
+            </tbody>
+          </table>
+        ) : (
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Company &amp; Decision Maker</th>
+                <th>Discovery Channel &amp; Docket Proof</th>
+                <th>Deliverability &amp; ESP</th>
+                <th>Opportunity Score</th>
+                <th>Same-Day Freshness</th>
+                <th>Sandbox Link</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {backlogLeads.length === 0 ? (
+                <tr>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                    No vetted backlog leads match the current filters. Click "Run Burst Now" to scout fresh leads.
+                  </td>
+                </tr>
+              ) : (
               backlogLeads
                 .slice((backlogPage - 1) * backlogPageSize, backlogPage * backlogPageSize)
                 .map((lead) => {
@@ -449,14 +603,17 @@ export default function ProspectorTab({
                   );
                 })
             )}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        )}
 
-        {/* Backlog Pagination Footer */}
-        {backlogLeads.length > 0 && (
+        {/* Backlog / Evaluation Pagination Footer */}
+        {((candidateScope === 'EVALUATED' ? candidateEvaluations.length : backlogLeads.length) > 0) && (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', borderTop: '1px solid var(--border)', fontSize: '12px', color: 'var(--text-dim)' }}>
             <div>
-              Showing {(backlogPage - 1) * backlogPageSize + 1} to {Math.min(backlogPage * backlogPageSize, backlogLeads.length)} of {backlogLeads.length} vetted prospects
+              {candidateScope === 'EVALUATED'
+                ? `Showing ${(backlogPage - 1) * backlogPageSize + 1} to ${Math.min(backlogPage * backlogPageSize, candidateEvaluations.length)} of ${candidateEvaluations.length} evaluated candidate records`
+                : `Showing ${(backlogPage - 1) * backlogPageSize + 1} to ${Math.min(backlogPage * backlogPageSize, backlogLeads.length)} of ${backlogLeads.length} vetted prospects`}
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <button
@@ -467,11 +624,13 @@ export default function ProspectorTab({
               >
                 ◀ Previous
               </button>
-              <span>Page {backlogPage} of {Math.ceil(backlogLeads.length / backlogPageSize) || 1}</span>
+              <span>
+                Page {backlogPage} of {Math.ceil((candidateScope === 'EVALUATED' ? candidateEvaluations.length : backlogLeads.length) / backlogPageSize) || 1}
+              </span>
               <button
                 className="btn btn-outline"
                 style={{ fontSize: '11px', padding: '4px 10px' }}
-                disabled={backlogPage >= Math.ceil(backlogLeads.length / backlogPageSize)}
+                disabled={backlogPage >= Math.ceil((candidateScope === 'EVALUATED' ? candidateEvaluations.length : backlogLeads.length) / backlogPageSize)}
                 onClick={() => setBacklogPage((p) => p + 1)}
               >
                 Next ▶

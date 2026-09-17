@@ -1,4 +1,4 @@
-﻿"""Autonomous background Scout discovery worker for continuous lead prospecting."""
+"""Autonomous background Scout discovery worker for continuous lead prospecting."""
 
 import asyncio
 import os
@@ -631,6 +631,19 @@ class ScoutBackgroundWorker:
             )
             if is_dup:
                 logger.info(f"⏭️ [SCOUT DEDUPLICATION] Prospect '{target['company_name']}' / '{target.get('contact_email')}' blocked ({dedup_reason}). Skipping duplicate.")
+                if hasattr(self.storage, "record_candidate_evaluation"):
+                    try:
+                        self.storage.record_candidate_evaluation(
+                            company_name=target["company_name"],
+                            channel=target.get("discovery_channel") or cat_entry.get("discovery_channel") or "SCOUT_EVALUATION",
+                            contact_email=target.get("contact_email") or "",
+                            status="FILTERED_DUPLICATE",
+                            reason=f"Duplicate or suppressed: {dedup_reason}",
+                            jurisdiction=target.get("jurisdiction") or cat_entry.get("jurisdiction") or "",
+                            metadata={"dedup_reason": dedup_reason, "website": target.get("website")},
+                        )
+                    except Exception as ev_err:
+                        logger.debug(f"Evaluation record note: {ev_err}")
                 return {
                     "ok": False,
                     "status": "DUPLICATE_COMPANY" if "COMPANY" in dedup_reason else "DUPLICATE_PROSPECT",
@@ -645,6 +658,19 @@ class ScoutBackgroundWorker:
                 within_days=45,
             ):
                 logger.info(f"⏭️ [SCOUT DEDUPLICATION] Company '{target['company_name']}' / domain '{target.get('website')}' already contacted within 45 days. Skipping duplicate.")
+                if hasattr(self.storage, "record_candidate_evaluation"):
+                    try:
+                        self.storage.record_candidate_evaluation(
+                            company_name=target["company_name"],
+                            channel=target.get("discovery_channel") or cat_entry.get("discovery_channel") or "SCOUT_EVALUATION",
+                            contact_email=target.get("contact_email") or "",
+                            status="FILTERED_DUPLICATE",
+                            reason="Already contacted within 45 days",
+                            jurisdiction=target.get("jurisdiction") or cat_entry.get("jurisdiction") or "",
+                            metadata={"website": target.get("website")},
+                        )
+                    except Exception as ev_err:
+                        logger.debug(f"Evaluation record note: {ev_err}")
                 return {
                     "ok": False,
                     "status": "DUPLICATE_COMPANY",
@@ -666,6 +692,19 @@ class ScoutBackgroundWorker:
                 f"❌ [SCOUT REJECTED] Entity '{target['company_name']}' ({target['contact_email']}) "
                 f"is a government/public registry body, NOT a commercial buyer. Discarding candidate."
             )
+            if hasattr(self.storage, "record_candidate_evaluation"):
+                try:
+                    self.storage.record_candidate_evaluation(
+                        company_name=target["company_name"],
+                        channel=target.get("discovery_channel") or cat_entry.get("discovery_channel") or "SCOUT_EVALUATION",
+                        contact_email=target.get("contact_email") or "",
+                        status="REJECTED_GOVERNMENT_ENTITY",
+                        reason="Government/public registry body, not a commercial buyer",
+                        jurisdiction=target.get("jurisdiction") or cat_entry.get("jurisdiction") or "",
+                        metadata={"website": target.get("website")},
+                    )
+                except Exception as ev_err:
+                    logger.debug(f"Evaluation record note: {ev_err}")
             return {
                 "ok": False,
                 "status": "REJECTED_GOVERNMENT_ENTITY",
@@ -690,14 +729,28 @@ class ScoutBackgroundWorker:
                     page_content=page_text,
                 )
                 if not web_verification.get("is_legitimate_buyer", True):
+                    disqual_reason = web_verification.get("disqualification_reason", "Website failed commercial due diligence")
                     logger.warning(
                         f"❌ [SCOUT REJECTED] Prospect website '{website_url}' failed commercial legitimacy verification: "
-                        f"{web_verification.get('disqualification_reason')}"
+                        f"{disqual_reason}"
                     )
+                    if hasattr(self.storage, "record_candidate_evaluation"):
+                        try:
+                            self.storage.record_candidate_evaluation(
+                                company_name=target["company_name"],
+                                channel=target.get("discovery_channel") or cat_entry.get("discovery_channel") or "SCOUT_EVALUATION",
+                                contact_email=target.get("contact_email") or "",
+                                status="REJECTED_NON_COMMERCIAL_WEBSITE",
+                                reason=disqual_reason,
+                                jurisdiction=target.get("jurisdiction") or cat_entry.get("jurisdiction") or "",
+                                metadata={"website": website_url},
+                            )
+                        except Exception as ev_err:
+                            logger.debug(f"Evaluation record note: {ev_err}")
                     return {
                         "ok": False,
                         "status": "REJECTED_NON_COMMERCIAL_WEBSITE",
-                        "reason": web_verification.get("disqualification_reason", "Website failed commercial due diligence"),
+                        "reason": disqual_reason,
                     }
                 logger.info(f"🌐 [WEBSITE VERIFIED] Legitimate commercial buyer: {web_verification.get('commercial_activity_detected')}")
             except Exception as e:
@@ -713,6 +766,19 @@ class ScoutBackgroundWorker:
         contact_email = (target.get("contact_email") or "").strip()
         if not contact_email or "@" not in contact_email or any(contact_email.lower().endswith(f"@{d}") for d in ("company.com", "example.com", "testcompany.com", "domain.com")):
             logger.warning(f"❌ [SCOUT REJECTED] Candidate '{discovered_name}' rejected: No genuine contact email discovered on website {company_website}.")
+            if hasattr(self.storage, "record_candidate_evaluation"):
+                try:
+                    self.storage.record_candidate_evaluation(
+                        company_name=target["company_name"],
+                        channel=target.get("discovery_channel") or cat_entry.get("discovery_channel") or "SCOUT_EVALUATION",
+                        contact_email=contact_email,
+                        status="REJECTED_NO_VERIFIED_EMAIL",
+                        reason=f"No genuine contact email found on {company_website}",
+                        jurisdiction=target.get("jurisdiction") or cat_entry.get("jurisdiction") or "",
+                        metadata={"website": company_website},
+                    )
+                except Exception as ev_err:
+                    logger.debug(f"Evaluation record note: {ev_err}")
             return {
                 "ok": False,
                 "status": "REJECTED_NO_VERIFIED_EMAIL",
@@ -723,6 +789,19 @@ class ScoutBackgroundWorker:
             v_res = verifier.verify(contact_email)
             if not v_res.is_safe_to_send or v_res.status != DeliverabilityStatus.DELIVERABLE:
                 logger.warning(f"❌ [SCOUT REJECTED] Contact email '{contact_email}' is undeliverable or risky ({v_res.status.value}): {v_res.reason}")
+                if hasattr(self.storage, "record_candidate_evaluation"):
+                    try:
+                        self.storage.record_candidate_evaluation(
+                            company_name=target["company_name"],
+                            channel=target.get("discovery_channel") or cat_entry.get("discovery_channel") or "SCOUT_EVALUATION",
+                            contact_email=contact_email,
+                            status="REJECTED_UNDELIVERABLE_EMAIL",
+                            reason=f"Email deliverability failed ({v_res.status.value}): {v_res.reason}",
+                            jurisdiction=target.get("jurisdiction") or cat_entry.get("jurisdiction") or "",
+                            metadata={"status": v_res.status.value, "website": company_website},
+                        )
+                    except Exception as ev_err:
+                        logger.debug(f"Evaluation record note: {ev_err}")
                 return {
                     "ok": False,
                     "status": "REJECTED_UNDELIVERABLE_EMAIL",
@@ -1301,6 +1380,26 @@ class ScoutBackgroundWorker:
                 logger.warning(f"Failed to dispatch Discord review alert: {notify_err}")
 
         logger.info(f"🚀 [PROSPECTOR READY] Lead ID: {candidate.lead_id} | Slug: {candidate.slug} | Contact: {target['contact_email']}")
+
+        if hasattr(self.storage, "record_candidate_evaluation"):
+            try:
+                self.storage.record_candidate_evaluation(
+                    company_name=target["company_name"],
+                    channel=target.get("discovery_channel") or cat_entry.get("discovery_channel") or "SCOUT_EVALUATION",
+                    contact_email=target.get("contact_email") or "",
+                    status="QUALIFIED",
+                    reason="Successfully passed all commercial buyer and deliverability verification gates",
+                    jurisdiction=target.get("jurisdiction") or cat_entry.get("jurisdiction") or "",
+                    lead_id=candidate.lead_id,
+                    metadata={
+                        "slug": candidate.slug,
+                        "portal_name": target.get("portal_name"),
+                        "tier_key": target.get("tier_key"),
+                        "website": target.get("website"),
+                    },
+                )
+            except Exception as ev_err:
+                logger.debug(f"Evaluation record note: {ev_err}")
 
         record = {
             "ok": True,

@@ -1,6 +1,6 @@
 {
-  "start_time": "2026-09-17T00:22:55.842759+00:00",
-  "end_time": "2026-10-01T00:22:55.842759+00:00",
+  "start_time": "2026-09-17T01:50:33.023746+00:00",
+  "end_time": "2026-10-01T01:50:33.023746+00:00",
   "campaign_duration_days": 14,
   "is_active": false,
   "volume_per_cycle": 4,
@@ -31,8 +31,8 @@
       "company_name": "Midnight Title Services",
       "contact_email": "ops@midnighttitle.com",
       "slug": "midnight-title-services",
-      "discovered_at": "2026-09-17T00:23:01.960890+00:00"
+      "discovered_at": "2026-09-17T01:50:39.278517+00:00"
     }
   },
-  "saved_at": "2026-09-17T00:23:01.960890+00:00"
+  "saved_at": "2026-09-17T01:50:39.278517+00:00"
 }
