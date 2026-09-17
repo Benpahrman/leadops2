@@ -1,5 +1,6 @@
 // Outbound Outreach, Warmup, Inboxes & Deliverability Suite API client
 import { API_BASE } from '../../../services/apiClient';
+import { resolveAdminAuth } from '../../admin/services/adminApi';
 
 export async function fetchAutoOutreachStatus(token = '') {
   const headers = { 'Content-Type': 'application/json' };
