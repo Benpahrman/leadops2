@@ -11,14 +11,17 @@ targetScope = 'resourceGroup'
 @description('The name of the Power Platform Pay-As-You-Go billing account in Azure.')
 param accountName string = 'copilot-payg-billing-${uniqueString(resourceGroup().id)}'
 
-@description('Azure region for the billing account resource.')
-param location string = resourceGroup().location
+@description('Azure region for the Power Platform billing account resource (must be a macro region like unitedstates, europe, etc.).')
+param location string = 'unitedstates'
 
 @description('Admin notification email address for Copilot credit consumption and budget threshold alerts.')
 param adminEmail string = 'admin@olfmailer.com'
 
 @description('Monthly spending budget in USD to alert the admin when Copilot consumption scales.')
 param monthlyBudgetAmount int = 250
+
+@description('Start date for the budget time period.')
+param budgetStartDate string = utcNow('yyyy-MM-01T00:00:00Z')
 
 @description('Set to true to deploy a Cost Management Budget and Action Group alert guardrail.')
 param enableBudgetGuardrail bool = true
@@ -88,7 +91,7 @@ resource copilotMonthlyBudget 'Microsoft.Consumption/budgets@2021-10-01' = if (e
     amount: monthlyBudgetAmount
     timeGrain: 'Monthly'
     timePeriod: {
-      startDate: utcNow('yyyy-MM-01T00:00:00Z')
+      startDate: budgetStartDate
     }
     notifications: {
       NotificationThreshold50: {
