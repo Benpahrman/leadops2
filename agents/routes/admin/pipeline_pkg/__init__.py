@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import csv
 import io
@@ -893,7 +893,7 @@ def handle_mobile_quick_action(
                 body_text=lead.outreach_body,
                 body_html=getattr(lead, "outreach_html", "") or f"<p>{lead.outreach_body}</p>",
                 sandbox_url=f"https://www.omnileadfeeder.tech/p/{slug}",
-                word_count=len(lead.outreach_body.split()),
+                word_count=len((getattr(lead, "outreach_body", "") or "").split()),
             )
         else:
             company = lead.company_name or "Partner"

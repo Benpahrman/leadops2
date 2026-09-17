@@ -340,7 +340,7 @@ class B2BWebScoutWorker:
                             body_text=lead.outreach_body,
                             body_html=getattr(lead, "outreach_html", "") or f"<p>{lead.outreach_body}</p>",
                             sandbox_url=f"https://www.omnileadfeeder.tech/p/{candidate.slug}",
-                            word_count=len(lead.outreach_body.split()),
+                            word_count=len((getattr(lead, "outreach_body", "") or "").split()),
                         )
 
                         auto_outreach_scheduler.schedule_lead_for_dispatch(

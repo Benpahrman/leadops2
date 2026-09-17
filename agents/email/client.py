@@ -113,9 +113,9 @@ class EmailClient:
         # HARD SAFETY LOCK: Prevent cold outreach if disabled, but allow transactional customer exports and peer warmup
         is_cold_outreach = not is_transactional and not is_warmup
         is_test = bool(os.environ.get("PYTEST_CURRENT_TEST"))
-        auto_env = os.environ.get("AUTO_OUTREACH_ENABLED", "true" if is_test else "false").lower().strip()
+        auto_env = os.environ.get("AUTO_OUTREACH_ENABLED", "true" if is_test else "false").lower().strip().strip("\"'")
         auto_outreach_active = auto_env in ("1", "true", "yes", "on", "active")
-        dispatch_env = os.environ.get("OUTREACH_DISPATCH_ENABLED", "true" if is_test else "false").lower().strip()
+        dispatch_env = os.environ.get("OUTREACH_DISPATCH_ENABLED", "true" if is_test else "false").lower().strip().strip("\"'")
         dispatch_active = self.settings.outreach_dispatch_enabled or (dispatch_env in ("1", "true", "yes", "on", "active"))
 
         # Cold outreach requires both AUTO_OUTREACH_ENABLED and dispatch enabled unless in explicit test suite

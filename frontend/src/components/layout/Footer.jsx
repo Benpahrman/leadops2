@@ -19,6 +19,9 @@ export default function Footer() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '18px', fontSize: '12px', flexWrap: 'wrap' }}>
+          <a href="/#compliance" style={{ color: 'var(--green)', fontWeight: 600 }}>
+            ⚖️ FOIA &amp; Legal Compliance
+          </a>
           <Link to="/terms" style={{ color: 'var(--cyan)' }}>
             📄 Terms &amp; SOW
           </Link>

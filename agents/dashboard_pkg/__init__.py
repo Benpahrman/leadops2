@@ -1,4 +1,4 @@
-﻿import json
+import json
 import os
 import csv
 import io
@@ -154,7 +154,8 @@ class CustomerDashboardService:
             "ai": {"hrs_per_wk": 32, "fee": 850, "error_savings": 1100},
             "buyout": {"hrs_per_wk": 20, "fee": 350, "error_savings": 600},
         }
-        spec = tier_specs.get(lead.tier_key.lower(), tier_specs["daily"])
+        tier_key_clean = (getattr(lead, "tier_key", "") or "").lower()
+        spec = tier_specs.get(tier_key_clean, tier_specs["daily"])
         hourly_rate = 35.0
         monthly_hours = round(spec["hrs_per_wk"] * 4.33, 1)
         monthly_manual_cost = int(round(monthly_hours * hourly_rate + spec["error_savings"]))

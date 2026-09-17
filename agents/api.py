@@ -51,7 +51,14 @@ async def lifespan(app: FastAPI):
                 logger.warning(f"Startup deliverability audit error: {e}")
         threading.Thread(target=_bg_startup_audit, daemon=True).start()
 
+    from .auto_outreach import auto_outreach_scheduler
+    storage_backend = getattr(app.state, "storage_backend", None)
+    email_client = getattr(app.state, "email_client", None)
+    if storage_backend and not os.environ.get("PYTEST_CURRENT_TEST"):
+        auto_outreach_scheduler.start_background_scheduler(storage_backend, email_client)
+
     yield
+    auto_outreach_scheduler.stop_background_scheduler()
     if inbound_watcher:
         await inbound_watcher.stop()
     if scout_supervisor:

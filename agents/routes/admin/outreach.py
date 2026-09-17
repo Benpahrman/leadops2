@@ -399,9 +399,10 @@ def trigger_outreach_flush(
     from agents.notifications import notification_manager
     import threading
 
+    operator_name = getattr(user, "email", "") or getattr(user, "user_id", "") or "operator"
     threading.Thread(
         target=auto_outreach_scheduler.flush_pending_office_hours_queue,
-        args=(storage_backend, notification_manager),
+        args=(storage_backend, notification_manager, operator_name),
         daemon=True,
         name="manual-outreach-flush",
     ).start()

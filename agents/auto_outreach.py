@@ -79,7 +79,7 @@ class AutoOutreachScheduler:
     @property
     def is_enabled(self) -> bool:
         """Check if automatic outreach grace-period mode is active."""
-        val = os.environ.get("AUTO_OUTREACH_ENABLED", "false").lower().strip()
+        val = os.environ.get("AUTO_OUTREACH_ENABLED", "false").lower().strip().strip("\"'")
         return val in ("1", "true", "yes", "on", "active")
 
     def set_enabled(self, enabled: bool) -> None:
@@ -343,7 +343,7 @@ class AutoOutreachScheduler:
                 body_text=lead.outreach_body,
                 body_html=getattr(lead, "outreach_html", "") or f"<p>{lead.outreach_body}</p>",
                 sandbox_url=f"https://www.omnileadfeeder.tech/p/{slug}",
-                word_count=len(lead.outreach_body.split()),
+                word_count=len((getattr(lead, "outreach_body", "") or "").split()),
             )
         else:
             pitch = render_sub_60_word_pitch(
@@ -519,6 +519,66 @@ class AutoOutreachScheduler:
         res = sequencer.tick_sequence()
         return res.get("dispatches", []) if isinstance(res, dict) else (res or [])
 
+    def start_background_scheduler(
+        self,
+        storage_backend: Any,
+        email_client: Any = None,
+        interval_seconds: int = 60,
+    ) -> None:
+        """Starts a persistent background scheduler daemon thread that checks for expired grace periods,
+        runs office-hours flushes when enabled, and ticks multi-touch sequencer follow-ups."""
+        with self._lock:
+            if getattr(self, "_scheduler_running", False):
+                return
+            self._scheduler_running = True
+
+        def _scheduler_loop():
+            logger.info("⏱️ [AUTO-OUTREACH SCHEDULER] Periodic background scheduler started (interval: %ds).", interval_seconds)
+            while getattr(self, "_scheduler_running", False):
+                try:
+                    self._ensure_worker_running()
+                    # 1. Check for expired grace periods in _scheduled
+                    now_iso = datetime.now(timezone.utc).isoformat()
+                    with self._lock:
+                        for lead_id, entry in list(self._scheduled.items()):
+                            if not entry.get("cancelled") and not entry.get("dispatched") and not entry.get("queued"):
+                                if entry.get("dispatch_at", "") <= now_iso:
+                                    entry["queued"] = True
+                                    self._dispatch_queue.put((lead_id, storage_backend, None))
+                                    logger.info("📥 [AUTO-OUTREACH QUEUED] Lead %s grace period elapsed; enqueued for dispatch.", lead_id)
+
+                    # 2. Check office hours & trigger automated queue flush if enabled
+                    if self.is_enabled and not bool(os.environ.get("PYTEST_CURRENT_TEST")):
+                        require_human = os.environ.get("LEADOPS_REQUIRE_HUMAN_APPROVAL", "true").lower().strip().strip("\"'") in ("1", "true", "yes", "on")
+                        if not require_human:
+                            self.flush_pending_office_hours_queue(storage_backend)
+
+                    # 3. Tick sequencer for follow-up touches
+                    dispatch_flag = os.environ.get("OUTREACH_DISPATCH_ENABLED", "").lower().strip().strip("\"'") in ("1", "true", "yes", "on")
+                    if self.is_enabled or dispatch_flag:
+                        try:
+                            self.tick_sequencer(storage_backend, email_client)
+                        except Exception as seq_err:
+                            logger.debug("Scheduler tick_sequencer note: %s", seq_err)
+
+                except Exception as loop_err:
+                    logger.warning("Error in auto-outreach scheduler loop: %s", loop_err)
+
+                # Sleep in short chunks so shutdown is responsive
+                for _ in range(interval_seconds):
+                    if not getattr(self, "_scheduler_running", False):
+                        break
+                    time.sleep(1)
+
+        t = threading.Thread(target=_scheduler_loop, daemon=True, name="auto-outreach-scheduler")
+        self._scheduler_thread = t
+        t.start()
+
+    def stop_background_scheduler(self) -> None:
+        """Stop the background scheduler loop."""
+        with self._lock:
+            self._scheduler_running = False
+
     def auto_prepare_review_pitches(
         self,
         storage_backend: Any,
@@ -573,7 +633,7 @@ class AutoOutreachScheduler:
                         body_text=lead.outreach_body,
                         body_html=getattr(lead, "outreach_html", "") or f"<p>{lead.outreach_body}</p>",
                         sandbox_url=f"{os.environ.get('LEADOPS_PUBLIC_BASE_URL', 'https://omnileadfeeder.tech')}/p/{slug}",
-                        word_count=len(lead.outreach_body.split()),
+                        word_count=len((getattr(lead, "outreach_body", "") or "").split()),
                     )
                 else:
                     if llm_engine is None:

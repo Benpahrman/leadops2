@@ -252,7 +252,7 @@ class InboundReplyAgent:
             "   - Data Accuracy & Verification: Records are extracted directly from official county/court dockets. Each record includes a 1-click verification URL linking directly to the county filing.\n"
             "   - Integrations & Delivery: Feeds stream daily at 6:00 AM UTC directly to Google Sheets, CRM webhooks, Zapier, Make, or CSV format.\n"
             "   - Filtering & Columns: We customize extraction to their exact target criteria and format columns to their exact CRM schema.\n"
-            "   - Pricing & Risk-Free Setup: Setup is just a $99 refundable down payment (100% credited toward your Month 1 balance). Ongoing sync is $250–$500/mo depending on cadence (cancel anytime, zero contracts).\n"
+            "   - Pricing & Risk-Free Setup: Setup is a flat $99 Setup Sprint Deposit (100% credited toward Month 1 balance). Ongoing tiers: Starter Docket Feed ($150/mo), Production Feed ($250/mo), or Enterprise Swarm ($590/mo). Live verification gate guarantees >=95% QA pass on 5-10 live rows before remaining Month 1 balance unlocks.\n"
             "   - Live Sandbox: Direct them to inspect their company's live interactive sandbox preview (no login or sales call required).\n"
             "5. TONE & STYLE: Peer-to-peer, pragmatic engineer tone (Alex). Direct, concise, highly competent, zero corporate fluff.\n"
             "6. LENGTH: Under 85 words. End with a natural, low-friction question.\n"
@@ -286,7 +286,7 @@ class InboundReplyAgent:
             dossier_items.append(f"- Preferred Delivery Destination: {preferred_destination}")
         if lead_stage:
             dossier_items.append(f"- Pipeline Stage: {lead_stage}")
-        dossier_items.append(f"- Down Payment Status: {'Paid' if deposit_paid else 'Unpaid ($99 refundable down payment upon setup)'}")
+        dossier_items.append(f"- Setup Sprint Deposit Status: {'Paid' if deposit_paid else 'Unpaid ($99 Setup Sprint Deposit, 100% credited to Month 1)'}")
         if sandbox_url:
             dossier_items.append(f"- Live Interactive Sandbox URL: {sandbox_url}")
 
@@ -386,12 +386,12 @@ class InboundReplyAgent:
                 }
 
             # Pricing inquiry fallback
-            if any(w in inbound_lower for w in ["cost", "price", "pricing", "how much", "deposit", "down payment"]):
+            if any(w in inbound_lower for w in ["cost", "price", "pricing", "how much", "deposit", "sprint"]):
                 return {
                     "intent": "QUESTION",
                     "sentiment": "NEUTRAL",
                     "draft_subject": f"Re: {inbound_subject}",
-                    "draft_reply_text": f"Hi {contact_name},\n\nSetup is just a $99 refundable down payment, 100% credited toward Month 1 (and 100% refunded if you don't approve the live feed for {company_name}). Ongoing sync is $250-$500/mo depending on frequency, cancel anytime.\n\nYou can review your company's live preview here:\n{active_url}\n\nBest,\nAlex | LeadOps",
+                    "draft_reply_text": f"Hi {contact_name},\n\nSetup is a flat $99 Setup Sprint Deposit, 100% credited toward Month 1. The remaining balance unlocks only after you review and verify a 5-10 row live test dataset with a >=95% QA pass rate. Ongoing sync tiers are Starter ($150/mo), Production ($250/mo), or Enterprise ($590/mo).\n\nYou can inspect your live interactive sandbox preview here:\n{active_url}\n\nBest,\nAlex | OmniLeadFeeder",
                     "should_auto_send": False,
                     "summary": "Prospect inquired about pricing",
                 }

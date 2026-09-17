@@ -356,8 +356,8 @@ class ColdOutreachSequencer:
 
         # Strict kill-switch: Do not auto-dispatch follow-up touches if cold outreach is disabled
         is_test = bool(os.environ.get("PYTEST_CURRENT_TEST"))
-        auto_enabled = os.environ.get("AUTO_OUTREACH_ENABLED", "false").lower().strip() in ("1", "true", "yes", "on", "active")
-        dispatch_enabled = os.environ.get("OUTREACH_DISPATCH_ENABLED", "false").lower().strip() in ("1", "true", "yes", "on", "active")
+        auto_enabled = os.environ.get("AUTO_OUTREACH_ENABLED", "false").lower().strip().strip("\"'") in ("1", "true", "yes", "on", "active")
+        dispatch_enabled = os.environ.get("OUTREACH_DISPATCH_ENABLED", "false").lower().strip().strip("\"'") in ("1", "true", "yes", "on", "active")
         if not is_test and (not auto_enabled or not dispatch_enabled):
             return {
                 "status": "FROZEN_SAFETY_LOCK",

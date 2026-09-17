@@ -37,7 +37,8 @@ def sanitize_db(db_path: str):
                 cols = [col[1] for col in c.execute(f"PRAGMA table_info({t})").fetchall()]
                 for col in ["email", "email_address", "recipient", "sender_email"]:
                     if col in cols:
-                        c.execute(f"DELETE FROM {t} WHERE lower({col}) = ?", (burnt.lower(),))
+                        delete_sql = f'DELETE FROM "{t}" WHERE lower("{col}") = ?'
+                        c.execute(delete_sql, (burnt.lower(),))
                         if c.rowcount > 0:
                             print(f"  🗑️ Deleted {c.rowcount} row(s) matching '{burnt}' from {t}.{col}")
     conn.commit()

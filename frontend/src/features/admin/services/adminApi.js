@@ -51,6 +51,10 @@ export async function triggerSwarmBuild(leadId, token = '') {
     method: 'POST',
     headers,
   });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.detail || errData.error || `HTTP ${res.status}`);
+  }
   return res.json();
 }
 

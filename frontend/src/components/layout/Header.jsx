@@ -33,10 +33,11 @@ export default function Header() {
 
         <nav className="nav-links">
           <Link to="/" className="nav-link">Platform</Link>
-          <Link to="/get-started" className="nav-link" style={{ color: 'var(--cyan)', fontWeight: 600 }}>Build Pipeline</Link>
-          <Link to="/p/lead-apex-roofing" className="nav-link">Sample Sandbox</Link>
-          <a href="/#roi-calculator" className="nav-link">ROI Calculator</a>
+          <a href="/#telemetry" className="nav-link">Live Telemetry</a>
+          <a href="/#playbooks" className="nav-link">Use Cases</a>
+          <a href="/#compliance" className="nav-link">Compliance &amp; Legal</a>
           <a href="/#pricing" className="nav-link">Pricing</a>
+          <Link to="/get-started" className="nav-link" style={{ color: 'var(--cyan)', fontWeight: 600 }}>Build Pipeline</Link>
         </nav>
 
         <div className="header-actions">

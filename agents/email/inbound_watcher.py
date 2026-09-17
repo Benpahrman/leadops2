@@ -705,6 +705,7 @@ class InboundEmailWatcher:
                     in_reply_to=msg.get("message_id"),
                     references=msg.get("message_id"),
                     inbox=reply_inbox,
+                    is_transactional=True,
                 )
                 dispatched = True
                 logger.info(f"🤖 [AI AUTO-REPLY SENT] Dispatched reply to {sender} for intent '{intent}' via inbox '{inbox_id or 'primary'}'")

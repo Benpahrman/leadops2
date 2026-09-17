@@ -195,11 +195,10 @@ async def pay_deposit(
             raw_metadata={"client_ip": client_ip, "user_agent": user_agent},
         )
 
-        # Already past deposit stage — just return success
-        if lead.state in {State.ESCROW_PREVIEW, State.DELIVERED, State.WARRANTY_ACTIVE}:
-            if not lead.deposit_paid:
-                lead.record_payment(PaymentEvent.DEPOSIT_PAID)
-                storage_backend.save_lead(lead)
+        # Already past deposit stage — return success idempotently
+        if lead.state in {State.DEV_BUILDING, State.ESCROW_PREVIEW, State.DELIVERED, State.WARRANTY_ACTIVE}:
+            lead.deposit_paid = True
+            storage_backend.save_lead(lead)
 
             logger.info(f"🚀 [CHECKOUT COMPLETE] Lead {lead.lead_id} active at {lead.state.value}")
             return {
@@ -209,8 +208,9 @@ async def pay_deposit(
                 "state": lead.state.value,
                 "qa_score": lead.qa_score or 100.0,
                 "preview_rows": lead.preview_rows or 25,
-                "escrow_ready": True,
+                "escrow_ready": lead.state != State.DEV_BUILDING,
                 "dashboard_url": f"/dashboard/{lead.lead_id}",
+                "portal_url": f"/p/{slug}",
             }
 
         # Ensure selected fields are populated
@@ -229,11 +229,15 @@ async def pay_deposit(
         if lead.state == State.CONVERSATIONAL_INTAKE:
             lead.transition(State.SOW_GENERATED, "Fast-track SOW generated for deposit")
 
-        # record_payment handles DEPOSIT_PAID transition internally
-        lead.record_payment(PaymentEvent.DEPOSIT_PAID)
+        if lead.state == State.SOW_GENERATED:
+            lead.record_payment(PaymentEvent.DEPOSIT_PAID)
+        else:
+            lead.deposit_paid = True
 
-        # Transition to DEV_BUILDING after deposit is recorded
-        lead.transition(State.DEV_BUILDING, "autonomous builder swarm started")
+        if lead.state == State.DEPOSIT_PAID:
+            lead.transition(State.DEV_BUILDING, "autonomous builder swarm started")
+        elif lead.state == State.BLOCKED_NEEDS_REVIEW:
+            lead.transition(State.DEV_BUILDING, "rebuilding autonomous dev swarm")
 
         storage_backend.save_lead(lead)
         storage_backend.save_sandbox(sandbox)

@@ -63,8 +63,16 @@ def launch_dev_swarm(
     from agents.websocket import progress_manager
     
     slug = getattr(lead, "slug", "") or lead.lead_id
-    if lead.state in {State.PROSPECTING, State.REVIEW, State.PITCH_PENDING_APPROVAL, State.OUTREACH_SENT, State.CONVERSATIONAL_INTAKE}:
-        lead.transition(State.SOW_GENERATED, "Admin initiated build")
+    if lead.state == State.PROSPECTING:
+        lead.transition(State.REVIEW, "Admin fast-track to SOW")
+    if lead.state == State.REVIEW:
+        lead.transition(State.CONVERSATIONAL_INTAKE, "Admin fast-track to SOW")
+    if lead.state == State.PITCH_PENDING_APPROVAL:
+        lead.transition(State.OUTREACH_SENT, "Admin fast-track to SOW")
+    if lead.state == State.OUTREACH_SENT:
+        lead.transition(State.CONVERSATIONAL_INTAKE, "Admin fast-track to SOW")
+    if lead.state == State.CONVERSATIONAL_INTAKE:
+        lead.transition(State.SOW_GENERATED, "Admin fast-track to SOW")
     if lead.state == State.SOW_GENERATED:
         lead.record_payment(PaymentEvent.DEPOSIT_PAID)
     else:
@@ -73,8 +81,18 @@ def launch_dev_swarm(
         lead.transition(State.DEV_BUILDING, "Admin launched dev swarm")
     elif lead.state == State.BLOCKED_NEEDS_REVIEW:
         lead.transition(State.DEV_BUILDING, "Admin retried build")
-    storage_backend.save_lead(lead)
-    
+    sandbox = None
+    try:
+        sandboxes = storage_backend.list_sandboxes()
+        sandbox = next((s for s in sandboxes if getattr(s, "lead", None) and s.lead.lead_id == lead_id), None)
+    except Exception as ex:
+        logger.debug(f"Storage backend list_sandboxes note: {ex}")
+    if not sandbox and hasattr(portal_service, "get_sandbox") and (lead.slug or lead_id):
+        try:
+            sandbox = portal_service.get_sandbox(lead.slug or lead_id)
+        except Exception as ex:
+            logger.debug(f"Portal service get_sandbox note: {ex}")
+
     def _run_swarm_bg():
         try:
             logger.info(f"🤖 [ADMIN SWARM LAUNCH] Starting build for {lead.lead_id} ({slug})...")
@@ -83,6 +101,8 @@ def launch_dev_swarm(
             
             run_autonomous_dev_team(lead, slug=slug, portal=portal_service, progress_callback=progress_cb)
             storage_backend.save_lead(lead)
+            if sandbox:
+                storage_backend.save_sandbox(sandbox)
             asyncio.run(progress_manager.send_complete(slug, True, lead.state))
         except Exception as e:
             logger.error(f"Admin swarm launch error for {lead_id}: {e}")
@@ -129,55 +149,6 @@ def trigger_delivery_run(
         return dashboard_service.trigger_manual_sync(lead_id)
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
-
-
-@router.post("/api/admin/leads/{lead_id}/swarm", tags=["Admin Operations"])
-def trigger_admin_swarm_build(
-    lead_id: str,
-    _: ClerkUser = Depends(require_admin),
-    storage_backend=Depends(get_storage),
-    portal_service=Depends(get_portal_service),
-):
-    """Trigger the 7-agent autonomous dev swarm build for a lead."""
-    import threading
-    from agents.domain import State
-    from agents.workflow import run_autonomous_dev_team
-
-    lead = storage_backend.get_lead(lead_id)
-    if not lead:
-        raise HTTPException(status_code=404, detail=f"Lead not found: {lead_id}")
-
-    sandbox = None
-    try:
-        sandboxes = storage_backend.list_sandboxes()
-        sandbox = next((s for s in sandboxes if getattr(s, "lead", None) and s.lead.lead_id == lead_id), None)
-    except Exception as ex:
-        logger.debug(f"Storage backend list_sandboxes note: {ex}")
-    if not sandbox and hasattr(portal_service, "get_sandbox") and (lead.slug or lead_id):
-        try:
-            sandbox = portal_service.get_sandbox(lead.slug or lead_id)
-        except Exception as ex:
-            logger.debug(f"Portal service get_sandbox note: {ex}")
-    slug = sandbox.slug if sandbox else (lead.slug or lead.lead_id)
-
-    def _run_build():
-        try:
-            logger.info(f"🤖 [ADMIN SWARM TRIGGER] Starting dev swarm for {lead.lead_id} ({lead.company_name})")
-            run_autonomous_dev_team(lead, slug=slug, portal=portal_service)
-            storage_backend.save_lead(lead)
-            if sandbox:
-                storage_backend.save_sandbox(sandbox)
-            logger.info(f"✓ [ADMIN SWARM COMPLETE] Lead {lead.lead_id} reached state {lead.state.value}")
-        except Exception as e:
-            logger.error(f"Admin swarm build error for {lead_id}: {e}")
-
-    threading.Thread(target=_run_build, daemon=True).start()
-    return {
-        "ok": True,
-        "lead_id": lead_id,
-        "slug": slug,
-        "message": f"Dev swarm launched for {lead.company_name or lead_id}",
-    }
 
 
 @router.get("/api/admin/scrapers", tags=["Admin Operations"])

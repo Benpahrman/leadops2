@@ -113,11 +113,15 @@ def get_user_lead(
 
     # Match by exact contact_email or claimed_by
     for sb in sandboxes:
-        if sb.lead.contact_email.lower().strip() == clean_email or getattr(sb.lead, "claimed_by", "").lower().strip() == clean_email:
+        sb_email = (getattr(sb.lead, "contact_email", "") or "").lower().strip()
+        sb_claimed = (getattr(sb.lead, "claimed_by", "") or "").lower().strip()
+        if sb_email == clean_email or sb_claimed == clean_email:
             return get_sandbox_payload(sb.slug, portal_service, storage_backend)
 
     for l in leads:
-        if l.contact_email.lower().strip() == clean_email or getattr(l, "claimed_by", "").lower().strip() == clean_email:
+        l_email = (getattr(l, "contact_email", "") or "").lower().strip()
+        l_claimed = (getattr(l, "claimed_by", "") or "").lower().strip()
+        if l_email == clean_email or l_claimed == clean_email:
             return get_sandbox_payload(l.slug, portal_service, storage_backend)
 
     raise HTTPException(status_code=404, detail="No company feed found for this user")

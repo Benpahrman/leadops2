@@ -294,7 +294,7 @@ class EmailSettings:
             or os.environ.get("LEADOPS_EMAIL_USER")
             or os.environ.get("SMTP_USER")
             or ""
-        ).strip()
+        ).strip().strip("\"'")
 
         user_lower = user.lower()
         is_outlook = any(user_lower.endswith(d) for d in ("@outlook.com", "@hotmail.com", "@live.com", "@office365.com")) or "outlook" in user_lower
@@ -307,7 +307,7 @@ class EmailSettings:
                 or os.environ.get("LEADOPS_EMAIL_PASSWORD")
                 or os.environ.get("SMTP_PASSWORD")
                 or ""
-            ).strip()
+            ).strip().strip("\"'")
         elif is_outlook:
             app_password = (
                 os.environ.get("OUTLOOK_APP_PASSWORD")
@@ -316,7 +316,7 @@ class EmailSettings:
                 or os.environ.get("LEADOPS_EMAIL_PASSWORD")
                 or os.environ.get("SMTP_PASSWORD")
                 or ""
-            ).strip()
+            ).strip().strip("\"'")
         else:
             app_password = (
                 os.environ.get("INBOX_WATCHER_PASSWORD")
@@ -325,18 +325,18 @@ class EmailSettings:
                 or os.environ.get("LEADOPS_EMAIL_PASSWORD")
                 or os.environ.get("SMTP_PASSWORD")
                 or ""
-            ).strip()
+            ).strip().strip("\"'")
 
-        from_name = os.environ.get("EMAIL_FROM_NAME", "Alex | OmniLeadFeeder").strip()
+        from_name = os.environ.get("EMAIL_FROM_NAME", "Alex | OmniLeadFeeder").strip().strip("\"'")
         from_email = (
             os.environ.get("EMAIL_FROM_EMAIL")
             or "alex@email.omnileadfeeder.tech"
-        ).strip()
+        ).strip().strip("\"'")
 
         # Cloudflare Sending Subdomains
-        outreach_domains_raw = os.environ.get("OUTREACH_SENDING_DOMAINS", "").strip()
+        outreach_domains_raw = os.environ.get("OUTREACH_SENDING_DOMAINS", "").strip().strip("\"'")
         if outreach_domains_raw:
-            outreach_sending_domains = [d.strip().lower() for d in outreach_domains_raw.split(",") if d.strip()]
+            outreach_sending_domains = [d.strip().strip("\"'").lower() for d in outreach_domains_raw.split(",") if d.strip().strip("\"'")]
         else:
             outreach_sending_domains = ["email.omnileadfeeder.tech", "contact.omnileadfeeder.tech"]
 
@@ -363,7 +363,7 @@ class EmailSettings:
         default_imap_host = "outlook.office365.com" if is_outlook else "imap.gmail.com"
         default_smtp_port = 587 if is_outlook else 465
 
-        smtp_host = os.environ.get("SMTP_HOST", default_smtp_host).strip()
+        smtp_host = os.environ.get("SMTP_HOST", default_smtp_host).strip().strip("\"'")
         smtp_port = _clean_int(os.environ.get("SMTP_PORT", str(default_smtp_port)), default_smtp_port)
         smtp_use_ssl = (
             (str(os.environ.get("SMTP_USE_SSL", "").lower()) == "true")
@@ -377,15 +377,15 @@ class EmailSettings:
         )
 
         if is_gmail:
-            imap_host = os.environ.get("IMAP_HOST", "imap.gmail.com").strip()
+            imap_host = os.environ.get("IMAP_HOST", "imap.gmail.com").strip().strip("\"'")
             if imap_host == "outlook.office365.com":
                 imap_host = "imap.gmail.com"
         elif is_outlook:
-            imap_host = os.environ.get("IMAP_HOST", "outlook.office365.com").strip()
+            imap_host = os.environ.get("IMAP_HOST", "outlook.office365.com").strip().strip("\"'")
             if imap_host == "imap.gmail.com":
                 imap_host = "outlook.office365.com"
         else:
-            imap_host = os.environ.get("IMAP_HOST", default_imap_host).strip()
+            imap_host = os.environ.get("IMAP_HOST", default_imap_host).strip().strip("\"'")
 
         imap_port = _clean_int(os.environ.get("IMAP_PORT", "993"), 993)
         imap_use_ssl = os.environ.get("IMAP_USE_SSL", "true").lower() == "true"

@@ -324,7 +324,7 @@ class AdminMissionControlService:
                     body_text=lead.outreach_body,
                     body_html=getattr(lead, "outreach_html", "") or f"<p>{lead.outreach_body}</p>",
                     sandbox_url=f"https://www.omnileadfeeder.tech/p/{slug}",
-                    word_count=len(lead.outreach_body.split()),
+                    word_count=len((getattr(lead, "outreach_body", "") or "").split()),
                 )
             else:
                 pitch = render_sub_60_word_pitch(
@@ -338,7 +338,7 @@ class AdminMissionControlService:
                     contact_role=lead.contact_role,
                 )
 
-            recipient_email = lead.contact_email.strip()
+            recipient_email = (getattr(lead, "contact_email", "") or "").strip()
             if not recipient_email:
                 raise ValueError("Cannot dispatch pitch without a verified contact email")
 
@@ -696,7 +696,7 @@ class AdminMissionControlService:
                     body_text=lead.outreach_body,
                     body_html=getattr(lead, "outreach_html", "") or f"<p>{lead.outreach_body}</p>",
                     sandbox_url=f"https://www.omnileadfeeder.tech/p/{slug}",
-                    word_count=len(lead.outreach_body.split()),
+                    word_count=len((getattr(lead, "outreach_body", "") or "").split()),
                 )
             else:
                 pitch = render_sub_60_word_pitch(
