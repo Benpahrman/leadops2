@@ -1,7 +1,7 @@
 using './copilot_payg.bicep'
 
 param accountName = 'copilot-payg-billing'
-param location = 'eastus'
+param location = 'unitedstates'
 param adminEmail = 'admin@olfmailer.com'
 param monthlyBudgetAmount = 250
 param enableBudgetGuardrail = true
