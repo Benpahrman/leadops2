@@ -8,7 +8,9 @@ export default function ProspectorTab({
   prospectorStatus,
   prospectorLoading,
   handlePauseProspector,
+  handleResumeProspector,
   handleStartProspector,
+  handleToggleProspector247,
   burstLeadCount,
   setBurstLeadCount,
   selectedProspectorChannel,
@@ -141,9 +143,11 @@ export default function ProspectorTab({
               <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#fff', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span>🚀</span> 14-Day Autonomous High-Volume Prospector &amp; Backlog Builder
               </h3>
-              <span className={`badge-tag ${prospectorStatus?.is_active ? (prospectorStatus?.is_office_hours ? 'badge-green' : 'badge-yellow') : 'badge-gray'}`}>
+              <span className={`badge-tag ${prospectorStatus?.is_active ? (prospectorStatus?.run_24_7 || prospectorStatus?.is_office_hours ? 'badge-green' : 'badge-yellow') : 'badge-gray'}`}>
                 {prospectorStatus?.is_active
-                  ? (prospectorStatus?.is_office_hours ? '🟢 Active (8:00 AM – 5:00 PM CST)' : '🌙 Off-Hours Standby (Resumes 8 AM)')
+                  ? (prospectorStatus?.run_24_7
+                      ? '⚡ Active (24/7 All-Day Prospecting)'
+                      : (prospectorStatus?.is_office_hours ? '🟢 Active (8:00 AM – 5:00 PM CST)' : '🌙 Off-Hours Standby (Resumes 8 AM)'))
                   : '⏸️ Campaign Paused'}
               </span>
               <span className="badge-tag badge-cyan">
@@ -151,12 +155,31 @@ export default function ProspectorTab({
               </span>
             </div>
             <p style={{ fontSize: '12px', color: 'var(--text-dim)', margin: '6px 0 0' }}>
-              Runs high-throughput multi-channel prospecting during CST business hours. Strict deduplication blocks duplicates; candidates immediately undergo MX/SPF/DKIM deliverability checks, website due diligence, WAF probe, and bespoke sandbox provisioning.
+              Runs high-throughput multi-channel prospecting round-the-clock or in CST office hours. Strict deduplication blocks duplicates; candidates immediately undergo MX/SPF/DKIM deliverability checks, website due diligence, WAF probe, and bespoke sandbox provisioning.
             </p>
           </div>
 
           {/* Main Campaign Action Controls */}
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              className="btn btn-outline"
+              style={{
+                borderColor: prospectorStatus?.run_24_7 ? 'var(--green)' : 'rgba(148, 163, 184, 0.4)',
+                color: prospectorStatus?.run_24_7 ? 'var(--green)' : '#94a3b8',
+                fontSize: '12px',
+                padding: '8px 14px',
+                background: prospectorStatus?.run_24_7 ? 'rgba(16, 185, 129, 0.12)' : 'transparent',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+              onClick={handleToggleProspector247}
+              disabled={prospectorLoading}
+              title={prospectorStatus?.run_24_7 ? "24/7 All-Day Prospecting active. Click to restrict to CST Office Hours only." : "Office Hours Mode active. Click to enable 24/7 All-Day Prospecting."}
+            >
+              <span>{prospectorStatus?.run_24_7 ? '⚡ 24/7 All-Day Active' : '🌙 Office Hours Only'}</span>
+            </button>
+
             {prospectorStatus?.is_active ? (
               <button
                 className="btn btn-outline"

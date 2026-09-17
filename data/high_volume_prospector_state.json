@@ -1,6 +1,6 @@
 {
-  "start_time": "2026-09-16T18:37:40.605270+00:00",
-  "end_time": "2026-09-30T18:37:40.605270+00:00",
+  "start_time": "2026-09-17T00:22:55.842759+00:00",
+  "end_time": "2026-10-01T00:22:55.842759+00:00",
   "campaign_duration_days": 14,
   "is_active": false,
   "volume_per_cycle": 4,
@@ -11,8 +11,9 @@
     "local_business",
     "b2b_web_search"
   ],
+  "run_24_7": true,
   "metrics": {
-    "total_evaluated": 2,
+    "total_evaluated": 3,
     "duplicates_blocked": 0,
     "duplicates_by_reason": {
       "DUPLICATE_COMPANY": 0,
@@ -21,17 +22,17 @@
       "GLOBAL_SUPPRESSION": 0,
       "RECENTLY_CONTACTED_45D": 0
     },
-    "deliverability_passed": 2,
+    "deliverability_passed": 3,
     "deliverability_failed": 0,
-    "websites_verified": 2,
-    "sandboxes_created": 2,
-    "qualified_backlog_count": 0,
+    "websites_verified": 3,
+    "sandboxes_created": 3,
+    "qualified_backlog_count": 1,
     "last_lead_discovered": {
-      "company_name": "Lone Star Concrete LLC",
-      "contact_email": "ops@lonestarconcrete.com",
-      "slug": "lone-star-concrete",
-      "discovered_at": "2026-09-16T18:37:37.004686+00:00"
+      "company_name": "Midnight Title Services",
+      "contact_email": "ops@midnighttitle.com",
+      "slug": "midnight-title-services",
+      "discovered_at": "2026-09-17T00:23:01.960890+00:00"
     }
   },
-  "saved_at": "2026-09-16T18:37:40.614780+00:00"
+  "saved_at": "2026-09-17T00:23:01.960890+00:00"
 }

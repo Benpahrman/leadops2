@@ -4,6 +4,12 @@ import os
 from datetime import datetime, timezone, timedelta, time as dtime
 import zoneinfo
 
+def is_scout_24_7_enabled() -> bool:
+    """Return whether Scout is configured to run 24/7 all day without work-hours restrictions."""
+    val = os.environ.get("SCOUT_24_7_MODE", os.environ.get("SCOUT_RUN_24_7", "true")).lower()
+    return val in ("true", "1", "yes")
+
+
 def is_office_hours(
     now: datetime | None = None,
     tz_name: str | None = None,

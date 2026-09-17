@@ -302,3 +302,4 @@ def execute_scraper_on_demand(lead_id: str) -> Dict[str, Any]:
         "lead_id": lead_id,
         "rows_extracted": len(sample_data or []),
         "message": "Returned verified scout extraction sample data.",
+    }

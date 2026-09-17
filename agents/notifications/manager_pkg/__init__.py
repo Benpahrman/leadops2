@@ -1,174 +1,16 @@
-"""Multi-channel real-time notification engine for LeadOps (Discord Webhooks & Telegram Bot)."""
+﻿"""Unified notification coordinator for LeadOps operations."""
 
 import json
 import logging
 import os
 import threading
-from dataclasses import dataclass
 from typing import Any
 
-import httpx
+from ..settings import NotificationSettings
+from ..discord import DiscordNotifier
+from ..telegram import TelegramNotifier
 
-logger = logging.getLogger("leadops.notifications")
-
-
-@dataclass
-class NotificationSettings:
-    """Settings for outbound operator notifications."""
-
-    enabled: bool = True
-    discord_webhook_url: str = ""
-    discord_webhook_outreach: str = ""
-    discord_webhook_inbox: str = ""
-    discord_webhook_revenue: str = ""
-    discord_webhook_dev: str = ""
-    discord_webhook_alerts: str = ""
-    telegram_bot_token: str = ""
-    telegram_chat_id: str = ""
-    timeout_seconds: float = 3.5
-
-    @classmethod
-    def from_env(cls) -> "NotificationSettings":
-        enabled_str = os.environ.get("NOTIFICATIONS_ENABLED", "true").lower().strip()
-        default_discord = (
-            os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
-            or os.environ.get("DISCORD_WEBHOOK_ALERTS", "").strip()
-            or os.environ.get("DISCORD_WEBHOOK_OUTREACH", "").strip()
-        )
-        return cls(
-            enabled=enabled_str in ("true", "1", "yes"),
-            discord_webhook_url=default_discord,
-            discord_webhook_outreach=os.environ.get("DISCORD_WEBHOOK_OUTREACH", "").strip() or default_discord,
-            discord_webhook_inbox=os.environ.get("DISCORD_WEBHOOK_INBOX", "").strip() or default_discord,
-            discord_webhook_revenue=os.environ.get("DISCORD_WEBHOOK_REVENUE", "").strip() or default_discord,
-            discord_webhook_dev=os.environ.get("DISCORD_WEBHOOK_DEV", "").strip() or default_discord,
-            discord_webhook_alerts=os.environ.get("DISCORD_WEBHOOK_ALERTS", "").strip() or default_discord,
-            telegram_bot_token=os.environ.get("TELEGRAM_BOT_TOKEN", "").strip(),
-            telegram_chat_id=os.environ.get("TELEGRAM_CHAT_ID", "").strip(),
-            timeout_seconds=float(os.environ.get("NOTIFICATION_TIMEOUT_SECONDS", "3.5")),
-        )
-
-
-class DiscordNotifier:
-    """Sends rich, formatted embeds to Discord channels via Webhooks."""
-
-    def __init__(
-        self,
-        webhook_url: str,
-        timeout: float = 3.5,
-        channel_webhooks: dict[str, str] | None = None,
-    ):
-        self.webhook_url = webhook_url
-        self.timeout = timeout
-        self.channel_webhooks = channel_webhooks or {}
-
-    def get_webhook(self, channel: str | None = None) -> str:
-        if channel and self.channel_webhooks.get(channel):
-            return self.channel_webhooks[channel]
-        return self.webhook_url
-
-    def send_embed(
-        self,
-        title: str,
-        description: str,
-        fields: list[dict[str, Any]] | None = None,
-        color: int = 0x15251F,  # Forest Deep default
-        footer: str = "LeadOps Autonomous Swarm",
-        author: dict[str, str] | None = None,
-        thumbnail_url: str | None = None,
-        timestamp: str | None = None,
-        footer_icon_url: str | None = None,
-        username: str = "LeadOps Mission Control",
-        avatar_url: str = "https://cdn-icons-png.flaticon.com/512/906/906334.png",
-        channel: str | None = None,
-        image_url: str | None = None,
-    ) -> bool:
-        target_url = self.get_webhook(channel)
-        if not target_url:
-            return False
-
-        from datetime import datetime, timezone
-        ts = timestamp or datetime.now(timezone.utc).isoformat()
-
-        embed: dict[str, Any] = {
-            "title": title[:256],
-            "description": description[:2048],
-            "color": color,
-            "fields": [
-                {
-                    "name": str(f.get("name", ""))[:256],
-                    "value": str(f.get("value", ""))[:1024],
-                    "inline": bool(f.get("inline", True)),
-                }
-                for f in (fields or [])[:25]
-            ],
-            "timestamp": ts,
-        }
-
-        footer_obj: dict[str, str] = {"text": footer[:2048]}
-        if footer_icon_url:
-            footer_obj["icon_url"] = footer_icon_url
-        embed["footer"] = footer_obj
-
-        if author:
-            author_obj: dict[str, str] = {"name": str(author.get("name", ""))[:256]}
-            if author.get("icon_url"):
-                author_obj["icon_url"] = author["icon_url"]
-            if author.get("url"):
-                author_obj["url"] = author["url"]
-            embed["author"] = author_obj
-
-        if thumbnail_url:
-            embed["thumbnail"] = {"url": thumbnail_url}
-
-        if image_url:
-            embed["image"] = {"url": image_url}
-
-        payload = {
-            "username": username,
-            "avatar_url": avatar_url,
-            "embeds": [embed],
-        }
-
-        try:
-            with httpx.Client(timeout=self.timeout) as client:
-                res = client.post(target_url, json=payload)
-                return res.status_code in (200, 204)
-        except Exception as e:
-            logger.warning(f"Discord webhook dispatch failed ({channel or 'default'}): {e}")
-            return False
-
-
-class TelegramNotifier:
-    """Sends clean Markdown messages to Telegram private chats or group channels via Bot API."""
-
-    def __init__(self, bot_token: str, chat_id: str, timeout: float = 3.5):
-        self.bot_token = bot_token
-        self.chat_id = chat_id
-        self.timeout = timeout
-
-    def send_message(self, text: str, reply_markup: dict[str, Any] | None = None) -> bool:
-        if not self.bot_token or not self.chat_id:
-            return False
-
-        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-        payload = {
-            "chat_id": self.chat_id,
-            "text": text[:4096],
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True,
-        }
-        if reply_markup:
-            payload["reply_markup"] = reply_markup
-
-        try:
-            with httpx.Client(timeout=self.timeout) as client:
-                res = client.post(url, json=payload)
-                return res.status_code == 200
-        except Exception as e:
-            logger.warning(f"Telegram notification dispatch failed: {e}")
-            return False
-
+logger = logging.getLogger("leadops.notifications.manager")
 
 class NotificationManager:
     """Unified notification coordinator for LeadOps operations."""
@@ -248,7 +90,7 @@ class NotificationManager:
         grace_period_seconds: int = 180,
     ) -> None:
         """Alert operator when a prospect passes all quality gates and is queued for cold outreach."""
-        from .auth import generate_mobile_action_token
+        from agents.auth import generate_mobile_action_token
         lead_id = getattr(lead, "lead_id", "")
         slug = getattr(lead, "slug", "") or lead_id
 
@@ -285,7 +127,7 @@ class NotificationManager:
 
             # 1. Discord Embed - Clean, Executive Visual Hierarchy
             if self.discord:
-                from .email.config import EmailSettings
+                from agents.email.config import EmailSettings
                 sending_from = EmailSettings.from_environment().resolve_sender_email(hint=getattr(lead, "lead_id", "") or email)
 
                 contact_lines = [f"▸ **Contact:** **{contact}** ({role})", f"▸ **Email:** `{email}`"]
@@ -730,7 +572,7 @@ class NotificationManager:
         user_email: str = "",
     ) -> None:
         """Alert operator when a customer requests subscription cancellation."""
-        from .auth import generate_mobile_action_token
+        from agents.auth import generate_mobile_action_token
         lead_id = getattr(lead, "lead_id", "")
         cancel_tok = generate_mobile_action_token("confirm_cancellation", lead_id)
         pause_tok = generate_mobile_action_token("pause_subscription", lead_id)
@@ -925,7 +767,7 @@ class NotificationManager:
         destination: str = "Google Sheets & CRM Webhook",
     ) -> None:
         """Alert operator when an autonomous scraper build finishes, passes QA, and is delivered."""
-        from .auth import generate_mobile_action_token
+        from agents.auth import generate_mobile_action_token
         lead_id = getattr(lead, "lead_id", "")
         delivery_tok = generate_mobile_action_token("approve_delivery", lead_id)
         delivery_url = f"{self.base_url}/api/admin/quick-action?action=approve_delivery&lead_id={lead_id}&token={delivery_tok}"
@@ -1319,7 +1161,7 @@ class NotificationManager:
 
         now_str = datetime.now(timezone.utc).strftime("%A, %B %d, %Y")
 
-        from .auth import generate_mobile_action_token
+        from agents.auth import generate_mobile_action_token
         pause_prosp_tok = generate_mobile_action_token("pause_prospector", "")
         resume_prosp_tok = generate_mobile_action_token("resume_prospector", "")
         pause_prosp_url = f"{self.base_url}/api/admin/quick-action?action=pause_prospector&token={pause_prosp_tok}"
@@ -1528,5 +1370,3 @@ class NotificationManager:
         self._dispatch(_send)
 
 
-# Global notification manager singleton
-notification_manager = NotificationManager()

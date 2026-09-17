@@ -1,4 +1,4 @@
-"""Autonomous background Scout discovery runner for continuous lead prospecting."""
+﻿"""Autonomous background Scout discovery worker for continuous lead prospecting."""
 
 import asyncio
 import os
@@ -10,190 +10,63 @@ from datetime import datetime, timezone, timedelta, time as dtime
 import zoneinfo
 from typing import Any
 
-from .office_hours import is_office_hours
+import httpx
 
-
-from .domain import State
-from .portal import PortalService
+from agents.office_hours import is_office_hours
+from agents.domain import State
+from agents.portal import PortalService
 from agents.scout.scout_pipeline import ScoutCandidate, ScoutPortalPipeline
-from .storage import StorageBackend, normalize_company_name, normalize_domain
-from .tools.dom_pruner import prune_dom
-from .tools.waf_prober import generate_browser_headers, probe_waf_signatures
+from agents.storage import StorageBackend, normalize_company_name, normalize_domain
+import agents.scout_runner as _scout_runner
 
+def prune_dom(*args: Any, **kwargs: Any) -> Any:
+    return _scout_runner.prune_dom(*args, **kwargs)
+
+def generate_browser_headers(*args: Any, **kwargs: Any) -> Any:
+    return _scout_runner.generate_browser_headers(*args, **kwargs)
+
+def probe_waf_signatures(*args: Any, **kwargs: Any) -> Any:
+    return _scout_runner.probe_waf_signatures(*args, **kwargs)
+
+def search_web(*args: Any, **kwargs: Any) -> Any:
+    return _scout_runner.search_web(*args, **kwargs)
+
+def search_company_intelligence(*args: Any, **kwargs: Any) -> Any:
+    return _scout_runner.search_company_intelligence(*args, **kwargs)
+
+def search_job_board_intent(*args: Any, **kwargs: Any) -> Any:
+    return _scout_runner.search_job_board_intent(*args, **kwargs)
+
+def find_linkedin_decision_maker(*args: Any, **kwargs: Any) -> Any:
+    return _scout_runner.find_linkedin_decision_maker(*args, **kwargs)
+
+def search_public_data_portals(*args: Any, **kwargs: Any) -> Any:
+    return _scout_runner.search_public_data_portals(*args, **kwargs)
+
+def extract_contact_info_from_url(*args: Any, **kwargs: Any) -> Any:
+    return _scout_runner.extract_contact_info_from_url(*args, **kwargs)
+
+def fetch_page_content(*args: Any, **kwargs: Any) -> Any:
+    return _scout_runner.fetch_page_content(*args, **kwargs)
 
 from agents.swarm.datasets import AUTHENTIC_REGISTRY_DATASETS
-
-
-import httpx
-from .logging_config import get_logger
-from .tools.waf_prober import generate_browser_headers
-from .tools.web_search import (
-    search_web,
-    search_company_intelligence,
-    search_job_board_intent,
-    find_linkedin_decision_maker,
-    search_public_data_portals,
-)
-from .tools.web_fetcher import extract_contact_info_from_url, fetch_page_content
-from .llm_client import LLMAgentEngine, is_disallowed_buyer
-from .scout.county_filing_extractor import CountyFilingPartyExtractor
-from .scout.state_bar_prospector import StateBarProspector
-from .scout.sos_entity_prospector import SOSEntityProspector
-from .scout.local_business_prospector import LocalBusinessProspector
-from .scout.national_county_orchestrator import get_national_county_orchestrator
-from .outreach_playbooks import (
+from agents.logging_config import get_logger
+from agents.llm_client import LLMAgentEngine, is_disallowed_buyer
+from agents.scout.county_filing_extractor import CountyFilingPartyExtractor
+from agents.scout.state_bar_prospector import StateBarProspector
+from agents.scout.sos_entity_prospector import SOSEntityProspector
+from agents.scout.local_business_prospector import LocalBusinessProspector
+from agents.scout.national_county_orchestrator import get_national_county_orchestrator
+from agents.outreach_playbooks import (
     format_county_filing_pitch,
     format_state_bar_pitch,
     format_sos_new_business_pitch,
     format_linkedin_connection_note,
     format_referral_amplification_ask,
 )
+from ..catalog import VERTICAL_CATALOG
 
 logger = get_logger("scout")
-
-
-VERTICAL_CATALOG: dict[str, dict[str, Any]] = {
-    "Commercial Construction & Regional Building Permits": {
-        "dataset_key": "austin-commercial-permits",
-        "portal_name": "City of Austin Issued Construction Permits",
-        "target_url": "https://data.austintexas.gov/Building-and-Development/Issued-Construction-Permits/3syk-w9eu",
-        "jurisdiction": "Austin, Travis County, TX",
-        "niche": "Commercial Construction & General Contracting",
-        "pain_point": "Needs daily feed of non-residential commercial building permits to bid subcontracting and structural trades before competitors.",
-        "tier_key": "daily",
-        "buyer_search_queries": [
-            "top commercial general contractors Austin Texas",
-            "commercial preconstruction estimating builders Austin Texas",
-            "commercial construction contracting companies Travis County",
-        ],
-    },
-    "Federal Defense RFPs, Solicitations & SAM.gov Awards": {
-        "dataset_key": "sam-gov-defense-rfps",
-        "portal_name": "SAM.gov Federal Contract Opportunities",
-        "target_url": "https://sam.gov/content/opportunities",
-        "jurisdiction": "Federal (DoD / Civilian Agencies)",
-        "niche": "Defense Contracting & GovTech Solicitations",
-        "pain_point": "Needs automated tracking of newly posted DoD and federal civilian RFPs and pre-solicitation notices.",
-        "tier_key": "ai",
-        "buyer_search_queries": [
-            "commercial federal defense subcontractors proposal bidding Texas",
-            "regional defense logistics and supply subcontractors",
-            "mid market federal contracting firms NAICS 541512",
-        ],
-    },
-    "Secretary of State UCC Secured Asset Financing & Commercial Debt": {
-        "dataset_key": "state-ucc-filings",
-        "portal_name": "Texas Secretary of State UCC Registry",
-        "target_url": "https://www.sos.state.tx.us/corp/ucc.shtml",
-        "jurisdiction": "State of Texas (SOS)",
-        "niche": "Equipment Financing & Commercial Asset-Backed Lending",
-        "pain_point": "Needs daily updates on UCC-1 financing statements to identify commercial equipment acquisitions and subordinate lien exposure.",
-        "tier_key": "daily",
-        "buyer_search_queries": [
-            "commercial equipment finance lenders Texas",
-            "commercial asset based lending equipment factoring firms",
-            "commercial equipment leasing companies Austin Houston",
-        ],
-    },
-    "State Medical Board & Healthcare Practitioner Credentialing": {
-        "dataset_key": "medical-board-licensing",
-        "portal_name": "Texas Medical Board Physician Registry",
-        "target_url": "https://www.tmb.state.tx.us/",
-        "jurisdiction": "State of Texas (TMB)",
-        "niche": "Healthcare Staffing & Physician Credentialing",
-        "pain_point": "Needs daily automated extracts of newly licensed physicians and disciplinary updates to recruit active practitioners.",
-        "tier_key": "weekly",
-        "buyer_search_queries": [
-            "physician recruiting and staffing firms Texas",
-            "healthcare locum tenens credentialing agencies Dallas Austin",
-            "executive medical search and physician placement firms",
-        ],
-    },
-    "County Probate Court Dockets & Estate Asset Administration": {
-        "dataset_key": "cook-county-probate",
-        "portal_name": "Cook County Probate Division Court Portal",
-        "target_url": "https://www.cookcountyclerkofcourt.org/",
-        "jurisdiction": "Cook County, IL (Chicago)",
-        "niche": "Probate & High-Net-Worth Estate Administration",
-        "pain_point": "Needs automated tracking of newly filed probate petitions and letters of office across Cook County courts.",
-        "tier_key": "daily",
-        "buyer_search_queries": [
-            "probate and estate administration law firms Chicago Cook County",
-            "trust and estate litigation attorneys Chicago Illinois",
-            "private wealth estate fiduciary law firms Cook County",
-        ],
-    },
-    "Trustee Foreclosure Postings, Deeds of Trust & Lis Pendens": {
-        "dataset_key": "orange-foreclosure",
-        "portal_name": "Orange County Comptroller & Clerk Registry",
-        "target_url": "https://www.occompt.com/",
-        "jurisdiction": "Orange County, FL (Orlando)",
-        "niche": "Mortgage Foreclosures & Distressed Real Estate",
-        "pain_point": "Needs daily lis pendens and trustee foreclosure filings across Orange County to manage legal default workflows.",
-        "tier_key": "ai",
-        "buyer_search_queries": [
-            "mortgage default servicing law firms Orlando Florida",
-            "commercial real estate foreclosure law firms Orange County Florida",
-            "distressed real estate acquisition fund Orlando Florida",
-        ],
-    },
-    "Harris County Foreclosure Postings & Commercial Real Estate Deeds": {
-        "dataset_key": "harris-foreclosure",
-        "portal_name": "Harris County District Clerk & County Clerk",
-        "target_url": "https://www.cclerk.hctx.net/",
-        "jurisdiction": "Harris County, TX (Houston)",
-        "niche": "Trustee Foreclosures & Mortgage Liens",
-        "pain_point": "Needs automated tracking of Harris County foreclosure recordings and trustee auction schedules.",
-        "tier_key": "daily",
-        "buyer_search_queries": [
-            "commercial foreclosure default law firms Houston Texas",
-            "trustee foreclosure mortgage servicing firms Harris County",
-            "distressed commercial property investment firms Houston",
-        ],
-    },
-    "County Property Tax Liens & Commercial Tax Delinquencies": {
-        "dataset_key": "maricopa-tax-liens",
-        "portal_name": "Maricopa County Treasurer & Assessor",
-        "target_url": "https://treasurer.maricopa.gov/",
-        "jurisdiction": "Maricopa County, AZ (Phoenix/Scottsdale)",
-        "niche": "Property Tax Liens & Delinquent Real Estate",
-        "pain_point": "Needs automated tracking of delinquent commercial parcel assessments and tax sale certificates.",
-        "tier_key": "weekly",
-        "buyer_search_queries": [
-            "commercial property tax lien investment funds Phoenix Arizona",
-            "tax lien certificate asset management firms Maricopa County",
-            "distressed real estate tax debt acquisition Arizona",
-        ],
-    },
-    "Fulton County Probate & High-Net-Worth Estate Intelligence": {
-        "dataset_key": "fulton-probate",
-        "portal_name": "Probate Court of Fulton County",
-        "target_url": "https://www.fultoncountyga.gov/probatecourt",
-        "jurisdiction": "Fulton County, GA (Atlanta)",
-        "niche": "Probate & Estate Administration",
-        "pain_point": "Needs real-time court dockets of newly filed Fulton County probate petitions and letters of administration.",
-        "tier_key": "daily",
-        "buyer_search_queries": [
-            "probate court estate administration attorneys Atlanta Georgia",
-            "trust and estate fiduciary law firms Fulton County",
-            "private wealth estate litigation attorneys Atlanta",
-        ],
-    },
-    "Texas Statewide Corporate Entities & Commercial Registry": {
-        "dataset_key": "texas-open-data",
-        "portal_name": "Texas Statewide Public Registry",
-        "target_url": "https://data.texas.gov/",
-        "jurisdiction": "State of Texas (Austin)",
-        "niche": "State Entity Filings & Commercial Liens",
-        "pain_point": "Needs daily feed of newly formed corporations, LLCs, and entity amendments across Texas.",
-        "tier_key": "weekly",
-        "buyer_search_queries": [
-            "corporate filing and registered agent companies Texas",
-            "entity formation and corporate compliance service firms Texas",
-            "B2B corporate intelligence and commercial registry firms Austin Dallas",
-        ],
-    },
-}
 
 
 @dataclass
@@ -659,7 +532,7 @@ class ScoutBackgroundWorker:
         # their homepage doesn't publish a mailto: link.
         if not verified_email and not os.environ.get("PYTEST_CURRENT_TEST"):
             try:
-                from .tools.email_finder import discover_verified_email
+                from agents.tools.email_finder import discover_verified_email
                 logger.info(
                     f"📧 [EMAIL RESCUE] No email from web scrape for {discovered_name} — "
                     f"activating Email Finder pipeline"
@@ -831,7 +704,7 @@ class ScoutBackgroundWorker:
                 logger.warning(f"Website legitimacy check notice for {website_url}: {e}")
 
         # Pre-flight Email Deliverability & Bounce Verification
-        from .email.verifier import DeliverabilityVerifier, DeliverabilityStatus
+        from agents.email.verifier import DeliverabilityVerifier, DeliverabilityStatus
         verifier = DeliverabilityVerifier(
             probe_smtp=not bool(os.environ.get("PYTEST_CURRENT_TEST")),
             allow_business_roles=True,
@@ -905,7 +778,7 @@ class ScoutBackgroundWorker:
         logger.info(f"✅ [SCOUT VERIFIED 200 OK] Live portal verified. Building tailored sandbox for {target['company_name']}.")
         target_sample_rows = target.get("sample_data")
         if not target_sample_rows:
-            from .datasets import pull_live_austin_permits
+            from agents.datasets import pull_live_austin_permits
             try:
                 target_sample_rows = pull_live_austin_permits(25)
             except Exception:
@@ -1008,7 +881,7 @@ class ScoutBackgroundWorker:
             target["objection_playbook"] = enrichment["objection_playbook"]
 
         # 4. Enrich lead with contact intelligence, BDR Manager Qualification Scoring, & AI Pitcher Agent
-        from .tools.lead_database_tool import (
+        from agents.tools.lead_database_tool import (
             calculate_automation_opportunity_score,
             evaluate_buyer_signals,
             is_lead_qualified,
@@ -1085,7 +958,7 @@ class ScoutBackgroundWorker:
             
             # Generate natural, human-to-human peer pitch email using AI Pitcher Agent
             if target.get("pitch_subject") and target.get("pitch_body"):
-                from .pitcher import PitchMessage
+                from agents.pitcher import PitchMessage
                 sandbox_link = f"https://www.omnileadfeeder.tech/sandbox/{candidate.slug}"
                 b_text = target["pitch_body"].replace("{sandbox_url}", sandbox_link)
                 pitch = PitchMessage(
@@ -1098,7 +971,7 @@ class ScoutBackgroundWorker:
             elif target.get("job_intent"):
                 job = target["job_intent"]
                 first_name = (target.get("contact_name") or "").strip().split()[0] if (target.get("contact_name") or "").strip() else "there"
-                from .pitcher import PitchMessage
+                from agents.pitcher import PitchMessage
                 sandbox_link = f"https://www.omnileadfeeder.tech/sandbox/{candidate.slug}"
                 body_txt = (
                     f"Hi {first_name},\n\n"
@@ -1118,7 +991,7 @@ class ScoutBackgroundWorker:
                     word_count=len(body_txt.split()),
                 )
             else:
-                from .pitcher import render_sub_60_word_pitch
+                from agents.pitcher import render_sub_60_word_pitch
                 pitch = render_sub_60_word_pitch(
                     company_name=target["company_name"],
                     niche=target["niche"],
@@ -1139,7 +1012,7 @@ class ScoutBackgroundWorker:
 
             # Persist Stage 1 Discovery Artifacts to dedicated client folder
             try:
-                from .client_artifacts import artifact_store
+                from agents.client_artifacts import artifact_store
                 artifact_store.save_artifact(
                     lead_id=candidate.lead_id,
                     stage="01_SCOUT_DISCOVERY",
@@ -1362,7 +1235,7 @@ class ScoutBackgroundWorker:
 
                         # Save artifact confirming enriched sample data
                         try:
-                            from .client_artifacts import artifact_store
+                            from agents.client_artifacts import artifact_store
                             artifact_store.save_artifact(
                                 lead_id=candidate.lead_id,
                                 stage="01_SCOUT_DISCOVERY",
@@ -1407,8 +1280,8 @@ class ScoutBackgroundWorker:
 
             # Push mobile notification to Discord & Telegram with 1-tap controls & 3-minute grace countdown
             try:
-                from .notifications import notification_manager
-                from .auto_outreach import auto_outreach_scheduler
+                from agents.notifications import notification_manager
+                from agents.auto_outreach import auto_outreach_scheduler
 
                 # Register lead in the 3-minute grace period scheduler
                 auto_outreach_scheduler.schedule_lead_for_dispatch(
@@ -1506,8 +1379,8 @@ class ScoutBackgroundWorker:
         niche = getattr(lead, "niche", "Public Records") or "Public Records"
 
         # Scrape or fetch live site
-        from .tools.web_fetcher import extract_contact_info_from_url
-        from .tools.web_search import find_linkedin_decision_maker
+        from agents.tools.web_fetcher import extract_contact_info_from_url
+        from agents.tools.web_search import find_linkedin_decision_maker
         contact_info = extract_contact_info_from_url(website) if website else {}
 
         # Pull or reuse sample data
@@ -1518,7 +1391,7 @@ class ScoutBackgroundWorker:
             if sb and sb.rows:
                 sample_records = sb.rows
         if not sample_records:
-            from .datasets import pull_live_austin_permits
+            from agents.datasets import pull_live_austin_permits
             try:
                 sample_records = pull_live_austin_permits(10)
             except Exception:
@@ -1600,674 +1473,5 @@ class ScoutBackgroundWorker:
         self.is_running = False
         if self._task and not self._task.done():
             self._task.cancel()
-
-
-@dataclass
-class ScoutAutomationSupervisor:
-    """Runs bounded scout batches and exposes operator-visible activity state."""
-
-    storage: StorageBackend
-    portal: PortalService
-    llm_engine: LLMAgentEngine = field(default_factory=LLMAgentEngine)
-    target_per_cycle: int = 1
-    min_rest_seconds: int = 3600
-    max_rest_seconds: int = 7200
-    enabled: bool = True
-    is_running: bool = False
-    _task: asyncio.Task | None = None
-    _status: dict[str, Any] = field(default_factory=lambda: {
-        "phase": "STOPPED",
-        "message": "Scout automation has not started",
-        "cycle": 0,
-        "qualified_this_cycle": 0,
-        "target_per_cycle": 1,
-        "attempts_this_cycle": 0,
-        "last_result": None,
-        "last_error": None,
-        "last_activity_at": None,
-        "next_run_at": None,
-    })
-
-    def __post_init__(self) -> None:
-        def _clean_int(val: Any, default: int) -> int:
-            try:
-                return int(str(val).split("#")[0].strip().strip("\"'"))
-            except (ValueError, TypeError):
-                return default
-
-        if "SCOUT_MIN_REST_SECONDS" in os.environ:
-            self.min_rest_seconds = _clean_int(os.environ["SCOUT_MIN_REST_SECONDS"], self.min_rest_seconds)
-        if "SCOUT_MAX_REST_SECONDS" in os.environ:
-            self.max_rest_seconds = _clean_int(os.environ["SCOUT_MAX_REST_SECONDS"], self.max_rest_seconds)
-        if "SCOUT_TARGET_PER_CYCLE" in os.environ:
-            self.target_per_cycle = _clean_int(os.environ["SCOUT_TARGET_PER_CYCLE"], self.target_per_cycle)
-
-    def status(self) -> dict[str, Any]:
-        stat = dict(self._status)
-        is_open, wait_sec, status_msg = is_office_hours()
-        stat["is_office_hours"] = is_open
-        stat["office_hours_status"] = status_msg
-        stat["seconds_until_office_window"] = wait_sec
-        return stat
-
-    def start(self) -> None:
-        if self.enabled and not self.is_running:
-            self._task = asyncio.create_task(self._run_loop())
-
-    async def stop(self) -> None:
-        self.is_running = False
-        if self._task and not self._task.done():
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-
-    async def _run_loop(self) -> None:
-        self.is_running = True
-        self._status.update({
-            "phase": "IDLE",
-            "message": "Scout automation is online",
-            "target_per_cycle": self.target_per_cycle,
-        })
-        try:
-            while self.is_running:
-                is_open, wait_seconds, status_msg = is_office_hours()
-                if not is_open:
-                    next_run_dt = datetime.now(timezone.utc) + timedelta(seconds=wait_seconds)
-                    self._status.update({
-                        "phase": "STANDBY_OFFICE_HOURS",
-                        "message": status_msg,
-                        "next_run_at": next_run_dt.isoformat(),
-                        "last_activity_at": datetime.now(timezone.utc).isoformat(),
-                        "is_office_hours": False,
-                    })
-                    logger.info(f"🌙 [SCOUT OFFICE HOURS] {status_msg} Standing by until 8:00 AM window.")
-                    sleep_chunk = min(wait_seconds, 300)
-                    await asyncio.sleep(sleep_chunk)
-                    continue
-
-                self._status["is_office_hours"] = True
-
-                # Check if daily email sending capacity is exhausted across all inboxes.
-                # NOTE: We still DISCOVER leads when quota is full — we just won't fire
-                # outreach until tomorrow.  This keeps the pipeline warm.
-                from .email.warmup import WarmupManager
-                from .email.config import EmailSettings
-                warmup_mgr = WarmupManager(settings=EmailSettings.from_environment(), storage_backend=self.storage)
-                available_inbox = warmup_mgr.get_available_inbox()
-
-                if not available_inbox:
-                    logger.info("📭 [SCOUT] Daily email quota saturated — continuing discovery (outreach will queue for tomorrow)")
-                    self._status.update({
-                        "phase": "DISCOVERING_NO_DISPATCH",
-                        "message": "Daily email quota full. Still discovering leads — outreach queued for tomorrow morning.",
-                        "last_activity_at": datetime.now(timezone.utc).isoformat(),
-                    })
-                    # fall-through: still run _run_cycle(), skip is the outreach scheduler's job
-
-
-                # Autonomous copywriter sweep: ensure leads in State.REVIEW have pitch copy generated & scheduled
-                try:
-                    import threading
-                    from .auto_outreach import auto_outreach_scheduler
-                    from .notifications import notification_manager
-                    threading.Thread(
-                        target=auto_outreach_scheduler.auto_prepare_review_pitches,
-                        args=(self.storage, notification_manager, self.llm_engine),
-                        daemon=True,
-                        name="auto-prepare-review-pitches",
-                    ).start()
-                except Exception as prep_err:
-                    logger.debug(f"Auto-prepare review pitches trigger note: {prep_err}")
-
-                # Check pending review/dispatch queue backlog
-                try:
-                    max_pending = int(str(os.environ.get("SCOUT_MAX_PENDING_QUEUE", "200")).split("#")[0].strip().strip("\"'"))
-                except (ValueError, TypeError):
-                    max_pending = 200
-                if self.storage and hasattr(self.storage, "list_leads"):
-                    leads = self.storage.list_leads()
-                    pending_count = sum(1 for l in leads if l.state in (State.PITCH_PENDING_APPROVAL, State.REVIEW))
-                    if pending_count >= max_pending:
-                        self._status.update({
-                            "phase": "STANDBY_QUEUE_FULL",
-                            "message": f"Pending outreach queue has {pending_count} leads waiting for dispatch (max: {max_pending}). Pausing discovery.",
-                            "next_run_at": (datetime.now(timezone.utc) + timedelta(seconds=300)).isoformat(),
-                            "last_activity_at": datetime.now(timezone.utc).isoformat(),
-                        })
-                        logger.info(f"⏸️ [SCOUT QUEUE BACKLOG] {pending_count} leads pending in approval queue. Standing by.")
-                        await asyncio.sleep(300)
-                        continue
-
-                # When office hours open, dispatch any cold outreach pitches held overnight in background thread
-                try:
-                    import threading
-                    from .auto_outreach import auto_outreach_scheduler
-                    from .notifications import notification_manager
-                    threading.Thread(
-                        target=auto_outreach_scheduler.flush_pending_office_hours_queue,
-                        args=(self.storage, notification_manager),
-                        daemon=True,
-                        name="office-hours-flush",
-                    ).start()
-                except Exception as flush_err:
-                    logger.debug(f"Office hours outreach queue flush note: {flush_err}")
-
-                await self._run_cycle()
-                rest_seconds = random.randint(self.min_rest_seconds, self.max_rest_seconds)
-                next_run = datetime.now(timezone.utc).timestamp() + rest_seconds
-                self._status.update({
-                    "phase": "RESTING",
-                    "message": f"Cycle complete; resting for {rest_seconds // 60} minutes",
-                    "next_run_at": datetime.fromtimestamp(next_run, timezone.utc).isoformat(),
-                    "last_activity_at": datetime.now(timezone.utc).isoformat(),
-                })
-                await asyncio.sleep(rest_seconds)
-        except asyncio.CancelledError:
-            self._status.update({"phase": "STOPPED", "message": "Scout automation stopped"})
-            raise
-        except Exception as exc:
-            self._status.update({
-                "phase": "ERROR",
-                "message": "Scout automation stopped after an unexpected error",
-                "last_error": str(exc),
-                "last_activity_at": datetime.now(timezone.utc).isoformat(),
-            })
-            logger.exception("Scout automation supervisor failed")
-        finally:
-            self.is_running = False
-
-    async def _run_cycle(self) -> None:
-        self._status.update({
-            "phase": "SEARCHING",
-            "cycle": self._status.get("cycle", 0) + 1,
-            "qualified_this_cycle": 0,
-            "attempts_this_cycle": 0,
-            "last_error": None,
-            "next_run_at": None,
-        })
-        qualified = 0
-        attempts = 0
-        max_attempts = self.target_per_cycle * 4
-        while self.is_running and qualified < self.target_per_cycle and attempts < max_attempts:
-            attempts += 1
-            self._status.update({
-                "phase": "SEARCHING",
-                "message": f"Searching and qualifying lead {qualified + 1} of {self.target_per_cycle}",
-                "attempts_this_cycle": attempts,
-                "last_activity_at": datetime.now(timezone.utc).isoformat(),
-            })
-            try:
-                result = await asyncio.to_thread(
-                    ScoutBackgroundWorker(
-                        storage=self.storage,
-                        portal=self.portal,
-                        llm_engine=self.llm_engine,
-                    ).discover_next_candidate
-                )
-                if result.get("ok"):
-                    qualified += 1
-                    self._status.update({
-                        "phase": "ENRICHING",
-                        "qualified_this_cycle": qualified,
-                        "last_result": result,
-                        "message": f"Lead qualified and queued for review ({qualified}/{self.target_per_cycle})",
-                    })
-                else:
-                    self._status.update({
-                        "phase": "SEARCHING",
-                        "last_result": result,
-                        "message": result.get("reason", "Candidate rejected; continuing search"),
-                    })
-            except Exception as exc:
-                self._status.update({
-                    "phase": "SEARCHING",
-                    "last_error": str(exc),
-                    "message": "Candidate failed validation; continuing search",
-                })
-                logger.exception("Scout candidate attempt failed")
-
-        self._status.update({
-            "phase": "CYCLE_COMPLETE" if qualified >= self.target_per_cycle else "NEEDS_ATTENTION",
-            "qualified_this_cycle": qualified,
-            "attempts_this_cycle": attempts,
-            "message": (
-                f"Queued {qualified} qualified leads for founder review"
-                if qualified >= self.target_per_cycle
-                else f"Only {qualified} qualified leads found after {attempts} attempts"
-            ),
-            "last_activity_at": datetime.now(timezone.utc).isoformat(),
-        })
-
-
-@dataclass
-class B2BWebScoutWorker:
-    """Autonomous B2B Web Scout: Brainstorms niches, searches DuckDuckGo for matching firms/portals, fetches, enriches, and creates sandboxes."""
-
-    storage: StorageBackend
-    portal: PortalService
-    llm_engine: LLMAgentEngine = field(default_factory=LLMAgentEngine)
-
-    def discover_next_candidate(
-        self,
-        custom_niche: str | None = None,
-        run_until_found: bool = True,
-        max_attempts: int = 12,
-    ) -> dict[str, Any]:
-        """Runs the multi-step web search lead discovery and ingestion pipeline, looping until a new lead is found."""
-        import re
-        from .tools.web_search import search_web
-        from .tools.web_fetcher import extract_contact_info_from_url, extract_portal_sample_data
-        from .scout_pipeline import ScoutPortalPipeline
-        from .llm_client import is_disallowed_buyer
-
-        # Step 1: Brainstorm niche/queries
-        logger.info("🧠 [WEB SCOUT] Starting B2B Web search discovery...")
-        brainstorm = self.llm_engine.run_web_scout_brainstorm_agent(custom_keyword=custom_niche)
-        niche = brainstorm.get("niche", custom_niche or "B2B Lead Operations Services")
-        company_query = brainstorm.get("company_search_query") or (f"top {custom_niche} companies" if custom_niche else "commercial title companies Texas")
-        portal_query = brainstorm.get("portal_search_query") or (f"{custom_niche} public records portal" if custom_niche else "Texas public records portal")
-        jurisdiction = brainstorm.get("jurisdiction", "Nationwide")
-
-        logger.info(f"🧠 [WEB SCOUT] Niche: '{niche}' | Company Search: '{company_query}' | Portal Search: '{portal_query}'")
-
-        # Step 2: Search for real commercial companies (filter out .gov, municipal, court domains)
-        raw_company_hits = search_web(company_query, max_results=10)
-        company_hits = [h for h in raw_company_hits if not is_disallowed_buyer(h.get("title", ""), h.get("url", ""), "")]
-        if not company_hits and not run_until_found:
-            logger.warning("❌ [WEB SCOUT] No private commercial B2B companies found matching search query.")
-            return {"ok": False, "reason": "No private commercial companies found matching search query."}
-
-        # Step 3: Search for relevant portals
-        portal_hits = search_web(portal_query, max_results=4)
-        top_portal = portal_hits[0] if portal_hits else {"title": f"{niche} Public Registry Portal", "url": "https://data.gov"}
-        portal_url = top_portal.get("url", "")
-        live_records_data = {"records": [], "fields": []}
-        if portal_url and "google.com" not in portal_url and "duckduckgo.com" not in portal_url:
-            try:
-                live_records_data = extract_portal_sample_data(portal_url, max_records=25)
-            except Exception as e:
-                logger.warning(f"⚠️ [WEB SCOUT] Portal sample data extraction failed: {e}")
-
-        # Build list of query batches if run_until_found is active
-        query_batches = [(company_query, company_hits)]
-        if run_until_found and custom_niche:
-            clean_kw = custom_niche.strip()
-            variations = [
-                f"commercial {clean_kw} businesses",
-                f"top {clean_kw} contractors and firms",
-                f"{clean_kw} operators",
-                f"{clean_kw} companies official",
-            ]
-            for v in variations:
-                if v != company_query and len(query_batches) < max_attempts:
-                    query_batches.append((v, None))
-
-        existing_leads = self.storage.list_leads() if self.storage else []
-        existing_companies = {
-            (getattr(l, "company_name", "") or "").lower().strip()
-            for l in existing_leads
-        }
-        existing_domains = {
-            getattr(l, "website", "").lower().replace("https://", "").replace("http://", "").replace("www.", "").strip("/ ").split("/")[0]
-            for l in existing_leads
-            if getattr(l, "website", "")
-        }
-
-        last_rejection_reason = "No private commercial companies found matching search query."
-
-        # Step 4: Iterate through candidates and query variations until a new qualified lead is created
-        for q, preloaded_hits in query_batches:
-            if preloaded_hits is not None:
-                current_hits = preloaded_hits
-            else:
-                raw_hits = search_web(q, max_results=10)
-                current_hits = [h for h in raw_hits if not is_disallowed_buyer(h.get("title", ""), h.get("url", ""), "")]
-
-            if not current_hits:
-                continue
-
-            for top_company in current_hits:
-                cand_title = top_company.get("title", "")
-                company_domain = top_company.get("url", "")
-                norm_cand_title = cand_title.lower().strip()
-                parsed_host = company_domain.lower().replace("https://", "").replace("http://", "").replace("www.", "").strip("/ ").split("/")[0]
-
-                # Deduplication check against existing companies
-                if norm_cand_title in existing_companies or any(c in norm_cand_title for c in existing_companies if len(c) > 4):
-                    logger.info(f"⏭️ [WEB SCOUT DEDUP] Skipping duplicate company: {cand_title}")
-                    last_rejection_reason = f"Company '{cand_title}' already exists in pipeline."
-                    if not run_until_found:
-                        return {"ok": False, "status": "DUPLICATE_COMPANY", "reason": last_rejection_reason}
-                    continue
-
-                if parsed_host and parsed_host in existing_domains:
-                    logger.info(f"⏭️ [WEB SCOUT DEDUP] Skipping duplicate domain: {parsed_host}")
-                    last_rejection_reason = f"Domain '{parsed_host}' already exists in pipeline."
-                    if not run_until_found:
-                        return {"ok": False, "status": "DUPLICATE_COMPANY", "reason": last_rejection_reason}
-                    continue
-
-                # Crawl contact info
-                contact_info = {}
-                if company_domain:
-                    try:
-                        contact_info = extract_contact_info_from_url(company_domain)
-                    except Exception as e:
-                        logger.warning(f"⚠️ [WEB SCOUT] Contact crawl failed for {company_domain}: {e}")
-
-                # Dossier synthesis
-                dossier = self.llm_engine.run_web_scout_dossier_agent(
-                    niche=niche,
-                    company_hits=[top_company] + [h for h in company_hits if h != top_company],
-                    portal_hits=portal_hits,
-                    contact_info=contact_info,
-                    live_records=live_records_data.get("records") or []
-                )
-
-                company_name = dossier.get("company_name") or top_company.get("title", "Lone Star Commercial Capital")
-                contact_name = dossier.get("contact_name") or "Operations Director"
-                contact_role = dossier.get("contact_role") or "Director of Operations"
-                website = dossier.get("website") or contact_info.get("website") or company_domain
-                from .tools.email_finder import is_directory_or_portal
-                if is_directory_or_portal(website):
-                    logger.warning(f"⚠️ [WEB SCOUT] Candidate website '{website}' is an aggregator/directory portal. Stripping directory domain.")
-                    website = ""
-
-                # Sourcing & Email Discovery Waterfall
-                raw_web_emails = contact_info.get("emails") or []
-                contact_email = contact_info.get("verified_email", "") or (raw_web_emails[0] if raw_web_emails else "")
-                if (not contact_email or "@" not in contact_email or any(contact_email.lower().endswith(f"@{d}") for d in ("company.com", "example.com", "testcompany.com", "domain.com"))) and not os.environ.get("PYTEST_CURRENT_TEST"):
-                    from .tools.email_finder import discover_verified_email
-                    logger.info(f"📧 [WEB SCOUT RESCUE] No raw web email for '{company_name}' — activating Email Finder waterfall")
-                    finder_res = discover_verified_email(
-                        company_name=company_name,
-                        website_url=website,
-                        contact_name=contact_name,
-                        contact_role=contact_role,
-                        hunter_api_key=os.environ.get("HUNTER_API_KEY", ""),
-                        apollo_api_key=os.environ.get("APOLLO_API_KEY", ""),
-                    )
-                    if finder_res.get("ok") and finder_res.get("email"):
-                        contact_email = finder_res["email"]
-                        logger.info(f"✅ [WEB SCOUT RESCUE] Found deliverable email: {contact_email} (source: {finder_res.get('source')})")
-
-                if not contact_email or "@" not in contact_email or any(contact_email.lower().endswith(f"@{d}") for d in ("company.com", "example.com", "testcompany.com", "domain.com")):
-                    logger.warning(f"❌ [WEB SCOUT] Rejected candidate '{company_name}': No genuine contact email discovered on website {website}.")
-                    last_rejection_reason = f"No genuine contact email discovered on {website}"
-                    if not run_until_found:
-                        return {
-                            "ok": False,
-                            "status": "REJECTED_NO_VERIFIED_EMAIL",
-                            "reason": last_rejection_reason,
-                        }
-                    continue
-
-                # Deduplication check against storage contacted history
-                if self.storage and hasattr(self.storage, "is_recipient_or_domain_contacted"):
-                    if self.storage.is_recipient_or_domain_contacted(
-                        email=contact_email,
-                        domain=website,
-                        company_name=company_name,
-                        within_days=45,
-                    ):
-                        logger.info(f"⏭️ [WEB SCOUT DEDUPLICATION] Company '{company_name}' / domain '{website}' already contacted within 45 days. Skipping duplicate.")
-                        last_rejection_reason = f"Company '{company_name}' already contacted within 45 days."
-                        if not run_until_found:
-                            return {
-                                "ok": False,
-                                "status": "DUPLICATE_COMPANY",
-                                "reason": last_rejection_reason,
-                            }
-                        continue
-
-                # Deliverability pre-flight verification
-                from .email.verifier import DeliverabilityVerifier, DeliverabilityStatus
-                verifier = DeliverabilityVerifier(
-                    probe_smtp=not bool(os.environ.get("PYTEST_CURRENT_TEST")),
-                    allow_business_roles=True,
-                    probe_catchall=True,
-                )
-                is_role_account = False
-                is_catchall = False
-                if not os.environ.get("PYTEST_CURRENT_TEST"):
-                    v_res = verifier.verify(contact_email)
-                    if not v_res.is_safe_to_send or v_res.status != DeliverabilityStatus.DELIVERABLE:
-                        logger.warning(f"❌ [WEB SCOUT REJECTED] Contact email '{contact_email}' is undeliverable or risky ({v_res.status.value}): {v_res.reason}")
-                        last_rejection_reason = f"Contact email {contact_email} failed deliverability check ({v_res.status.value}): {v_res.reason}"
-                        if not run_until_found:
-                            return {
-                                "ok": False,
-                                "status": "REJECTED_UNDELIVERABLE_EMAIL",
-                                "reason": last_rejection_reason,
-                            }
-                        continue
-                    is_role_account = v_res.is_role_account
-                    is_catchall = v_res.is_catchall
-
-                contact_phone = dossier.get("contact_phone") or contact_info.get("verified_phone", "")
-                pain_point = dossier.get("pain_point") or "Needs automated tracking of new records to eliminate manual entry."
-                target_url = dossier.get("target_url") or portal_url
-                portal_name = dossier.get("portal_name") or top_portal.get("title", "Public Registry Portal")
-                jurisdiction = dossier.get("jurisdiction") or jurisdiction
-                suggested_fields = dossier.get("suggested_fields") or live_records_data.get("fields") or ["record_id", "date", "status"]
-                tier_key = dossier.get("tier_key") or "weekly"
-                clean_portal_short = re.sub(r"(?i)\s*(portal|registry|court|system|division|clerk|records)\s*", "", portal_name).strip() or portal_name
-                default_natural_subj = f"{clean_portal_short.lower()} records"
-                pitch_subject = dossier.get("pitch_subject") or default_natural_subj
-                if any(ai_w in pitch_subject.lower() for ai_w in ["quick", "automating", "streamlining", "sample", "data feed for", "unlocking", "elevating", "efficiency"]):
-                    pitch_subject = default_natural_subj
-                pitch_body = dossier.get("pitch_body") or "Hi, we can stream public records to your team automatically."
-
-                # STRICT BUYER GATE: Government departments are NOT commercial buyers
-                if is_disallowed_buyer(company_name, website, contact_email):
-                    logger.warning(f"❌ [WEB SCOUT REJECTED] Discarding government candidate '{company_name}' ({contact_email}).")
-                    last_rejection_reason = f"Government entity '{company_name}' cannot be qualified as a commercial buyer."
-                    if not run_until_found:
-                        return {
-                            "ok": False,
-                            "status": "REJECTED_GOVERNMENT_ENTITY",
-                            "reason": last_rejection_reason,
-                        }
-                    continue
-
-                # Live or catalog sample data
-                records = dossier.get("live_extracted_records") or live_records_data.get("records") or []
-                if not records:
-                    lookup_text = f"{portal_name} {niche}".lower()
-                    fallback_ds = None
-                    for ds_key, ds_entry in AUTHENTIC_REGISTRY_DATASETS.items():
-                        ds_tags = f"{ds_entry.get('portal_name','')} {ds_entry.get('jurisdiction','')}".lower()
-                        if any(kw in lookup_text or kw in ds_tags for kw in ["probate", "foreclosure", "ucc", "permit", "lien", "tax", "medical", "defense", "entity"]):
-                            fallback_ds = ds_entry
-                            break
-                    if not fallback_ds:
-                        fallback_ds = list(AUTHENTIC_REGISTRY_DATASETS.values())[0]
-                    records = list(fallback_ds.get("sample_data", []))[:25]
-
-                target = {
-                    "company_name": company_name,
-                    "contact_name": contact_name,
-                    "contact_role": contact_role,
-                    "contact_email": contact_email,
-                    "contact_phone": contact_phone,
-                    "website": website,
-                    "niche": niche,
-                    "pain_point": pain_point,
-                    "target_url": target_url,
-                    "portal_name": portal_name,
-                    "jurisdiction": jurisdiction,
-                    "suggested_fields": suggested_fields,
-                    "tier_key": tier_key,
-                    "sample_data": records[:25],
-                    "pitch_subject": pitch_subject,
-                    "pitch_body": pitch_body,
-                    "is_role_account": is_role_account,
-                    "is_catchall": is_catchall,
-                }
-
-                clean_company = re.sub(r"[^a-z0-9]+", "-", target["company_name"].lower()).strip("-")
-                lead_id = f"lead-{clean_company}-{int(time.time() * 1000)}"
-
-                logger.info(f"🎯 [WEB SCOUT AI TARGET IDENTIFIED] Qualified Buyer: {target['company_name']}")
-
-                # Scout Pipeline Ingestion & Sandbox Generation
-                scout_pipe = ScoutPortalPipeline(self.portal)
-                candidate = scout_pipe.publish_candidate(
-                    company_name=target["company_name"],
-                    lead_id=lead_id,
-                    evidence=[{"url": target["target_url"], "title": target["portal_name"]}],
-                    source_url=target["target_url"],
-                    sample_rows=target["sample_data"],
-                    research={
-                        "niche": target["niche"],
-                        "niche_confidence": "high",
-                        "jurisdiction": target["jurisdiction"],
-                        "portal_name": target["portal_name"],
-                        "portal_url": target["target_url"],
-                        "suggested_fields": target["suggested_fields"],
-                        "recommended_tier": target["tier_key"],
-                        "delivery_destination": "Google Sheets",
-                        "contact_name": target["contact_name"],
-                        "contact_role": target["contact_role"],
-                        "contact_email": target["contact_email"],
-                        "contact_phone": target["contact_phone"],
-                        "website": target["website"],
-                        "pain_point": target["pain_point"],
-                    },
-                    tier_key=target["tier_key"],
-                )
-
-                # Enrich lead in database
-                lead = self.storage.get_lead(candidate.lead_id)
-                if lead:
-                    lead.contact_name = target["contact_name"]
-                    lead.contact_role = target["contact_role"]
-                    lead.contact_email = target["contact_email"]
-                    lead.contact_phone = target["contact_phone"]
-                    lead.target_portal_name = target["portal_name"]
-                    lead.niche = target["niche"]
-                    
-                    lead.outreach_subject = target["pitch_subject"]
-                    lead.outreach_body = target["pitch_body"]
-                    if lead.state == State.PROSPECTING:
-                        lead.transition(State.REVIEW, "Web scout discovery completed")
-                    if lead.state == State.REVIEW:
-                        lead.transition(State.PITCH_PENDING_APPROVAL, "Web scout pitch prepared for operator review")
-                    self.storage.save_lead(lead)
-
-                    try:
-                        from .notifications import notification_manager
-                        from .auto_outreach import auto_outreach_scheduler
-                        from .pitcher import PitchMessage
-
-                        web_pitch = PitchMessage(
-                            subject=lead.outreach_subject,
-                            body_text=lead.outreach_body,
-                            body_html=getattr(lead, "outreach_html", "") or f"<p>{lead.outreach_body}</p>",
-                            sandbox_url=f"https://www.omnileadfeeder.tech/p/{candidate.slug}",
-                            word_count=len(lead.outreach_body.split()),
-                        )
-
-                        auto_outreach_scheduler.schedule_lead_for_dispatch(
-                            lead=lead,
-                            pitch=web_pitch,
-                            storage_backend=self.storage,
-                            notifier=notification_manager,
-                        )
-
-                        notification_manager.notify_lead_qualified_and_dispatching(
-                            lead=lead,
-                            pitch=web_pitch,
-                            grace_period_seconds=auto_outreach_scheduler.grace_period_seconds,
-                        )
-                    except Exception as notify_err:
-                        logger.warning(f"Web scout notification dispatch notice: {notify_err}")
-
-                return {
-                    "ok": True,
-                    "company_name": target["company_name"],
-                    "slug": candidate.slug,
-                    "lead_id": candidate.lead_id,
-                    "jurisdiction": target["jurisdiction"],
-                    "portal_name": target["portal_name"],
-                    "record_count": len(target["sample_data"])
-                }
-
-        return {
-            "ok": False,
-            "status": "NO_QUALIFIED_LEAD_FOUND",
-            "reason": last_rejection_reason,
-        }
-
-
-def main() -> None:
-    """CLI runner for Scout discovery, micro-scraping viability testing, and vertical inspection."""
-    import argparse
-    import sys
-
-    if sys.stdout.encoding.lower() != "utf-8":
-        try:
-            sys.stdout.reconfigure(encoding="utf-8")
-        except Exception:
-            pass
-
-    parser = argparse.ArgumentParser(description="LeadOps Autonomous Scout Runner & Micro-Scrape Viability CLI")
-    parser.add_argument("--jurisdiction", help="Target municipal or county jurisdiction (e.g. 'Dallas County', 'Cook County, IL')")
-    parser.add_argument("--vertical", help="Target filing vertical (e.g. 'mechanics_liens', 'probate', 'foreclosures')")
-    parser.add_argument("--limit", type=int, default=10, help="Target sample records to pull (default: 10)")
-    parser.add_argument("--list-verticals", action="store_true", help="List all cataloged high-yield public record verticals")
-    parser.add_argument("--office-hours-check", action="store_true", help="Check current office hours status for recipient send window")
-    args = parser.parse_args()
-
-    print("=" * 70)
-    print("[SCOUT] AUTONOMOUS PUBLIC RECORDS SCOUT & MICRO-SCRAPE ENGINE")
-    print("=" * 70)
-
-    # Office hours check
-    is_open, wait_sec, status_msg = is_office_hours()
-    print(f"Office Hours Window : {'[ACTIVE]' if is_open else '[STANDBY]'} {status_msg}")
-
-    if args.list_verticals:
-        print("\n--- Cataloged High-Yield Verticals ---")
-        for name, data in VERTICAL_CATALOG.items():
-            print(f" * {name}")
-            print(f"    Jurisdiction: {data.get('jurisdiction')} | Tier: {data.get('tier_key')}")
-            print(f"    Portal      : {data.get('portal_name')}")
-            print(f"    Pain Point  : {data.get('pain_point')}")
-        print("=" * 70)
-        return
-
-    if args.jurisdiction or args.vertical:
-        print(f"\nTarget Jurisdiction : {args.jurisdiction or 'Auto-Detect'}")
-        print(f"Target Vertical     : {args.vertical or 'Public Records'}")
-        print(f"Record Quota        : {args.limit} records (SLA: >= 80% same-day freshness)")
-        print("\nExecuting Scout Micro-Scrape Viability Probe...")
-
-        from .storage import SqliteStorageBackend
-        from .portal import PortalService
-
-        storage = SqliteStorageBackend()
-        portal = PortalService(storage=storage)
-        worker = ScoutBackgroundWorker(storage=storage, portal=portal)
-
-        # Match custom vertical or run candidate discovery
-        matched_vertical = None
-        if args.vertical:
-            for v_name in VERTICAL_CATALOG:
-                if args.vertical.lower() in v_name.lower():
-                    matched_vertical = v_name
-                    break
-
-        print(f"Resolved Vertical Blueprint: {matched_vertical or 'Dynamic General Docket Probe'}")
-        print("Scout micro-scrape initialized against live public records portal.")
-        print("[PROBE READY] Portals, DOM selectors, and anti-bot headers verified.")
-
-    print("\n" + "=" * 70)
-
-
-if __name__ == "__main__":
-    main()
 
 

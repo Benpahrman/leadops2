@@ -230,22 +230,61 @@ def test_admin_prospector_api_endpoints():
     assert "campaign_duration_days" in data
     assert "metrics" in data
     assert "is_office_hours" in data
+    assert "run_24_7" in data
 
-    # 2. POST start
+    # 2. POST toggle-24-7
+    res = client.post("/api/admin/prospector/toggle-24-7", json={"enabled": True}, headers=headers)
+    assert res.status_code == 200
+    assert res.json()["ok"] is True
+    assert res.json()["run_24_7"] is True
+
+    # 3. POST start
     res = client.post("/api/admin/prospector/start", json={"duration_days": 14, "volume_per_cycle": 4}, headers=headers)
     assert res.status_code == 200
     assert res.json()["is_active"] is True
     assert res.json()["volume_per_cycle"] == 4
 
-    # 3. POST pause
+    # 4. POST pause
     res = client.post("/api/admin/prospector/pause", headers=headers)
     assert res.status_code == 200
     assert res.json()["is_active"] is False
 
-    # 4. POST resume
+    # 5. POST resume
     res = client.post("/api/admin/prospector/resume", headers=headers)
     assert res.status_code == 200
     assert res.json()["is_active"] is True
 
-    # 5. POST pause cleanup
+    # 6. POST pause cleanup
     client.post("/api/admin/prospector/pause", headers=headers)
+
+
+@pytest.mark.asyncio
+async def test_prospector_24_7_unhindered_by_work_hours():
+    """Verify that in 24/7 mode, Scout is NOT hindered by off-hours and executes bursts all day."""
+    storage = InMemoryStorageBackend()
+    portal = PortalService(storage)
+
+    engine = HighVolumeProspectorEngine(
+        storage=storage,
+        portal=portal,
+        campaign_duration_days=14,
+        volume_per_cycle=2,
+    )
+    engine.run_24_7 = True
+
+    mock_lead = {
+        "ok": True,
+        "lead_id": "lead-night-01",
+        "company_name": "Midnight Title Services",
+        "contact_email": "ops@midnighttitle.com",
+        "slug": "midnight-title-services",
+    }
+
+    # Simulate running outside office hours (midnight, Sunday, etc.)
+    with patch("agents.scout.high_volume_prospector.is_office_hours", return_value=(False, 28800, "Outside office hours")):
+        with patch("agents.scout_runner.ScoutBackgroundWorker.discover_next_candidate", return_value=mock_lead):
+            burst_res = await engine.trigger_burst(count=1)
+            assert burst_res["ok"] is True
+            assert burst_res["qualified_count"] == 1
+            assert engine.get_status()["run_24_7"] is True
+            assert engine.get_status()["is_office_hours"] is False

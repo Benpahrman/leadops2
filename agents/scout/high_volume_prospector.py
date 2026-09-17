@@ -20,8 +20,8 @@ from typing import Any, Optional
 
 from agents.domain import State, Lead
 from agents.logging_config import get_logger
+from agents.office_hours import is_office_hours, is_scout_24_7_enabled
 from agents.portal import PortalService
-from agents.scout_runner import ScoutBackgroundWorker, is_office_hours
 from agents.storage import StorageBackend, normalize_company_name, normalize_domain
 
 logger = get_logger("prospector")
@@ -106,6 +106,7 @@ class HighVolumeProspectorEngine:
         self._task: asyncio.Task | None = None
         self._lock = threading.Lock()
         self.metrics = ProspectorCampaignMetrics()
+        self.run_24_7: bool = is_scout_24_7_enabled()
 
         self.start_time: datetime = datetime.now(timezone.utc)
         self.end_time: datetime = self.start_time + timedelta(days=campaign_duration_days)
@@ -126,6 +127,7 @@ class HighVolumeProspectorEngine:
                 "is_active": self.is_active,
                 "volume_per_cycle": self.volume_per_cycle,
                 "active_channels": self.active_channels,
+                "run_24_7": self.run_24_7,
                 "metrics": self.metrics.to_dict(),
                 "saved_at": datetime.now(timezone.utc).isoformat(),
             }
@@ -145,9 +147,11 @@ class HighVolumeProspectorEngine:
             self.campaign_duration_days = data.get("campaign_duration_days", 14)
             self.volume_per_cycle = data.get("volume_per_cycle", 3)
             self.active_channels = data.get("active_channels", list(self.CHANNELS))
+            if "run_24_7" in data:
+                self.run_24_7 = bool(data["run_24_7"])
             if "metrics" in data:
                 self.metrics = ProspectorCampaignMetrics.from_dict(data["metrics"])
-            logger.info(f"Loaded high-volume prospector state (Campaign: Day {self.current_day} of {self.campaign_duration_days})")
+            logger.info(f"Loaded high-volume prospector state (Campaign: Day {self.current_day} of {self.campaign_duration_days}, 24/7={self.run_24_7})")
         except Exception as e:
             logger.warning(f"Failed to load high volume prospector state: {e}")
 
@@ -197,6 +201,7 @@ class HighVolumeProspectorEngine:
             "is_campaign_expired": self.is_campaign_expired,
             "current_phase": self.current_phase,
             "status_message": self.last_status_message,
+            "run_24_7": self.run_24_7,
             "is_office_hours": is_open,
             "office_hours_status": status_msg,
             "seconds_until_office_window": wait_sec,
@@ -204,6 +209,14 @@ class HighVolumeProspectorEngine:
             "active_channels": self.active_channels,
             "metrics": self.metrics.to_dict(),
         }
+
+    def set_24_7_mode(self, enabled: bool) -> dict[str, Any]:
+        """Toggle continuous 24/7 all-day prospecting on or off."""
+        with self._lock:
+            self.run_24_7 = bool(enabled)
+            self._save_state()
+            logger.info(f"⚡ [HIGH-VOLUME PROSPECTOR] 24/7 All-Day Mode set to: {self.run_24_7}")
+            return self.get_status()
 
     def start_campaign(
         self,
@@ -269,6 +282,8 @@ class HighVolumeProspectorEngine:
         logger.info(f"⚡ [HIGH-VOLUME BURST] Triggering immediate burst of {clamped_count} leads (Channel: {target_channel or 'All'})")
 
         discovered = []
+        # Lazy import to avoid circular: agents.scout_runner.worker → agents.scout → agents.scout_runner.worker
+        from agents.scout_runner.worker import ScoutBackgroundWorker  # noqa: PLC0415
         worker = ScoutBackgroundWorker(storage=self.storage, portal=self.portal)
 
         for i in range(clamped_count):
@@ -331,9 +346,9 @@ class HighVolumeProspectorEngine:
                     logger.info("🏁 [HIGH-VOLUME PROSPECTOR] 14-day campaign duration completed.")
                     break
 
-                # 1. Office Hours Gate (8:00 AM - 5:00 PM CST, Mon-Fri)
+                # 1. Office Hours Gate (evaluated only when not in 24/7 all-day mode)
                 is_open, wait_seconds, status_msg = is_office_hours()
-                if not is_open:
+                if not self.run_24_7 and not is_open:
                     self.current_phase = "STANDBY_OFFICE_HOURS"
                     self.last_status_message = status_msg
                     logger.info(f"🌙 [OFFICE HOURS STANDBY] {status_msg} Standing by for morning window.")
@@ -342,7 +357,10 @@ class HighVolumeProspectorEngine:
                     await asyncio.sleep(sleep_time)
                     continue
 
-                # 2. Execute Discovery Burst during office hours
+                if not is_open:
+                    logger.info(f"⚡ [24/7 ALL-DAY SCOUTING] High-Volume Prospector active outside standard hours ({status_msg}). Continuing discovery burst.")
+
+                # 2. Execute Discovery Burst (round-the-clock or during office hours)
                 self.current_phase = "PROSPECTING_BURST"
                 self.last_status_message = f"Day {self.current_day}/{self.campaign_duration_days}: Searching & qualifying {self.volume_per_cycle} candidates"
 
