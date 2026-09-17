@@ -4,7 +4,7 @@ import pytest
 from agents.tools.web_search import search_web, search_company_intelligence, search_public_data_portals
 from agents.tools.web_fetcher import fetch_page_content, extract_contact_info_from_url
 from agents.tools.ai_tools_registry import AI_TOOL_DEFINITIONS, execute_tool_call
-from agents.llm_client import LLMAgentEngine
+from agents.llm import LLMAgentEngine
 
 
 def test_web_search_tool_returns_structured_results():
@@ -99,7 +99,7 @@ def test_llm_agent_run_lead_enrichment_agent():
 
 
 def test_two_react_loop_architecture():
-    from agents.build_loop import BuildLoop, BuildPhase, TeamRole
+    from agents.swarm.build_loop import BuildLoop, BuildPhase, TeamRole
     engine = LLMAgentEngine()
     
     # 1. Outer Loop: Start Plan (Dev Lead AI)

@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from agents.domain import Lead, PaymentEvent
-from .paypal_config import PayPalSettings
-from .payments import PaymentEventProcessor
+from agents.billing.paypal_config import PayPalSettings
+from agents.billing.payments import PaymentEventProcessor
 
 
 class PayPalResponse(Protocol):

@@ -1,8 +1,8 @@
 import json
 import pytest
 
-from agents.build_loop import BuildPlan, TeamRole
-from agents.job_runner import LocalBuildRunner
+from agents.swarm.build_loop import BuildPlan, TeamRole
+from agents.swarm.job_runner import LocalBuildRunner
 from agents.tools.dom_pruner import prune_dom
 from agents.tools.waf_prober import generate_browser_headers, probe_waf_signatures
 from agents.tools.playwright_runner import ScraperTask, compile_extraction_script

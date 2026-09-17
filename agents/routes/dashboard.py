@@ -65,7 +65,7 @@ class EmailExportRequest(BaseModel):
 @router.get("/api/dashboard/integrations/google-sheets-info", tags=["Dashboard API"])
 def get_google_sheets_integration_info():
     """Retrieve Google Sheets service account email and Apps Script fallback template."""
-    from ..google_sheets import get_service_account_info
+    from agents.integrations.google_sheets import get_service_account_info
     return get_service_account_info()
 
 @router.get("/dashboard", response_class=HTMLResponse, tags=["Dashboard UI"])
@@ -565,7 +565,7 @@ def test_destination_endpoint(
     dest_type = (req.type or req.destination_type or "google_sheets").lower().strip()
 
     if dest_type == "google_sheets":
-        from ..google_sheets import test_google_sheet_connection
+        from agents.integrations.google_sheets import test_google_sheet_connection
         sheet_url = req.google_sheet_url or req.url or "https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
         res = test_google_sheet_connection(sheet_url)
         ok = bool(res.get("ok", False))
@@ -579,7 +579,7 @@ def test_destination_endpoint(
             "message": msg,
         }
     elif dest_type == "webhook":
-        from ..delivery import test_webhook_connection
+        from agents.swarm.delivery import test_webhook_connection
         target_url = req.webhook_url or req.url
         if not target_url:
             return {
@@ -606,7 +606,7 @@ def test_destination_endpoint(
             "message": msg,
         }
     elif dest_type == "airtable":
-        from ..delivery import test_airtable_connection
+        from agents.swarm.delivery import test_airtable_connection
         ok, latency, msg = test_airtable_connection(
             api_key=req.airtable_api_key or "",
             base_id=req.airtable_base_id or "",
@@ -621,7 +621,7 @@ def test_destination_endpoint(
             "message": msg,
         }
     elif dest_type == "notion":
-        from ..delivery import test_notion_connection
+        from agents.swarm.delivery import test_notion_connection
         ok, latency, msg = test_notion_connection(
             integration_token=req.notion_integration_token or "",
             database_id=req.notion_database_id or "",

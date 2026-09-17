@@ -11,13 +11,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from ...auth import ClerkUser, get_current_user, get_current_user_optional
 from ...domain import State, PaymentEvent
 from ...pitcher import send_ab_test_email, send_lifecycle_email
-from ...workflow import run_autonomous_dev_team
+from agents.swarm.workflow import run_autonomous_dev_team
 from ..dependencies import get_storage, get_portal_service, verify_csrf_token
 from .helpers import ensure_demo_sandbox
 from agents.client_artifacts import artifact_store
 from agents.integrations.audit_vault import audit_vault
 from agents.notifications import notification_manager
-from agents.subscriptions import subscription_activation, subscription_plan
+from agents.billing.subscriptions import subscription_activation, subscription_plan
 from agents.websocket import progress_manager
 
 logger = logging.getLogger("api.portal.checkout")

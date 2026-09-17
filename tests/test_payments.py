@@ -1,7 +1,7 @@
 import unittest
 
 from agents.domain import Lead, PaymentEvent, State
-from agents.payments import PaymentEventProcessor
+from agents.billing.payments import PaymentEventProcessor
 
 
 class PaymentEventProcessorTests(unittest.TestCase):

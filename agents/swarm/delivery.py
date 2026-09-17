@@ -73,7 +73,7 @@ class GoogleSheetsDestination:
                 return self.client.append_rows(self.spreadsheet_id, self.worksheet_name, rows)
 
         try:
-            from agents.google_sheets import append_records_to_sheet
+            from agents.integrations.google_sheets import append_records_to_sheet
             return append_records_to_sheet(self.spreadsheet_id, rows, self.worksheet_name)
         except Exception:
             return len(rows)

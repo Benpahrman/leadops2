@@ -4,7 +4,7 @@ import logging
 import re
 from typing import Any
 
-from agents.llm_client import LLMAgentEngine
+from agents.llm import LLMAgentEngine
 
 logger = logging.getLogger("leadops.email.ai_review")
 

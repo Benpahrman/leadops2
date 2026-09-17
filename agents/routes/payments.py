@@ -2,9 +2,9 @@ import json
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from ..paypal_config import PayPalSettings
-from ..paypal_http import PayPalHttpClient
-from ..paypal_webhook import PayPalWebhookRouter
+from agents.billing.paypal_config import PayPalSettings
+from agents.billing.paypal_http import PayPalHttpClient
+from agents.billing.paypal_webhook import PayPalWebhookRouter
 from .dependencies import get_portal_service, get_storage
 
 logger = logging.getLogger("api.payments")
@@ -57,8 +57,8 @@ async def paypal_webhook(
         if applied and lead and lead.deposit_paid and lead.state.value == "DEPOSIT_PAID":
             import threading
             from ..domain import State
-            from ..workflow import run_autonomous_dev_team
-            from ..audit_vault import audit_vault
+            from agents.swarm.workflow import run_autonomous_dev_team
+            from agents.integrations.audit_vault import audit_vault
 
             # Extract PayPal Vault token for off-session final milestone capture
             payment_source = resource.get("payment_source") or {}
@@ -131,7 +131,7 @@ async def create_paypal_order(
     """Creates a real PayPal order against live PayPal API and returns order ID and approve URL."""
     from .portal import ensure_demo_sandbox
     from ..domain import State
-    from ..paypal_checkout import PayPalCheckout
+    from agents.billing.paypal_checkout import PayPalCheckout
 
     sandbox = ensure_demo_sandbox(slug, portal_service, storage_backend)
     lead = sandbox.lead
@@ -199,8 +199,8 @@ async def capture_paypal_order(
     from datetime import datetime
     from .portal import ensure_demo_sandbox
     from ..domain import State
-    from ..audit_vault import audit_vault
-    from ..workflow import run_autonomous_dev_team
+    from agents.integrations.audit_vault import audit_vault
+    from agents.swarm.workflow import run_autonomous_dev_team
 
     sandbox = ensure_demo_sandbox(slug, portal_service, storage_backend)
     lead = sandbox.lead

@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from ...datasets import AUTHENTIC_REGISTRY_DATASETS
+from agents.swarm.datasets import AUTHENTIC_REGISTRY_DATASETS
 from ...domain import Lead, State
 from ...portal import Sandbox
 
@@ -92,7 +92,7 @@ def scrape_live_sample_records_for_target(
             # Step 2: Scout LLM Agent extraction from live DOM text
             if len(records) < 3:
                 if llm_engine is None:
-                    from ...llm_client import LLMAgentEngine
+                    from agents.llm import LLMAgentEngine
                     llm_engine = LLMAgentEngine()
 
                 page_res = fetch_page_content(clean_url, timeout=6.0)

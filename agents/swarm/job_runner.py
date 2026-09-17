@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Callable
 
 from agents.artifacts import ArtifactManifest
-from .build_loop import BuildPlan, TeamRole
+from agents.swarm.build_loop import BuildPlan, TeamRole
 from agents.progress import ProgressFeed, ProgressStatus
 
 

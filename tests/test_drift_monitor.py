@@ -1,7 +1,7 @@
 import pytest
 
 from agents.domain import Lead, State
-from agents.drift_monitor import DriftIncident, DriftSeverity, RetainerMonitorWorker
+from agents.swarm.drift_monitor import DriftIncident, DriftSeverity, RetainerMonitorWorker
 from agents.tools.waf_prober import AntiBotBlockException
 
 

@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from agents.llm_client import LLMAgentEngine, is_disallowed_buyer
+from agents.llm import LLMAgentEngine, is_disallowed_buyer
 from agents.tools.web_search import search_web, search_company_intelligence, find_linkedin_decision_maker
 from agents.tools.web_fetcher import extract_contact_info_from_url, fetch_page_content, fetch_with_zyte
 from agents.logging_config import get_logger

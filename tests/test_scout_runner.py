@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 from agents.scout_runner import VERTICAL_CATALOG, ScoutBackgroundWorker, B2BWebScoutWorker
-from agents.datasets import AUTHENTIC_REGISTRY_DATASETS
+from agents.swarm.datasets import AUTHENTIC_REGISTRY_DATASETS
 from agents.domain import State
 from agents.storage import InMemoryStorageBackend
 from agents.portal import PortalService

@@ -530,7 +530,7 @@ class CustomerDashboardService:
 
         if dest_type == "google_sheets" and sheet_url:
             try:
-                from ..google_sheets import append_records_to_sheet
+                from agents.integrations.google_sheets import append_records_to_sheet
                 append_records_to_sheet(sheet_url, real_records)
             except Exception as e:
                 logger.warning(f"Google sheets append notice for {lead_id}: {e}")

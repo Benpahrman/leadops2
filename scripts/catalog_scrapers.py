@@ -21,7 +21,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-from agents.scraper_catalog import (
+from agents.swarm.scraper_catalog import (
     BASE_DIR,
     BUILD_ARTIFACTS_DIR,
     CATALOG_CSV_PATH,

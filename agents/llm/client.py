@@ -373,7 +373,7 @@ class LLMClientBase:
         temperature: float = 0.2,
     ) -> str:
         """Execute multi-turn LLM reasoning loop with active tool calling (search, fetch, WAF probe, DOM prune)."""
-        from .tools.ai_tools_registry import AI_TOOL_DEFINITIONS, execute_tool_call
+        from agents.tools.ai_tools_registry import AI_TOOL_DEFINITIONS, execute_tool_call
 
         if os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("MOCK_LLM") == "true" or not self.is_available():
             return ""

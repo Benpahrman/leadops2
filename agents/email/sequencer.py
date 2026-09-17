@@ -210,7 +210,7 @@ class ColdOutreachSequencer:
         # 1. Primary Engine: Autonomous LLM Peer Voice Agent (Alex @ LeadOps)
         if llm_engine is None and not bool(os.environ.get("PYTEST_CURRENT_TEST")):
             try:
-                from ..llm_client import LLMAgentEngine
+                from agents.llm import LLMAgentEngine
                 llm_engine = LLMAgentEngine()
             except Exception:
                 llm_engine = None

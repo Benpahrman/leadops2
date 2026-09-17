@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from agents.domain import Lead, State
-from .paypal_config import PayPalSettings
+from agents.billing.paypal_config import PayPalSettings
 
 
 class CheckoutResponse(Protocol):

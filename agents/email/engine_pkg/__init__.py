@@ -33,7 +33,7 @@ from dotenv import load_dotenv
 
 from ..acs_client import AzureCommunicationEmailClient
 from ..knowlez_client import KnowlezDeliverabilityClient, get_knowlez_client
-from agents.llm_client import LLMAgentEngine
+from agents.llm import LLMAgentEngine
 
 logging.basicConfig(
     level=logging.INFO,

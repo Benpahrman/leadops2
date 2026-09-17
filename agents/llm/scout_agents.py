@@ -22,9 +22,9 @@ class ScoutAgentsMixin:
         existing_companies: set[str] | list[str] | None = None,
     ) -> dict[str, Any]:
         """Autonomous Scout LLM Agent: Discovers qualified B2B buyers using multi-step ReAct Tool Calling."""
-        from .tools.web_search import search_web, search_company_intelligence, search_public_data_portals
-        from .tools.web_fetcher import fetch_page_content, extract_contact_info_from_url, extract_portal_sample_data
-        from .tools.ai_tools_registry import AI_TOOL_DEFINITIONS
+        from agents.tools.web_search import search_web, search_company_intelligence, search_public_data_portals
+        from agents.tools.web_fetcher import fetch_page_content, extract_contact_info_from_url, extract_portal_sample_data
+        from agents.tools.ai_tools_registry import AI_TOOL_DEFINITIONS
 
         existing_set = {str(c).lower().strip() for c in (existing_companies or []) if c}
 
@@ -185,7 +185,7 @@ class ScoutAgentsMixin:
                     return {}
 
                 # Enforce BDR Manager Qualification Gate
-                from .tools.lead_database_tool import calculate_automation_opportunity_score, is_lead_qualified
+                from agents.tools.lead_database_tool import calculate_automation_opportunity_score, is_lead_qualified
                 opp_score = int(candidate.get("automation_opportunity_score") or 78)
                 purchase_prob = int(candidate.get("purchase_probability") or 65)
                 pain_sev = int(candidate.get("pain_severity") or 8)
@@ -218,8 +218,8 @@ class ScoutAgentsMixin:
         linkedin_data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """AI Research & Lead Enrichment Agent: Enriches corporate intelligence, operational insights, and sample data."""
-        from .tools.web_search import search_company_intelligence
-        from .tools.web_fetcher import extract_contact_info_from_url
+        from agents.tools.web_search import search_company_intelligence
+        from agents.tools.web_fetcher import extract_contact_info_from_url
 
         logger.info(f"🔬 [AI RESEARCH AGENT] Enriching corporate data & verifying sample records for {company_name}")
         
@@ -395,7 +395,7 @@ class ScoutAgentsMixin:
     ) -> dict[str, Any]:
         """Dynamically identifies and classifies the exact municipal/county/state public records portal an SMB needs."""
         import urllib.parse
-        from .tools.web_search import search_web
+        from agents.tools.web_search import search_web
         
         logger.info(f"🏛️ [DYNAMIC PORTAL CLASSIFIER] Classifying target registry for {company_name} in {location} ({niche})")
         
@@ -778,6 +778,6 @@ class ScoutAgentsMixin:
         page_content: str,
     ) -> dict[str, Any]:
         """Verify prospect website legitimacy to ensure Scout identified an active commercial business."""
-        from .email.ai_review import ProspectWebsiteVerificationAgent
+        from agents.email.ai_review import ProspectWebsiteVerificationAgent
         agent = ProspectWebsiteVerificationAgent(self)
         return agent.verify_website(company_name, website_url, niche, page_content)

@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from agents.llm_client import LLMAgentEngine, is_disallowed_buyer
+from agents.llm import LLMAgentEngine, is_disallowed_buyer
 from agents.logging_config import get_logger
 from agents.tools.web_search import search_job_board_intent, search_company_intelligence
 from agents.tools.web_fetcher import extract_contact_info_from_url

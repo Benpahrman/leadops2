@@ -3,13 +3,13 @@
 import unittest
 from unittest.mock import patch, MagicMock
 
-from agents.build_loop import BuildLoop, BuildPhase
+from agents.swarm.build_loop import BuildLoop, BuildPhase
 from agents.tools.qa_verifier import (
     compare_ground_truth_parity,
     fetch_site_ground_truth,
     verify_scraper_against_live_site,
 )
-from agents.llm_client import LLMAgentEngine
+from agents.llm import LLMAgentEngine
 
 
 class LiveSiteQAVerifierTests(unittest.TestCase):

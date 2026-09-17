@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from agents.auth import ClerkUser, require_admin, get_current_user_optional
 from agents.models import Ticket, TicketStatus, TicketPriority, TicketType, CancellationRequest, CancellationStatus
 from agents.domain import State, PaymentEvent, Lead
-from agents.scraper_catalog import (
+from agents.swarm.scraper_catalog import (
     get_catalog,
     search_catalog,
     get_scraper_source_code,
@@ -394,8 +394,8 @@ def trigger_admin_daily_sync(
     from pathlib import Path
     import json as _json, subprocess
     from agents.domain import State
-    from agents.datasets import AUTHENTIC_REGISTRY_DATASETS
-    from agents.delivery import LocalCsvDestination
+    from agents.swarm.datasets import AUTHENTIC_REGISTRY_DATASETS
+    from agents.swarm.delivery import LocalCsvDestination
     from agents.observability import telemetry_collector
     from agents.pitcher import send_lifecycle_email
 
@@ -455,7 +455,7 @@ def trigger_admin_daily_sync(
 
     try:
         import hashlib, json as _json
-        from agents.audit_vault import audit_vault
+        from agents.integrations.audit_vault import audit_vault
         batch_hash = hashlib.sha256(_json.dumps(extracted_rows, sort_keys=True).encode()).hexdigest()
         audit_vault.record_delivery_receipt(
             lead_id=lead.lead_id,
@@ -542,7 +542,7 @@ def draft_lead_email(
     portal_service=Depends(get_portal_service),
 ):
     """Draft a personalized, high-converting outreach or lifecycle email using live LLM."""
-    from agents.llm_client import LLMAgentEngine
+    from agents.llm import LLMAgentEngine
 
     lead = storage_backend.get_lead(lead_id)
     if not lead:
@@ -647,7 +647,7 @@ def get_lead_audit_trail(
 ):
     """Fetch the full chronological audit trail and AI agent action history for a client."""
     from agents.client_artifacts import artifact_store
-    from agents.audit_vault import audit_vault
+    from agents.integrations.audit_vault import audit_vault
     trail = artifact_store.get_audit_trail(lead_id)
     terms = audit_vault.get_terms_acceptance(lead_id)
     comms = audit_vault.get_communications_log(lead_id)
@@ -692,7 +692,7 @@ def get_admin_chargeback_dossier(
     """Generate and retrieve the formal legal Chargeback Dispute Defense Dossier for a client."""
     from pathlib import Path
     from fastapi.responses import HTMLResponse
-    from agents.audit_vault import audit_vault
+    from agents.integrations.audit_vault import audit_vault
 
     dossier = audit_vault.generate_chargeback_defense_dossier(lead_id)
 
@@ -1001,8 +1001,8 @@ def handle_mobile_quick_action(
             raise HTTPException(status_code=404, detail=f"Lead not found: {clean_lead_id}")
         if getattr(lead, "paypal_vault_id", "") and not lead.final_paid:
             try:
-                from agents.paypal_http import PayPalHttpClient
-                from agents.paypal_checkout import PayPalCheckout
+                from agents.billing.paypal_http import PayPalHttpClient
+                from agents.billing.paypal_checkout import PayPalCheckout
                 checkout = PayPalCheckout.from_environment(PayPalHttpClient())
                 checkout.capture_final_milestone_vault(lead)
             except Exception as e:

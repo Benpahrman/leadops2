@@ -4,7 +4,7 @@ from agents.domain import Lead, PaymentEvent, State
 from agents.portal import PortalService
 from agents.progress import ProgressStatus
 from agents.storage import InMemoryStorageBackend, SqliteStorageBackend
-from agents.payments import PaymentEventProcessor
+from agents.billing.payments import PaymentEventProcessor
 
 
 def test_sqlite_storage_lead_persistence(tmp_path):

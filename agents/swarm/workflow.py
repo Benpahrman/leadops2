@@ -4,9 +4,9 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from agents.artifacts import ArtifactManifest
-from .build_loop import BuildLoop, BuildPlan, BuildPhase, TeamRole
+from agents.swarm.build_loop import BuildLoop, BuildPlan, BuildPhase, TeamRole
 from agents.domain import Lead, PaymentEvent, State
-from .job_runner import LocalBuildRunner
+from agents.swarm.job_runner import LocalBuildRunner
 from agents.logging_config import get_logger
 from agents.models import Ticket, TicketType, TicketStatus, TicketPriority
 from agents.pitcher import send_escrow_ready_notification, send_lifecycle_email
@@ -71,7 +71,7 @@ class ProjectWorkflow:
             # Autonomous Recon & Self-Healing loop: Recon the issue and solve it!
             logger.info(f"🔍 [SWARM RECON & HEALING] Specialist roadblock encountered ({failed_reasons[0] if failed_reasons else 'unknown'}). Launching autonomous recon & AST repair...")
             try:
-                from agents.self_healing import self_healing_engine
+                from agents.swarm.self_healing import self_healing_engine
                 healed_script, pm_report = self_healing_engine.heal_scraper_failure(
                     lead=self.lead,
                     failure_stage="BOT_BARRIER" if is_anti_bot_blocked else "SPECIALIST_FAILURE",
@@ -160,7 +160,7 @@ def run_autonomous_dev_team(
     except Exception as notif_err:
         logger.warning(f"Dev swarm start notification notice: {notif_err}")
     
-    from agents.llm_client import LLMAgentEngine
+    from agents.llm import LLMAgentEngine
     from agents.client_artifacts import artifact_store
     from agents.tools.specialist_handlers import get_default_specialist_handlers
     engine = llm or LLMAgentEngine()
@@ -399,7 +399,7 @@ python extractor.py
 
     # Save 25 verified authentic public preview rows and QA Insurance Certificate to disk
     import hashlib
-    from agents.datasets import AUTHENTIC_REGISTRY_DATASETS
+    from agents.swarm.datasets import AUTHENTIC_REGISTRY_DATASETS
     
     sample_preview = []
     if portal and slug:

@@ -95,7 +95,7 @@ def ensure_fresh_records_for_lead(
     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     fresh_rows = []
 
-    from agents.datasets import AUTHENTIC_REGISTRY_DATASETS, pull_live_austin_permits
+    from agents.swarm.datasets import AUTHENTIC_REGISTRY_DATASETS, pull_live_austin_permits
 
     try:
         if "permit" in portal_name.lower() or "austin" in jurisdiction.lower():

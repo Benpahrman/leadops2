@@ -5,7 +5,7 @@ from typing import Any
 
 from agents.swarm.build_loop import BuildPlan, TeamRole
 from ..domain import Lead
-from ..llm_client import LLMAgentEngine
+from agents.llm import LLMAgentEngine
 from .dom_pruner import prune_dom
 from .waf_prober import generate_browser_headers, probe_waf_signatures
 from .playwright_runner import ScraperTask, compile_extraction_script
@@ -46,7 +46,7 @@ def build_specialist_handlers(lead: Lead | None = None, llm: LLMAgentEngine | No
         return json.dumps(report, default=str)
 
     def frontend_dom_specialist(plan: BuildPlan) -> str:
-        from ..datasets import AUTHENTIC_REGISTRY_DATASETS
+        from agents.swarm.datasets import AUTHENTIC_REGISTRY_DATASETS
         lookup_key = target_url or (lead.source_url if lead else "") or (lead.slug if lead else "") or "universal-data-portal"
         dataset_entry = AUTHENTIC_REGISTRY_DATASETS[lookup_key]
         genuine_records = dataset_entry["sample_data"][:3]

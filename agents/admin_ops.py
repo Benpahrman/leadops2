@@ -254,7 +254,7 @@ class AdminMissionControlService:
 
     def enrich_and_recover_lead(self, lead_id: str) -> dict[str, Any]:
         """Trigger ContactEnricherResearcherAgent to research and recover deliverable contact for a lead."""
-        from .contact_enricher_agent import ContactEnricherResearcherAgent
+        from .scout.contact_enricher_agent import ContactEnricherResearcherAgent
         lead = self.storage.get_lead(lead_id)
         if not lead:
             return {"ok": False, "error": f"Lead '{lead_id}' not found"}
@@ -379,10 +379,10 @@ class AdminMissionControlService:
         elif prev_state == State.SOW_GENERATED and target == State.DEPOSIT_PAID:
             lead.record_payment(PaymentEvent.DEPOSIT_PAID)
         elif prev_state == State.DEPOSIT_PAID and target == State.DEV_BUILDING:
-            from .workflow import run_autonomous_dev_team
+            from .swarm.workflow import run_autonomous_dev_team
             run_autonomous_dev_team(lead)
         elif prev_state in {State.DEV_BUILDING, State.BLOCKED_NEEDS_REVIEW} and target == State.ESCROW_PREVIEW:
-            from .workflow import run_autonomous_dev_team
+            from .swarm.workflow import run_autonomous_dev_team
             if lead.state == State.BLOCKED_NEEDS_REVIEW:
                 lead.transition(State.DEV_BUILDING, "Admin unblocked proxy")
             run_autonomous_dev_team(lead)

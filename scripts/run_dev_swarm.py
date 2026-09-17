@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from agents.domain import Lead, PaymentEvent, State
 from agents.storage import SqliteStorageBackend
-from agents.workflow import run_autonomous_dev_team
+from agents.swarm.workflow import run_autonomous_dev_team
 
 
 def main():

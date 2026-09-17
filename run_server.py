@@ -25,13 +25,13 @@ if sys.platform == "win32":
 
 from agents.api import create_app
 from agents.domain import Lead, State
-from agents.drift_monitor import RetainerMonitorWorker
+from agents.swarm.drift_monitor import RetainerMonitorWorker
 from agents.portal import PortalService
 from agents.scout_runner import ScoutBackgroundWorker
 from agents.storage import SqliteStorageBackend
-from agents.dashboard import CustomerDashboardService
+from agents.dashboard_pkg import CustomerDashboardService
 from agents.admin_ops import AdminMissionControlService
-from agents.llm_client import LLMAgentEngine
+from agents.llm import LLMAgentEngine
 from agents.pitcher import send_lifecycle_email
 from agents.logging_config import get_logger
 
@@ -119,8 +119,8 @@ def run_daily_automation(
     
     # 5:30 AM UTC: Retainer Drift Shield Pre-Flight Sweep
     try:
-        from agents.drift_monitor import RetainerMonitorWorker
-        from agents.datasets import AUTHENTIC_REGISTRY_DATASETS
+        from agents.swarm.drift_monitor import RetainerMonitorWorker
+        from agents.swarm.datasets import AUTHENTIC_REGISTRY_DATASETS
         monitor = RetainerMonitorWorker()
         for lead in leads:
             if lead.state in {State.WARRANTY_ACTIVE, State.DELIVERED} or lead.subscription_active:
@@ -148,10 +148,10 @@ def run_daily_automation(
     # 6:00 AM UTC: Automated Batch Delivery for Active Retainers
     # Uses real DeliveryJob pipeline with compiled extractors and observability telemetry
     try:
-        from agents.datasets import AUTHENTIC_REGISTRY_DATASETS
-        from agents.delivery import DeliveryPlan, DeliveryJob, LocalCsvDestination, WebhookDestination
+        from agents.swarm.datasets import AUTHENTIC_REGISTRY_DATASETS
+        from agents.swarm.delivery import DeliveryPlan, DeliveryJob, LocalCsvDestination, WebhookDestination
         from agents.observability import telemetry_collector
-        from agents.self_healing import SelfHealingEngine
+        from agents.swarm.self_healing import SelfHealingEngine
         from pathlib import Path
         import subprocess, json as _json
 
@@ -239,7 +239,7 @@ def run_daily_automation(
 
                 try:
                     import hashlib
-                    from agents.audit_vault import audit_vault
+                    from agents.integrations.audit_vault import audit_vault
                     batch_hash = hashlib.sha256(_json.dumps(extracted_rows, sort_keys=True).encode()).hexdigest()
                     audit_vault.record_delivery_receipt(
                         lead_id=lead.lead_id,

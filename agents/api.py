@@ -10,12 +10,12 @@ from fastapi.staticfiles import StaticFiles
 from . import __version__
 from .admin_ops import AdminMissionControlService
 from .auth import ClerkAuthService
-from .dashboard import CustomerDashboardService
-from .llm_client import LLMAgentEngine
+from .dashboard_pkg import CustomerDashboardService
+from .llm import LLMAgentEngine
 from .logging_config import get_logger
 from .middleware import EndpointRateLimiter
 from .portal import PortalService
-from .scout_pipeline import ScoutPortalPipeline
+from .scout.scout_pipeline import ScoutPortalPipeline
 from .scout_runner import ScoutAutomationSupervisor
 from .storage import SqliteStorageBackend, StorageBackend, create_storage_backend
 from .websocket import progress_manager

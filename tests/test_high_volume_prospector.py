@@ -8,7 +8,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from agents.domain import Lead, State
-from agents.high_volume_prospector import HighVolumeProspectorEngine, ProspectorCampaignMetrics
+from agents.scout.high_volume_prospector import HighVolumeProspectorEngine, ProspectorCampaignMetrics
 from agents.pitcher import ensure_fresh_records_for_lead
 from agents.portal import PortalService, Sandbox
 from agents.storage import (

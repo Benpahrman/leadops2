@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agents.domain import Lead
-from .paypal import PayPalHttpClient, PayPalWebhookAdapter
+from agents.billing.paypal import PayPalHttpClient, PayPalWebhookAdapter
 
 
 @dataclass

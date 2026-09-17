@@ -638,7 +638,7 @@ class AutoOutreachScheduler:
                 else:
                     if llm_engine is None:
                         try:
-                            from .llm_client import LLMAgentEngine
+                            from .llm import LLMAgentEngine
                             llm_engine = LLMAgentEngine()
                         except Exception as l_err:
                             logger.warning(f"Could not initialize LLMAgentEngine: {l_err}")

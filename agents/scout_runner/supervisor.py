@@ -11,7 +11,7 @@ from typing import Any
 from agents.domain import State
 from agents.portal import PortalService
 from agents.storage import StorageBackend
-from agents.llm_client import LLMAgentEngine
+from agents.llm import LLMAgentEngine
 from agents.office_hours import is_office_hours
 
 logger = logging.getLogger("leadops.scout.supervisor")

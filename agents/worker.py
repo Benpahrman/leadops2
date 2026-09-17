@@ -12,9 +12,9 @@ import sys
 import time
 from typing import Any
 
-from .blob_storage import blob_storage
+from .integrations.blob_storage import blob_storage
 from .logging_config import get_logger
-from .service_bus import JobPayload, JobType, create_queue_broker
+from .integrations.service_bus import JobPayload, JobType, create_queue_broker
 from .storage import create_storage_backend
 
 logger = get_logger("worker")
@@ -106,7 +106,7 @@ class AutonomousSwarmWorker:
         logger.info("Executing Scout Recon on: %s", url)
 
         # Run scout via pipeline
-        from .scout_pipeline import ScoutPortalPipeline
+        from .scout.scout_pipeline import ScoutPortalPipeline
         from .portal import PortalService
         portal = PortalService(storage=self.storage)
         pipeline = ScoutPortalPipeline(portal)
@@ -129,7 +129,7 @@ class AutonomousSwarmWorker:
             return
 
         logger.info("Executing Build Swarm for lead: %s (%s)", lead_id, lead.company_name)
-        from .workflow import CustomerJourneyWorkflow
+        from .swarm.workflow import CustomerJourneyWorkflow
         from .tools.specialist_handlers import get_production_handlers
         handlers = get_production_handlers()
         workflow = CustomerJourneyWorkflow(lead)
@@ -148,7 +148,7 @@ class AutonomousSwarmWorker:
         if not lead:
             return
         logger.info("Executing Self-Healing selector repair for: %s", lead.company_name)
-        from .self_healing import self_healing_engine
+        from .swarm.self_healing import self_healing_engine
         healed_script, pm_report = self_healing_engine.heal_scraper_failure(
             lead=lead,
             failure_stage="DOM_DRIFT",
@@ -158,7 +158,7 @@ class AutonomousSwarmWorker:
 
     def _handle_drift_job(self, job: JobPayload) -> None:
         logger.info("Executing scheduled drift probe...")
-        from .drift_monitor import RetainerMonitorWorker
+        from .swarm.drift_monitor import RetainerMonitorWorker
         from .portal import PortalService
         portal = PortalService(storage=self.storage)
         worker = RetainerMonitorWorker(self.storage, portal, check_interval_seconds=3600)

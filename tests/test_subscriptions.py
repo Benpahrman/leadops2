@@ -2,7 +2,7 @@ import unittest
 from unittest import mock
 
 from agents.domain import Lead, State
-from agents.subscriptions import subscription_activation, subscription_plan
+from agents.billing.subscriptions import subscription_activation, subscription_plan
 
 
 class SubscriptionTests(unittest.TestCase):

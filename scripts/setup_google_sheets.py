@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 # Add project root to sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from agents.google_sheets import (
+from agents.integrations.google_sheets import (
     append_records_to_sheet,
     extract_spreadsheet_id,
     get_service_account_credentials,

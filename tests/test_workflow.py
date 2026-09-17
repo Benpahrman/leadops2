@@ -1,8 +1,8 @@
 import unittest
 
-from agents.build_loop import TeamRole
+from agents.swarm.build_loop import TeamRole
 from agents.domain import Lead, State
-from agents.workflow import ProjectWorkflow
+from agents.swarm.workflow import ProjectWorkflow
 
 
 class ProjectWorkflowTests(unittest.TestCase):

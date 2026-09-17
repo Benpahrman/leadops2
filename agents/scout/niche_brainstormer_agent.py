@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from agents.llm_client import LLMAgentEngine
+from agents.llm import LLMAgentEngine
 from agents.logging_config import get_logger
 
 logger = get_logger("niche_brainstormer")

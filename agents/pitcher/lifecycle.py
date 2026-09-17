@@ -5,7 +5,7 @@ from typing import Any
 
 from agents.domain import Lead
 from agents.email.client import EmailClient
-from agents.llm_client import LLMAgentEngine
+from agents.llm import LLMAgentEngine
 from agents.logging_config import get_logger
 from .models import PitchMessage, EmailTemplate, LIFECYCLE_EMAIL_TEMPLATES, SendPulseClient
 from .persona import get_public_base_url
@@ -197,7 +197,7 @@ def send_deposit_confirmation_email(
             html_body=pitch.body_html,
         )
         try:
-            from agents.audit_vault import audit_vault
+            from agents.integrations.audit_vault import audit_vault
             audit_vault.record_communication(
                 lead_id=lead.lead_id,
                 direction="OUTBOUND",
@@ -533,7 +533,7 @@ def send_lifecycle_email(
             html_body=pitch.body_html,
         )
         try:
-            from agents.audit_vault import audit_vault
+            from agents.integrations.audit_vault import audit_vault
             audit_vault.record_communication(
                 lead_id=lead.lead_id,
                 direction="OUTBOUND",

@@ -10,7 +10,7 @@ from typing import Any
 from agents.domain import State
 from agents.portal import PortalService
 from agents.storage import StorageBackend
-from agents.llm_client import LLMAgentEngine, is_disallowed_buyer
+from agents.llm import LLMAgentEngine, is_disallowed_buyer
 from agents.swarm.datasets import AUTHENTIC_REGISTRY_DATASETS
 from agents.scout.scout_pipeline import ScoutPortalPipeline
 

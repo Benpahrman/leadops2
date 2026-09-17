@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 import pytest
 
-from agents.national_county_orchestrator import (
+from agents.scout.national_county_orchestrator import (
     NationalCountyOrchestrator,
     JurisdictionProgressState,
     DEFAULT_PRIORITY_STATES,

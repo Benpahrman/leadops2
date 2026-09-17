@@ -5,20 +5,20 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from agents.delivery import (
+from agents.swarm.delivery import (
     compute_webhook_signature,
     test_webhook_connection as verify_webhook_connection,
     WebhookDestination,
     EmailCsvDestination,
 )
-from agents.google_sheets import (
+from agents.integrations.google_sheets import (
     extract_spreadsheet_id,
     get_service_account_info,
     test_google_sheet_connection as verify_google_sheet_connection,
 )
 from agents.domain import Lead, State
 from agents.storage import InMemoryStorageBackend
-from agents.dashboard import CustomerDashboardService
+from agents.dashboard_pkg import CustomerDashboardService
 from agents.api import create_app
 
 
@@ -210,7 +210,7 @@ def test_xlsx_and_jsonl_service_exports():
 
 
 def test_airtable_and_notion_destinations():
-    from agents.delivery import (
+    from agents.swarm.delivery import (
         AirtableDestination,
         test_airtable_connection,
         NotionDestination,

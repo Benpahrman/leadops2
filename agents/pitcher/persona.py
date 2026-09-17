@@ -6,7 +6,7 @@ import random
 import logging
 from typing import Any
 
-from agents.llm_client import LLMAgentEngine
+from agents.llm import LLMAgentEngine
 from .models import PitchMessage
 
 logger = logging.getLogger("leadops.pitcher.persona")

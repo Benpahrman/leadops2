@@ -18,7 +18,7 @@ from agents.api import create_app
 from agents.domain import Lead, State
 from agents.portal import PortalService
 from agents.progress import ProgressStatus
-from agents.scout_pipeline import ScoutPortalPipeline
+from agents.scout.scout_pipeline import ScoutPortalPipeline
 from agents.storage import SqliteStorageBackend
 from agents.tools.dom_pruner import prune_dom
 from agents.tools.waf_prober import probe_waf_signatures

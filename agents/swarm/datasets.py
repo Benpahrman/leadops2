@@ -504,7 +504,7 @@ def pull_live_website_records(url_or_slug: str, limit: int = 25) -> list[dict[st
     # 3. Use LLM AI Agent to extract structured records from visible page content
     if html_text:
         try:
-            from agents.llm_client import LLMAgentEngine
+            from agents.llm import LLMAgentEngine
             engine = LLMAgentEngine()
             if engine.is_available():
                 from bs4 import BeautifulSoup

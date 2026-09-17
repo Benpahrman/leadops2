@@ -1,7 +1,7 @@
 import unittest
 
-from agents.build_loop import BuildLoop, TeamRole
-from agents.job_runner import JobStatus, LocalBuildRunner
+from agents.swarm.build_loop import BuildLoop, TeamRole
+from agents.swarm.job_runner import JobStatus, LocalBuildRunner
 from agents.progress import ProgressStatus
 
 

@@ -2,7 +2,7 @@ import ast
 import unittest
 from unittest.mock import MagicMock
 
-from agents.build_loop import (
+from agents.swarm.build_loop import (
     BuildLoop,
     BuildPhase,
     DEFAULT_TEAM_ROLES,
@@ -10,7 +10,7 @@ from agents.build_loop import (
     TeamRole,
     InnerSwarmReActLoop,
 )
-from agents.llm_client import LLMAgentEngine
+from agents.llm import LLMAgentEngine
 from agents.tools.playwright_runner import ScraperTask, compile_extraction_script
 
 

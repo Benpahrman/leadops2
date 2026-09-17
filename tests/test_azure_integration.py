@@ -7,9 +7,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agents.blob_storage import BlobStorageManager
+from agents.integrations.blob_storage import BlobStorageManager
 from agents.domain import Lead, State
-from agents.service_bus import (
+from agents.integrations.service_bus import (
     JobPayload,
     JobType,
     LocalQueueBroker,

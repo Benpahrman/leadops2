@@ -2,7 +2,7 @@ import json
 import unittest
 
 from agents.domain import Lead, PaymentEvent, State
-from agents.paypal import PayPalWebhookAdapter
+from agents.billing.paypal import PayPalWebhookAdapter
 
 
 class FakeResponse:

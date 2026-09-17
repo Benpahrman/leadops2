@@ -136,7 +136,7 @@ class ClientArtifactStore:
         
         # Cloud replication to Azure Blob Storage if enabled
         try:
-            from .blob_storage import blob_storage
+            from .integrations.blob_storage import blob_storage
             if blob_storage.is_cloud_enabled:
                 blob_path = f"{lead_id or 'demo_lead'}/{rel_path}"
                 blob_storage.upload_file(target_path, blob_path)

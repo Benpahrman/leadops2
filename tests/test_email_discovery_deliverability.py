@@ -143,12 +143,12 @@ def test_discover_verified_email_waterfall():
     """Verify full multi-stage discovery waterfall returns best deliverable email."""
     # Test on a known domain with contact name pattern synthesis
     res = discover_verified_email(
-        company_name="GitHub Inc",
-        website_url="https://github.com",
-        contact_name="Thomas Dohmke",
+        company_name="OpenAI",
+        website_url="https://openai.com",
+        contact_name="Sam Altman",
         contact_role="CEO",
     )
     assert res["ok"]
-    assert "@github.com" in res["email"]
+    assert "@openai.com" in res["email"]
     assert res["deliverable"]
     assert res["mx_domain"]

@@ -1,7 +1,7 @@
 import unittest
 
 from agents.portal import PortalService
-from agents.scout_pipeline import ScoutPortalPipeline
+from agents.scout.scout_pipeline import ScoutPortalPipeline
 
 
 class ScoutPipelineTests(unittest.TestCase):

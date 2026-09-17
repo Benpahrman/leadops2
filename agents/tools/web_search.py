@@ -223,7 +223,7 @@ def find_linkedin_decision_maker(company_name: str, domain_hint: str = "") -> di
 def search_job_board_intent(keywords: str = "Permit Coordinator", location: str = "") -> list[dict[str, Any]]:
     """Scan job boards for SMBs actively hiring for manual data entry, permit coordinators, and records clerks."""
     logger.info(f"📋 [JOB BOARD SCOUT] Searching job postings for: '{keywords}' {location}")
-    from ..llm_client import is_disallowed_buyer
+    from agents.llm import is_disallowed_buyer
     candidates: list[dict[str, Any]] = []
     
     query = f'site:ziprecruiter.com/c/ "{keywords}" {location}'.strip()

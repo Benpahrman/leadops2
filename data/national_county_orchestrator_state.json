@@ -1,11 +1,11 @@
 {
   "current_state_code": "CA",
   "current_state_index": 3,
-  "current_county_index": 7,
-  "active_county_name": "San Bernardino County",
-  "active_city": "San Bernardino",
-  "active_portal_name": "San Bernardino County Assessor-Recorder-County Clerk",
-  "active_portal_url": "https://arc.sbcounty.gov/",
+  "current_county_index": 10,
+  "active_county_name": "Santa Clara County",
+  "active_city": "San Jose",
+  "active_portal_name": "Santa Clara County Clerk-Recorder",
+  "active_portal_url": "https://clerkrecorder.sccgov.org/",
   "cycle_count": 1,
   "total_states_configured": 51,
   "locked_state_focus": null,
@@ -638,33 +638,33 @@
       "state": "CA",
       "county": "San Bernardino County",
       "visited_count": 2,
-      "leads_discovered": 0,
+      "leads_discovered": 1,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-17T00:22:46.222684+00:00"
+      "last_visited_at": "2026-09-17T19:27:58.487660+00:00"
     },
     "CA:San Diego County": {
       "state": "CA",
       "county": "San Diego County",
-      "visited_count": 1,
-      "leads_discovered": 0,
+      "visited_count": 2,
+      "leads_discovered": 1,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:52:10.977595+00:00"
+      "last_visited_at": "2026-09-17T19:28:09.848662+00:00"
     },
     "CA:San Francisco County": {
       "state": "CA",
       "county": "San Francisco County",
-      "visited_count": 1,
-      "leads_discovered": 0,
+      "visited_count": 2,
+      "leads_discovered": 1,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:52:26.086730+00:00"
+      "last_visited_at": "2026-09-17T19:28:16.006779+00:00"
     },
     "CA:Santa Clara County": {
       "state": "CA",
       "county": "Santa Clara County",
-      "visited_count": 1,
+      "visited_count": 2,
       "leads_discovered": 0,
       "forms_submitted": 0,
-      "last_visited_at": "2026-09-16T17:52:50.576316+00:00"
+      "last_visited_at": "2026-09-17T19:28:16.008780+00:00"
     },
     "CA:San Juan County": {
       "state": "CA",
@@ -1491,5 +1491,5 @@
       "last_visited_at": "2026-09-16T18:59:48.141199+00:00"
     }
   },
-  "last_updated_at": "2026-09-17T00:22:46.222684+00:00"
+  "last_updated_at": "2026-09-17T19:28:16.008780+00:00"
 }

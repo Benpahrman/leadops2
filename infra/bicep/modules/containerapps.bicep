@@ -482,7 +482,7 @@ resource dailyDeliveryJob 'Microsoft.App/jobs@2023-05-01' = {
         {
           name: 'delivery-job'
           image: workerImage
-          command: ['python', '-m', 'agents.delivery']
+          command: ['python', '-m', 'agents.swarm.delivery']
           resources: {
             cpu: json('0.5')
             memory: '1.0Gi'
@@ -525,7 +525,7 @@ resource driftMonitorJob 'Microsoft.App/jobs@2023-05-01' = {
         {
           name: 'drift-monitor'
           image: workerImage
-          command: ['python', '-m', 'agents.drift_monitor']
+          command: ['python', '-m', 'agents.swarm.drift_monitor']
           resources: {
             cpu: json('0.5')
             memory: '1.0Gi'

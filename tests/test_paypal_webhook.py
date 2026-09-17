@@ -2,8 +2,8 @@ import json
 import unittest
 
 from agents.domain import Lead, State
-from agents.paypal import PayPalWebhookAdapter
-from agents.paypal_webhook import PayPalWebhookRouter
+from agents.billing.paypal import PayPalWebhookAdapter
+from agents.billing.paypal_webhook import PayPalWebhookRouter
 
 
 class Response:

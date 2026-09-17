@@ -8,7 +8,7 @@ from agents.domain import Lead, State
 from agents.observability import SystemTelemetryCollector, telemetry_collector
 from agents.portal import PortalService
 from agents.storage import SqliteStorageBackend
-from agents.dashboard import CustomerDashboardService
+from agents.dashboard_pkg import CustomerDashboardService
 from agents.admin_ops import AdminMissionControlService
 
 
@@ -113,7 +113,7 @@ def test_dashboard_destination_ping_api(test_env):
     _, client, _ = test_env
     headers = {"Authorization": "Bearer mock_user_client_lead_test-obs"}
     
-    with patch("agents.google_sheets.test_google_sheet_connection", return_value={"ok": True, "spreadsheet_id": "12345", "service_account_active": True}):
+    with patch("agents.integrations.google_sheets.test_google_sheet_connection", return_value={"ok": True, "spreadsheet_id": "12345", "service_account_active": True}):
         res = client.post(
             "/api/dashboard/lead-test-obs/destination/test",
             headers=headers,

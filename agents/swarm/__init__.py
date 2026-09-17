@@ -1,6 +1,6 @@
 """Autonomous Dev Swarm & Pipeline Engine package."""
 
-from .build_loop import (
+from agents.swarm.build_loop import (
     BuildLoop,
     BuildPhase,
     BuildPlan,
@@ -11,10 +11,10 @@ from .build_loop import (
     InnerSwarmTurn,
     InnerSwarmReActLoop,
 )
-from .workflow import ProjectWorkflow, BuildIterationResult
-from .self_healing import SelfHealingEngine, PostMortemReport
-from .drift_monitor import RetainerMonitorWorker, DriftIncident, DriftSeverity
-from .scraper_catalog import (
+from agents.swarm.workflow import ProjectWorkflow, BuildIterationResult
+from agents.swarm.self_healing import SelfHealingEngine, PostMortemReport
+from agents.swarm.drift_monitor import RetainerMonitorWorker, DriftIncident, DriftSeverity
+from agents.swarm.scraper_catalog import (
     load_json,
     inspect_lead_artifact,
     build_catalog,
@@ -25,7 +25,7 @@ from .scraper_catalog import (
     get_scraper_output_data,
     execute_scraper_on_demand,
 )
-from .delivery import (
+from agents.swarm.delivery import (
     DeliveryPlan,
     GoogleSheetsDestination,
     WebhookDestination,
@@ -34,13 +34,13 @@ from .delivery import (
     test_webhook_connection,
     test_notion_connection,
 )
-from .datasets import (
+from agents.swarm.datasets import (
     AUTHENTIC_REGISTRY_DATASETS,
     DynamicRegistryEntry,
     UniversalWebDatasetRegistry,
     resolve_record_verification_url,
 )
-from .job_runner import LocalBuildRunner, JobStatus, SpecialistJob
+from agents.swarm.job_runner import LocalBuildRunner, JobStatus, SpecialistJob
 
 __all__ = [
     "BuildLoop",

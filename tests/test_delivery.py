@@ -2,7 +2,7 @@ import json
 import unittest
 from datetime import date, datetime, timezone
 
-from agents.delivery import (
+from agents.swarm.delivery import (
     DeliveryJob,
     DeliveryPlan,
     EmailCsvDestination,

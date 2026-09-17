@@ -1,7 +1,7 @@
 import pytest
 
 from agents.auth import ClerkAuthService
-from agents.dashboard import CustomerDashboardService
+from agents.dashboard_pkg import CustomerDashboardService
 from agents.domain import Lead, State
 from agents.storage import InMemoryStorageBackend
 

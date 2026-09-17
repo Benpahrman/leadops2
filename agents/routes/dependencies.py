@@ -6,10 +6,10 @@ from fastapi import Depends, Header, HTTPException, Request, status
 
 from ..admin_ops import AdminMissionControlService
 from ..auth import ClerkAuthService, ClerkUser, get_current_user
-from ..dashboard import CustomerDashboardService
-from ..llm_client import LLMAgentEngine
+from agents.dashboard_pkg import CustomerDashboardService
+from agents.llm import LLMAgentEngine
 from ..portal import PortalService
-from ..scout_pipeline import ScoutPortalPipeline
+from agents.scout.scout_pipeline import ScoutPortalPipeline
 from ..storage import StorageBackend
 
 

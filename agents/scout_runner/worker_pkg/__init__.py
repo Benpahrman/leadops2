@@ -51,7 +51,7 @@ def fetch_page_content(*args: Any, **kwargs: Any) -> Any:
 
 from agents.swarm.datasets import AUTHENTIC_REGISTRY_DATASETS
 from agents.logging_config import get_logger
-from agents.llm_client import LLMAgentEngine, is_disallowed_buyer
+from agents.llm import LLMAgentEngine, is_disallowed_buyer
 from agents.scout.county_filing_extractor import CountyFilingPartyExtractor
 from agents.scout.state_bar_prospector import StateBarProspector
 from agents.scout.sos_entity_prospector import SOSEntityProspector
@@ -857,7 +857,7 @@ class ScoutBackgroundWorker:
         logger.info(f"✅ [SCOUT VERIFIED 200 OK] Live portal verified. Building tailored sandbox for {target['company_name']}.")
         target_sample_rows = target.get("sample_data")
         if not target_sample_rows:
-            from agents.datasets import pull_live_austin_permits
+            from agents.swarm.datasets import pull_live_austin_permits
             try:
                 target_sample_rows = pull_live_austin_permits(25)
             except Exception:
@@ -1490,7 +1490,7 @@ class ScoutBackgroundWorker:
             if sb and sb.rows:
                 sample_records = sb.rows
         if not sample_records:
-            from agents.datasets import pull_live_austin_permits
+            from agents.swarm.datasets import pull_live_austin_permits
             try:
                 sample_records = pull_live_austin_permits(10)
             except Exception:

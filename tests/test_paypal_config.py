@@ -1,7 +1,7 @@
 import unittest
 from unittest import mock
 
-from agents.paypal_config import PayPalSettings
+from agents.billing.paypal_config import PayPalSettings
 
 
 class PayPalSettingsTests(unittest.TestCase):

@@ -360,6 +360,7 @@ def test_pitcher_preflight_auto_check_blocks_bad_lead():
                 recipient_email="spammer@disposabledump.com",
                 recipient_name="Spammer",
                 pitch=pitch,
+                human_approver="ben@leadops.io",
                 enforce_office_hours=False,
                 enforce_deliverability=True,
             )

@@ -7,10 +7,10 @@ from agents.scout_runner import ScoutBackgroundWorker
 from agents.domain import State
 from agents.storage import InMemoryStorageBackend
 from agents.portal import PortalService
-from agents.county_filing_extractor import DiscoveredFilingEntity
-from agents.state_bar_prospector import DiscoveredBarAttorney
-from agents.sos_entity_prospector import DiscoveredSOSEntity
-from agents.local_business_prospector import DiscoveredLocalBusiness
+from agents.scout.county_filing_extractor import DiscoveredFilingEntity
+from agents.scout.state_bar_prospector import DiscoveredBarAttorney
+from agents.scout.sos_entity_prospector import DiscoveredSOSEntity
+from agents.scout.local_business_prospector import DiscoveredLocalBusiness
 
 
 class HighROIDiscoveryIntegrationTests(unittest.TestCase):

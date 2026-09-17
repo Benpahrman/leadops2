@@ -533,7 +533,7 @@ class CustomerAgentsMixin:
         niche: str,
     ) -> dict[str, Any]:
         """Ensure outbound email conforms strictly to Alex @ LeadOps authentic engineering voice."""
-        from .email.ai_review import EmailVoiceHumanizerAgent
+        from agents.email.ai_review import EmailVoiceHumanizerAgent
         agent = EmailVoiceHumanizerAgent(self)
         return agent.review_and_humanize(subject, body_text, prospect_name, company_name, niche)
 
@@ -545,7 +545,7 @@ class CustomerAgentsMixin:
         sandbox_url: str = "",
     ) -> dict[str, Any]:
         """Analyze prospect reply to outreach and formulate tailored response."""
-        from .email.ai_review import InboundReplyAgent
+        from agents.email.ai_review import InboundReplyAgent
         agent = InboundReplyAgent(self)
         return agent.process_inbound_reply(inbound_text, inbound_subject, lead_context, sandbox_url)
 

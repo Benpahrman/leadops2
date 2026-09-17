@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from agents.auth import ClerkUser, require_admin, get_current_user_optional
 from agents.models import Ticket, TicketStatus, TicketPriority, TicketType, CancellationRequest, CancellationStatus
 from agents.domain import State, PaymentEvent, Lead
-from agents.scraper_catalog import (
+from agents.swarm.scraper_catalog import (
     get_catalog,
     search_catalog,
     get_scraper_source_code,
@@ -59,7 +59,7 @@ def launch_dev_swarm(
     import threading
     import asyncio
     from agents.domain import State, PaymentEvent
-    from agents.workflow import run_autonomous_dev_team
+    from agents.swarm.workflow import run_autonomous_dev_team
     from agents.websocket import progress_manager
     
     slug = getattr(lead, "slug", "") or lead.lead_id

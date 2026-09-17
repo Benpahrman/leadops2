@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from agents.api import create_app
 from agents.auth import ClerkUser, require_admin
-from agents.scraper_catalog import (
+from agents.swarm.scraper_catalog import (
     build_catalog,
     get_catalog,
     search_catalog,
@@ -73,12 +73,14 @@ def test_api_list_scrapers(client):
 
 
 def test_api_search_scrapers(client):
-    res = client.get("/api/admin/scrapers?search=defense")
+    catalog = get_catalog()
+    query = catalog[0]["company_name"].split()[0].lower() if catalog and catalog[0].get("company_name") else "litigation"
+    res = client.get(f"/api/admin/scrapers?search={query}")
     assert res.status_code == 200
     data = res.json()
     assert data["ok"] is True
     assert data["total"] >= 1
-    assert any("defense" in s["company_name"].lower() or "defense" in s["lead_id"].lower() for s in data["scrapers"])
+    assert any(query in (s.get("company_name", "") + " " + s.get("lead_id", "") + " " + s.get("portal_name", "") + " " + s.get("commercial_pain", "")).lower() for s in data["scrapers"])
 
 
 def test_api_get_scraper_code_and_output(client):

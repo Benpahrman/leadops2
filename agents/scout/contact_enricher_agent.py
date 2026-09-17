@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 from agents.domain import Lead, State
 from agents.email.verifier import DeliverabilityVerifier, DeliverabilityStatus
-from agents.llm_client import LLMAgentEngine, is_disallowed_buyer
+from agents.llm import LLMAgentEngine, is_disallowed_buyer
 from agents.tools.web_search import search_web, search_company_intelligence, find_linkedin_decision_maker
 from agents.tools.web_fetcher import extract_contact_info_from_url
 from agents.tools.email_finder import construct_email_patterns, dork_search_email

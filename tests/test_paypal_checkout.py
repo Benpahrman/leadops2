@@ -2,7 +2,7 @@ import unittest
 from unittest import mock
 
 from agents.domain import Lead, State
-from agents.paypal_checkout import PayPalCheckout
+from agents.billing.paypal_checkout import PayPalCheckout
 
 
 class Response:

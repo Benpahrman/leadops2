@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from .domain import Lead
 from .portal import PortalService
 from .progress import ProgressStatus
-from .scout_pipeline import ScoutPortalPipeline
+from .scout.scout_pipeline import ScoutPortalPipeline
 
 
 def create_demo_portal() -> tuple[PortalService, str]:

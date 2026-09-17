@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from agents.paypal_http import AsyncPayPalHttpClient, PayPalHttpClient
+from agents.billing.paypal_http import AsyncPayPalHttpClient, PayPalHttpClient
 
 
 class FakeResponse:

@@ -1,7 +1,7 @@
 import unittest
 
 from agents.artifacts import ArtifactManifest
-from agents.build_loop import TeamRole
+from agents.swarm.build_loop import TeamRole
 
 
 class ArtifactManifestTests(unittest.TestCase):
