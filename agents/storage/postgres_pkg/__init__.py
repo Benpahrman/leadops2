@@ -1,4 +1,4 @@
-﻿"""Production PostgreSQL storage backend implementation for Azure Flexible Server."""
+"""Production PostgreSQL storage backend implementation for Azure Flexible Server."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from ...domain import Lead, State
 from ...progress import ProgressFeed, ProgressStatus
 from ...logging_config import get_logger
 from ..base import normalize_company_name, normalize_domain
+from ..sqlite import SqliteStorageBackend
 
 logger = get_logger("storage.postgres")
 
