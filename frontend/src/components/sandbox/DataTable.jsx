@@ -1,8 +1,22 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+﻿import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { unlockBacklog } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
 
-export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl = '', companyName = '', jurisdiction = '', defaultEmail = '' }) {
+import {
+  TableToolbar,
+  TablePagination,
+  RecordDetailModal,
+  BacklogUnlockModal,
+} from './table';
+
+export default function DataTable({
+  slug = '',
+  rows: initialRows = [],
+  sourceUrl = '',
+  companyName = '',
+  jurisdiction = '',
+  defaultEmail = '',
+}) {
   const { showToast } = useToast();
   const [rows, setRows] = useState(initialRows);
   const [searchTerm, setSearchTerm] = useState('');
@@ -19,27 +33,27 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
   const [filterCategory, setFilterCategory] = useState('all');
   const [density, setDensity] = useState('comfortable');
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize] = useState(10);
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [copiedJson, setCopiedJson] = useState(false);
 
   // Sync rows if initialRows changes
-  React.useEffect(() => {
+  useEffect(() => {
     if (initialRows && initialRows.length > 0 && (!rows || rows.length === 0)) {
       setRows(initialRows);
     }
   }, [initialRows]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (defaultEmail && !email) {
       setEmail(defaultEmail);
     }
   }, [defaultEmail]);
 
-  // Keep emailRef in sync for use inside PayPal SDK callbacks
-  useEffect(() => { emailRef.current = email; }, [email]);
+  useEffect(() => {
+    emailRef.current = email;
+  }, [email]);
 
-  // Sorting helper
   const handleSort = (field) => {
     if (sortField === field) {
       setSortAsc(!sortAsc);
@@ -56,13 +70,11 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
     const activeRows = rows && rows.length > 0 ? rows : initialRows;
     let result = [...activeRows];
 
-    // Filter by search query
     if (searchTerm) {
       const q = searchTerm.toLowerCase().trim();
       result = result.filter((r) => JSON.stringify(r).toLowerCase().includes(q));
     }
 
-    // Filter by category
     if (filterCategory === 'high_value') {
       result = result.filter((r) => {
         const amt = parseAmt(r.amount || r.est_value || r.valuation || r.opening_bid);
@@ -80,7 +92,6 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
       });
     }
 
-    // Sort rows
     result.sort((a, b) => {
       let valA = '';
       let valB = '';
@@ -112,7 +123,6 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
     return result;
   }, [rows, initialRows, searchTerm, filterCategory, sortField, sortAsc]);
 
-  // Paginated rows
   const totalRows = processedRows.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const paginatedRows = useMemo(() => {
@@ -161,7 +171,7 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
     setTimeout(() => setCopiedJson(false), 2500);
   };
 
-  // Real PayPal Buttons for $49 backlog unlock — rendered when modal opens
+  // Real PayPal Buttons for $49 backlog unlock
   useEffect(() => {
     if (!isBacklogModalOpen) {
       setBacklogPaypalReady(false);
@@ -178,21 +188,12 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
       const clientId = window.__PAYPAL_CLIENT_ID__ || 'BAAa18mhTonKniN6UJij6PasfiTBu0_sQgMKP9XwyMeXtBurHvoUD4YkDD09KTmC8RHwVTpOW_qbqalGkY';
 
       if (!window.paypal || !window.paypal.Buttons) {
-        let script = document.getElementById('paypal-js-sdk');
-        if (!script) {
-          script = document.createElement('script');
-          script.id = 'paypal-js-sdk';
-          script.src = `https://www.paypal.com/sdk/js?client-id=${clientId}&currency=USD`;
-          script.onload = () => { if (isMounted) renderBacklogPayPal(); };
-          script.onerror = () => { if (isMounted) setBacklogPaypalError('Unable to reach PayPal. Please disable any content blockers and try again.'); };
-          document.head.appendChild(script);
-        }
         if (retryCount < 20) {
           retryCount++;
-          setTimeout(() => { if (isMounted) renderBacklogPayPal(); }, 350);
-        } else {
-          setBacklogPaypalError('PayPal checkout took too long to load. Please refresh and try again.');
+          setTimeout(renderBacklogPayPal, 250);
+          return;
         }
+        if (isMounted) setBacklogPaypalError('PayPal SDK timed out. Please check your internet connection and reload.');
         return;
       }
 
@@ -202,81 +203,61 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
 
       try {
         buttonsInstance = window.paypal.Buttons({
-          style: { layout: 'vertical', color: 'blue', shape: 'rect', label: 'pay', height: 44 },
-          createOrder: async (data, actions) => {
-            if (!emailRef.current || !emailRef.current.includes('@')) {
-              showToast('Please enter a valid billing email before paying.', 'error');
-              throw new Error('Valid email required');
+          style: { shape: 'rect', color: 'gold', layout: 'vertical', label: 'paypal', height: 42 },
+          createOrder: async () => {
+            const currentMail = emailRef.current ? emailRef.current.trim() : '';
+            if (!currentMail || !currentMail.includes('@')) {
+              showToast('Please enter your work email address above before paying.', 'error');
+              throw new Error('Email is required');
             }
-            // Try server-side order creation first
+            setIsProcessing(true);
             try {
-              const res = await fetch(`/api/paypal/create-order/${slug}`, {
+              const res = await fetch(`/api/sandbox/${slug}/backlog-order`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  deposit_amount: 49.00,
-                  email: emailRef.current,
-                  cardholder: companyName || slug,
-                  target_url: sourceUrl || '',
-                }),
+                body: JSON.stringify({ email: currentMail }),
               });
-              if (res.ok) {
-                const orderData = await res.json();
-                if (orderData.order_id) return orderData.order_id;
+              if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.detail || 'Could not generate PayPal order');
               }
-            } catch (serverErr) {
-              console.warn('Backlog: backend order creation fallback to client SDK:', serverErr);
-            }
-            // Client-side SDK fallback
-            return actions.order.create({
-              purchase_units: [{
-                description: `LeadOps 30-Day Backlog Unlock — ${companyName || slug}`,
-                custom_id: 'backlog',
-                invoice_id: `backlog-${slug}-${Date.now()}`,
-                amount: { currency_code: 'USD', value: '49.00',
-                  breakdown: { item_total: { currency_code: 'USD', value: '49.00' } } },
-                items: [{ name: '30-Day Historical Backlog Dataset', quantity: '1',
-                  unit_amount: { currency_code: 'USD', value: '49.00' },
-                  description: '200–500 verified records • Instant CSV download • 100% credited toward Setup Sprint',
-                }],
-              }],
-              application_context: { shipping_preference: 'NO_SHIPPING', user_action: 'PAY_NOW', brand_name: 'LeadOps / OmniLeadFeeder' },
-            });
-          },
-          onApprove: async (data, actions) => {
-            setIsProcessing(true);
-            showToast('✓ Capturing $49 payment...', 'info');
-            try {
-              let captureId = data.orderID;
-              // Server-side capture
-              try {
-                const captureRes = await fetch(`/api/paypal/capture-order/${slug}`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ order_id: data.orderID, email: emailRef.current, cardholder: companyName || slug, target_url: sourceUrl || '' }),
-                });
-                if (captureRes.ok) {
-                  const capData = await captureRes.json();
-                  captureId = capData.capture_id || data.orderID;
-                }
-              } catch (capErr) {
-                const orderDetails = await actions.order.capture();
-                captureId = orderDetails?.purchase_units?.[0]?.payments?.captures?.[0]?.id || orderDetails?.id || data.orderID;
-              }
-              // Unlock backlog with verified paypal_order_id
-              const unlockData = await unlockBacklog(slug, { email: emailRef.current, paypalOrderId: captureId });
-              if (unlockData.ok && unlockData.rows) {
-                setIsUnlocked(true);
-                setRows(unlockData.rows);
-                setIsBacklogModalOpen(false);
-                showToast(`✓ Backlog Unlocked! ${unlockData.rows_count} verified records downloaded.`, 'success', 6000);
-                triggerDownload(unlockData.rows, 'full_30d_backlog');
-              } else {
-                showToast('Payment captured but backlog delivery failed. Our team will follow up within minutes.', 'error');
-              }
+              const orderData = await res.json();
+              return orderData.order_id;
             } catch (err) {
-              console.error('Backlog onApprove error:', err);
-              showToast(`Payment error: ${err.message}`, 'error');
+              setIsProcessing(false);
+              showToast(err.message || 'Payment setup failed', 'error');
+              throw err;
+            }
+          },
+          onApprove: async (data) => {
+            setIsProcessing(true);
+            try {
+              const captureRes = await fetch(`/api/sandbox/${slug}/backlog-capture`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ order_id: data.orderID, email: emailRef.current }),
+              });
+              if (!captureRes.ok) {
+                const errData = await captureRes.json().catch(() => ({}));
+                throw new Error(errData.detail || 'Payment capture failed');
+              }
+              const captureData = await captureRes.json();
+              setIsUnlocked(true);
+              setIsBacklogModalOpen(false);
+
+              if (captureData.records && captureData.records.length > 0) {
+                setRows(captureData.records);
+                triggerDownload(captureData.records, 'full_30d_backlog');
+              } else {
+                const unlocked = await unlockBacklog(slug);
+                if (unlocked.records) {
+                  setRows(unlocked.records);
+                  triggerDownload(unlocked.records, 'full_30d_backlog');
+                }
+              }
+              showToast('🎉 $49 Backlog Unlocked! 100% credited toward your setup sprint.', 'success', 8000);
+            } catch (err) {
+              showToast(`Capture failed: ${err.message}`, 'error');
             } finally {
               setIsProcessing(false);
             }
@@ -314,151 +295,22 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
     };
   }, [isBacklogModalOpen, slug, companyName, sourceUrl, showToast]);
 
-  const hostDisplay = sourceUrl ? (() => {
-    try { return new URL(sourceUrl).hostname; } catch { return 'records.official.gov'; }
-  })() : 'records.official.gov';
-
   return (
     <div style={{ marginTop: '24px' }}>
-      {/* Live Ingestion Telemetry Bar */}
-      <div className="sandbox-stream-bar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--green)', display: 'inline-block', boxShadow: '0 0 10px var(--green)' }}></span>
-          <span style={{ fontWeight: 800, color: '#fff', letterSpacing: '0.4px' }}>LIVE TELEMETRY STREAM</span>
-          <span style={{ color: 'var(--text-dim)' }}>•</span>
-          <span style={{ color: 'var(--text-muted)' }}>Portal: <b style={{ color: 'var(--cyan)' }}>{hostDisplay}</b></span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', color: 'var(--text-muted)', fontSize: '11px' }}>
-          <span>Latency: <b style={{ color: '#fff' }}>32ms</b></span>
-          <span>Cycle: <b style={{ color: '#fff' }}>06:00 UTC</b></span>
-          <span style={{ color: 'var(--green)', fontWeight: 700 }}>✓ 100% Zero-Mock Guarantee</span>
-        </div>
-      </div>
-
-      {/* Filter Chips & Density Control Bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
-        <div className="filter-pill-group">
-          <button
-            type="button"
-            className={`filter-pill ${filterCategory === 'all' ? 'active' : ''}`}
-            onClick={() => { setFilterCategory('all'); setCurrentPage(1); }}
-          >
-            All Filings ({rows.length > 0 ? rows.length : initialRows.length})
-          </button>
-          <button
-            type="button"
-            className={`filter-pill ${filterCategory === 'high_value' ? 'active' : ''}`}
-            onClick={() => { setFilterCategory('high_value'); setCurrentPage(1); }}
-          >
-            High Valuation (&ge;$50k)
-          </button>
-          <button
-            type="button"
-            className={`filter-pill ${filterCategory === 'commercial' ? 'active' : ''}`}
-            onClick={() => { setFilterCategory('commercial'); setCurrentPage(1); }}
-          >
-            Commercial Entities
-          </button>
-          <button
-            type="button"
-            className={`filter-pill ${filterCategory === 'permits' ? 'active' : ''}`}
-            onClick={() => { setFilterCategory('permits'); setCurrentPage(1); }}
-          >
-            Permits &amp; Liens
-          </button>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--mono)', letterSpacing: '0.5px' }}>Density:</span>
-          <div className="density-toggle">
-            <button
-              type="button"
-              className={`density-btn ${density === 'comfortable' ? 'active' : ''}`}
-              onClick={() => setDensity('comfortable')}
-              title="Spacious comfortable rows"
-            >
-              Comfortable
-            </button>
-            <button
-              type="button"
-              className={`density-btn ${density === 'compact' ? 'active' : ''}`}
-              onClick={() => setDensity('compact')}
-              title="Compact high-density rows"
-            >
-              Compact
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Search & Actions Bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px', marginBottom: '14px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: '280px', maxWidth: '440px', position: 'relative' }}>
-          <svg style={{ position: 'absolute', left: '12px', color: 'var(--text-dim)' }} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
-          </svg>
-          <input
-            type="text"
-            className="form-input"
-            style={{ paddingLeft: '36px', paddingRight: searchTerm ? '32px' : '14px' }}
-            placeholder="Search docket number, entity name, address..."
-            value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value);
-              setCurrentPage(1);
-            }}
-          />
-          {searchTerm && (
-            <button
-              onClick={() => setSearchTerm('')}
-              style={{ position: 'absolute', right: '10px', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-              title="Clear search"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          )}
-        </div>
-
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button className="btn btn-outline" onClick={handleExportCsv} style={{ fontSize: '12px', padding: '9px 16px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            <span>Export Verified CSV</span>
-          </button>
-          <button
-            className="btn btn-primary"
-            style={{
-              background: 'linear-gradient(135deg, #0284c7 0%, #2563eb 100%)',
-              border: '1px solid #38bdf8',
-              fontWeight: 700,
-              fontSize: '12px',
-              padding: '9px 16px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-            }}
-            onClick={() => {
-              if (isUnlocked && rows.length > 25) {
-                triggerDownload(rows, 'full_30d_backlog');
-              } else {
-                setIsBacklogModalOpen(true);
-              }
-            }}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-            </svg>
-            <span>{isUnlocked ? 'Download 30-Day Dataset' : 'Unlock 30-Day Historical Backlog ($49)'}</span>
-          </button>
-        </div>
-      </div>
+      {/* Table Toolbar */}
+      <TableToolbar
+        sourceUrl={sourceUrl}
+        rowsCount={rows.length > 0 ? rows.length : initialRows.length}
+        filterCategory={filterCategory}
+        setFilterCategory={setFilterCategory}
+        density={density}
+        setDensity={setDensity}
+        searchTerm={searchTerm}
+        setSearchTerm={setSearchTerm}
+        setCurrentPage={setCurrentPage}
+        handleExportCsv={handleExportCsv}
+        setIsBacklogModalOpen={setIsBacklogModalOpen}
+      />
 
       {/* Live Table with Row Click Inspection */}
       <div className="data-table-container" style={{ boxShadow: '0 8px 30px rgba(0,0,0,0.4)' }}>
@@ -503,7 +355,6 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
                 const descVal = row.description_or_type || row.work_description || row.permit_type || row.category || row.business_activity || row.details || (row.valuation_amount || row.amount || row.est_value ? (String(row.valuation_amount || row.amount || row.est_value).startsWith('$') ? String(row.valuation_amount || row.amount || row.est_value) : `$${row.valuation_amount || row.amount || row.est_value}`) : (row.status || 'Active'));
                 const addrVal = row.property_address || row.location_address || row.address || (row.city && row.state ? `${row.city}, ${row.state}` : '') || row.jurisdiction || jurisdiction || 'Public Records';
                 const proofUrl = row.source_url || sourceUrl || 'https://data.gov';
-
                 const isCorp = /inc|llc|corp|co\.|ltd|company|contractor|roofing|plumbing|electric/i.test(String(entityVal));
 
                 return (
@@ -579,22 +430,18 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
                           style={{ padding: '4px 8px', fontSize: '11px' }}
                           title="Inspect raw payload"
                         >
-                          Inspect
+                          👁️ Inspect
                         </button>
                         <a
                           href={proofUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="badge-verified-docket"
-                          style={{ textDecoration: 'none' }}
-                          title="Inspect authentic source docket on government portal in new tab"
+                          className="btn btn-outline"
+                          style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--cyan)', borderColor: 'rgba(56, 189, 248, 0.4)' }}
+                          title="Verify filing at official source website"
                         >
-                          <span>Proof</span>
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="7" y1="17" x2="17" y2="7"/>
-                            <polyline points="7 7 17 7 17 17"/>
-                          </svg>
+                          🔗 Sourced
                         </a>
                       </div>
                     </td>
@@ -605,214 +452,37 @@ export default function DataTable({ slug = '', rows: initialRows = [], sourceUrl
           </tbody>
         </table>
 
-
         {/* Pagination Bar */}
-        <div className="pagination-bar">
-          <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'var(--mono)' }}>
-            Showing <b>{totalRows === 0 ? 0 : (currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, totalRows)}</b> of <b>{totalRows}</b> verified filings
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              className="pagination-btn"
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-            >
-              ← Prev
-            </button>
-            <span style={{ fontSize: '12px', color: '#fff', padding: '0 6px', fontFamily: 'var(--mono)' }}>
-              {currentPage} / {totalPages}
-            </span>
-            <button
-              className="pagination-btn"
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-            >
-              Next →
-            </button>
-          </div>
-        </div>
+        <TablePagination
+          currentPage={currentPage}
+          pageSize={pageSize}
+          totalRows={totalRows}
+          totalPages={totalPages}
+          setCurrentPage={setCurrentPage}
+        />
       </div>
 
-      {/* Record Inspector Drawer (Slide-out) */}
-      {selectedRecord && (
-        <div className="record-drawer-overlay" onClick={() => setSelectedRecord(null)}>
-          <div className="record-drawer" onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
-              <div>
-                <span className="badge-tag badge-green" style={{ marginBottom: '8px' }}>
-                  ✓ AUTHENTIC DOCKET RECORD
-                </span>
-                <h3 style={{ fontSize: '20px', fontWeight: 800, color: '#fff', marginTop: '4px' }}>
-                  {selectedRecord.id || selectedRecord.case_number || selectedRecord.filing_number || 'Filing Details'}
-                </h3>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  {selectedRecord.primary_party || selectedRecord.debtor_name || companyName}
-                </div>
-              </div>
-              <button className="modal-close" onClick={() => setSelectedRecord(null)} style={{ position: 'static' }}>
-                ✕
-              </button>
-            </div>
+      {/* Record Inspector Drawer */}
+      <RecordDetailModal
+        selectedRecord={selectedRecord}
+        setSelectedRecord={setSelectedRecord}
+        sourceUrl={sourceUrl}
+        companyName={companyName}
+        handleCopyJson={handleCopyJson}
+        copiedJson={copiedJson}
+      />
 
-            {/* Quick Action Links */}
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
-              <a
-                href={selectedRecord.source_url || sourceUrl || 'https://data.gov'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn-primary"
-                style={{ fontSize: '12px', padding: '8px 14px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                  <polyline points="15 3 21 3 21 9" />
-                  <line x1="10" y1="14" x2="21" y2="3" />
-                </svg>
-                <span>Open Government Source Docket</span>
-              </a>
-              <button
-                type="button"
-                className="btn btn-outline"
-                onClick={() => handleCopyJson(selectedRecord)}
-                style={{ fontSize: '12px', padding: '8px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                </svg>
-                <span>{copiedJson ? '✓ Copied' : 'Copy JSON'}</span>
-              </button>
-            </div>
-
-            {/* Formatted Key-Value Grid */}
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--cyan)', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.5px' }}>
-                Parsed Record Attributes
-              </div>
-              {Object.entries(selectedRecord).map(([key, val]) => (
-                <div key={key} className="drawer-field-row">
-                  <span className="drawer-field-label">{key.replace(/_/g, ' ')}</span>
-                  <span className="drawer-field-value">
-                    {val === null || val === undefined ? '—' : String(val)}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            {/* Raw JSON View */}
-            <div>
-              <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.5px' }}>
-                Raw JSON Payload
-              </div>
-              <pre style={{
-                background: '#040914',
-                border: '1px solid var(--border)',
-                borderRadius: '8px',
-                padding: '14px',
-                fontSize: '11px',
-                fontFamily: 'var(--mono)',
-                color: '#a7f3d0',
-                maxHeight: '220px',
-                overflowY: 'auto',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-all',
-              }}>
-                {JSON.stringify(selectedRecord, null, 2)}
-              </pre>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 30-Day Historical Backlog Unlock Modal ($49) — Real PayPal */}
-      {isBacklogModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsBacklogModalOpen(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
-            <button className="modal-close" onClick={() => setIsBacklogModalOpen(false)}>✕</button>
-
-            <div style={{ textAlign: 'center', marginBottom: '18px' }}>
-              <div style={{
-                width: '44px', height: '44px', borderRadius: '50%',
-                background: 'rgba(56, 189, 248, 0.12)', border: '1px solid rgba(56, 189, 248, 0.3)',
-                display: 'grid', placeItems: 'center', margin: '0 auto 12px', color: 'var(--cyan)',
-              }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-                </svg>
-              </div>
-              <h2 style={{ fontSize: '20px', fontWeight: 800, color: '#fff' }}>
-                Instant Backlog Unlock: 30-Day Records ($49)
-              </h2>
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                Full Historical Dataset for <b style={{ color: 'var(--cyan)' }}>{companyName}</b>
-              </div>
-            </div>
-
-            {/* Value Highlights Box */}
-            <div style={{ background: 'var(--card-alt)', border: '1px solid var(--border)', borderRadius: '8px', padding: '16px', marginBottom: '20px', fontSize: '12px', lineHeight: 1.6 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Historical Depth:</span>
-                <span style={{ color: '#fff', fontWeight: 700, fontFamily: 'var(--mono)' }}>Past 30 Days (200–500 Rows)</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Delivery Format:</span>
-                <span style={{ color: 'var(--cyan)', fontWeight: 700, fontFamily: 'var(--mono)' }}>Instant CSV Download</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <span style={{ color: 'var(--text-muted)' }}>One-Time Cost:</span>
-                <span style={{ color: 'var(--green)', fontWeight: 800, fontFamily: 'var(--mono)', fontSize: '14px' }}>$49.00 USD</span>
-              </div>
-              <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '8px', color: 'var(--green)', fontWeight: 600 }}>
-                100% Credited: Upgrade to an automated daily feed anytime, and your $49 is credited toward your setup sprint!
-              </div>
-            </div>
-
-            {/* Billing Email */}
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '6px', color: '#fff' }}>
-                Delivery / Work Email *
-              </label>
-              <input
-                type="email"
-                required
-                className="form-input"
-                placeholder="alex@yourcompany.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-
-            {/* PayPal Buttons Container */}
-            <div style={{ minHeight: '100px' }}>
-              {backlogPaypalError ? (
-                <div style={{ textAlign: 'center', padding: '14px', color: '#f87171', fontSize: '12px', background: 'rgba(239,68,68,0.1)', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.25)' }}>
-                  ⚠️ {backlogPaypalError}
-                  <div style={{ marginTop: '8px' }}>
-                    <button type="button" onClick={() => window.location.reload()} className="btn btn-secondary" style={{ fontSize: '11px', padding: '4px 12px' }}>Reload Page</button>
-                  </div>
-                </div>
-              ) : !backlogPaypalReady && !isProcessing ? (
-                <div style={{ textAlign: 'center', padding: '14px', color: 'var(--text-muted)', fontSize: '12px' }}>
-                  <div className="spinner" style={{ width: '22px', height: '22px', margin: '0 auto 8px' }}></div>
-                  Connecting to secure PayPal checkout...
-                </div>
-              ) : null}
-              {backlogPaypalReady && !isProcessing && (
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '8px' }}>
-                  Select payment method below to pay $49 and instantly download your backlog:
-                </div>
-              )}
-              <div id="paypal-backlog-button-container"></div>
-            </div>
-
-            <div style={{ textAlign: 'center', marginTop: '14px', borderTop: '1px solid var(--border)', paddingTop: '10px', fontSize: '10px', color: 'var(--text-dim)' }}>
-              🔒 256-Bit Encrypted Payment • PayPal, Visa, Mastercard, AMEX & Discover Accepted
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 30-Day Historical Backlog Unlock Modal */}
+      <BacklogUnlockModal
+        isOpen={isBacklogModalOpen}
+        onClose={() => setIsBacklogModalOpen(false)}
+        companyName={companyName}
+        email={email}
+        setEmail={setEmail}
+        backlogPaypalReady={backlogPaypalReady}
+        backlogPaypalError={backlogPaypalError}
+        isProcessing={isProcessing}
+      />
     </div>
   );
 }
-
