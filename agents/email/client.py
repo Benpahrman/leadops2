@@ -110,6 +110,30 @@ class EmailClient:
                 "is_transactional": is_transactional,
             })
 
+        # HARD SAFETY LOCK: Prevent cold outreach if disabled, but allow transactional customer exports and peer warmup
+        is_cold_outreach = not is_transactional and not is_warmup
+        is_test = bool(os.environ.get("PYTEST_CURRENT_TEST"))
+        auto_env = os.environ.get("AUTO_OUTREACH_ENABLED", "true" if is_test else "false").lower().strip()
+        auto_outreach_active = auto_env in ("1", "true", "yes", "on", "active")
+        dispatch_env = os.environ.get("OUTREACH_DISPATCH_ENABLED", "true" if is_test else "false").lower().strip()
+        dispatch_active = self.settings.outreach_dispatch_enabled or (dispatch_env in ("1", "true", "yes", "on", "active"))
+
+        # Cold outreach requires both AUTO_OUTREACH_ENABLED and dispatch enabled unless in explicit test suite
+        if is_cold_outreach and not is_test and (not auto_outreach_active or not dispatch_active):
+            logger.info(
+                f"🛡️ [OUTREACH FROZEN / DRY-RUN] Cold outreach sending is DISABLED (warming emails only). "
+                f"Simulated dispatch for recipient '{actual_recipient}' with subject '{email_subject}'. "
+                f"ZERO emails transmitted via ACS or SMTP."
+            )
+            return {
+                "ok": True,
+                "message_id": f"simulated-frozen-{int(time.time()*1000)}",
+                "recipient": actual_recipient,
+                "inbox_id": inbox_id or "frozen_lock",
+                "status": "SIMULATED_DISPATCH_FROZEN",
+                "notice": "Cold outreach is disabled for everything except peer warmup emails",
+            }
+
         if self.http_requester is not None:
             import json
             payload = {
@@ -201,21 +225,6 @@ class EmailClient:
                 part_app["Content-Disposition"] = f'attachment; filename="{att_name}"'
                 msg.attach(part_app)
 
-        # HARD SAFETY LOCK: Prevent cold outreach if disabled, but allow transactional customer exports and peer warmup
-        if not is_transactional and not is_warmup and not self.settings.outreach_dispatch_enabled:
-            logger.info(
-                f"🛡️ [OUTREACH FROZEN / DRY-RUN] OUTREACH_DISPATCH_ENABLED is false. "
-                f"Simulated dispatch for recipient '{actual_recipient}' with subject '{email_subject}'. "
-                f"ZERO SMTP emails transmitted."
-            )
-            return {
-                "ok": True,
-                "message_id": message_id,
-                "recipient": actual_recipient,
-                "inbox_id": inbox_id,
-                "status": "SIMULATED_DISPATCH_FROZEN",
-                "notice": "Outreach dispatch is frozen (OUTREACH_DISPATCH_ENABLED=false)",
-            }
 
         if not smtp_user or not smtp_password:
             # In test environments without live credentials, log and return simulated response

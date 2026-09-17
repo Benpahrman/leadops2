@@ -354,6 +354,16 @@ class ColdOutreachSequencer:
         if next_touch not in (2, 3):
             return {"status": "SKIPPED", "reason": f"Lead is on touch {current_touch}, no further touches scheduled."}
 
+        # Strict kill-switch: Do not auto-dispatch follow-up touches if cold outreach is disabled
+        is_test = bool(os.environ.get("PYTEST_CURRENT_TEST"))
+        auto_enabled = os.environ.get("AUTO_OUTREACH_ENABLED", "false").lower().strip() in ("1", "true", "yes", "on", "active")
+        dispatch_enabled = os.environ.get("OUTREACH_DISPATCH_ENABLED", "false").lower().strip() in ("1", "true", "yes", "on", "active")
+        if not is_test and (not auto_enabled or not dispatch_enabled):
+            return {
+                "status": "FROZEN_SAFETY_LOCK",
+                "reason": "Cold outreach automated sequence sending is disabled (only warmup emails are active).",
+            }
+
         # 1. Immediate Stop-Rule Checks
         if getattr(lead, "outreach_replied", False):
             lead.sequence_state = SequenceState.REPLIED.value

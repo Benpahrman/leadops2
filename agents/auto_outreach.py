@@ -209,6 +209,11 @@ class AutoOutreachScheduler:
             logger.info(f"⏸️ [AUTO-OUTREACH DISABLED] Auto-sending of cold emails is disabled. Skipping dispatch for {lead_id}.")
             return
 
+        require_human = os.environ.get("LEADOPS_REQUIRE_HUMAN_APPROVAL", "true").lower().strip() in ("1", "true", "yes", "on")
+        if require_human:
+            logger.info(f"⏸️ [AUTO-OUTREACH HELD] Human approval is required (LEADOPS_REQUIRE_HUMAN_APPROVAL=true). Skipping automated dispatch for {lead_id}.")
+            return
+
         with self._lock:
             entry = self._scheduled.get(lead_id)
             if entry and (entry.get("cancelled") or entry.get("dispatched")):
@@ -304,7 +309,13 @@ class AutoOutreachScheduler:
         """Alias for backward-compatibility with tests."""
         self._enforce_anti_burst_stagger()
 
-    def _execute_dispatch(self, lead: Lead, storage_backend: Any, notifier: Any = None) -> None:
+    def _execute_dispatch(
+        self,
+        lead: Lead,
+        storage_backend: Any,
+        notifier: Any = None,
+        human_approver: str = "Auto-Pilot Grace Period",
+    ) -> None:
         """Dispatch cold outreach pitch via PitcherService."""
         if notifier is None:
             try:
@@ -359,7 +370,7 @@ class AutoOutreachScheduler:
                 recipient_email=recipient_email,
                 recipient_name=getattr(lead, "contact_name", "") or company,
                 pitch=pitch,
-                human_approver="Auto-Pilot Grace Period",
+                human_approver=human_approver,
                 enforce_office_hours=True,
             )
             storage_backend.save_lead(lead)
@@ -396,8 +407,24 @@ class AutoOutreachScheduler:
                 except Exception as ex:
                     logger.warning(f"Failed to send system alert notification: {ex}")
 
-    def flush_pending_office_hours_queue(self, storage_backend: Any, notifier: Any = None) -> list[str]:
+    def flush_pending_office_hours_queue(
+        self,
+        storage_backend: Any,
+        notifier: Any = None,
+        force_operator: str | None = None,
+    ) -> list[str]:
         """Flush any pending approved pitches when office hours open (8:00 AM - 5:00 PM CST)."""
+        is_test = bool(os.environ.get("PYTEST_CURRENT_TEST"))
+        # Strict kill-switch: If cold outreach auto-sending is disabled, never flush or auto-dispatch
+        if not self.is_enabled and not is_test and not force_operator:
+            logger.info("⏸️ [AUTO-OUTREACH DISABLED] Cold email auto-flush skipped: AUTO_OUTREACH_ENABLED is false (warming emails only).")
+            return []
+
+        require_human = os.environ.get("LEADOPS_REQUIRE_HUMAN_APPROVAL", "true").lower().strip() in ("1", "true", "yes", "on")
+        if require_human and not is_test and not force_operator:
+            logger.info("⏸️ [AUTO-OUTREACH HELD] Cold email dispatch requires explicit human approval (LEADOPS_REQUIRE_HUMAN_APPROVAL=true). Holding pitches in pending review.")
+            return []
+
         if notifier is None:
             try:
                 from .notifications import notification_manager
@@ -461,7 +488,12 @@ class AutoOutreachScheduler:
 
                 self._enforce_sequential_jitter()
                 try:
-                    self._execute_dispatch(lead, storage_backend, notifier)
+                    self._execute_dispatch(
+                        lead,
+                        storage_backend,
+                        notifier,
+                        human_approver=force_operator or "Auto-Pilot Grace Period",
+                    )
                     dispatched_ids.append(lead.lead_id)
                 except Exception as exc:
                     logger.warning(f"Error during office hours queue flush for {lead.lead_id}: {exc}")

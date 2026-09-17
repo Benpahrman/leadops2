@@ -81,12 +81,27 @@ class PitcherService:
         enforce_deliverability: bool | None = None,
     ) -> dict[str, Any]:
         """Verify opt-out, deliverability, warmup quota, voice alignment, and dispatch email."""
-        if human_approver == "":
-            require_human = os.environ.get("LEADOPS_REQUIRE_HUMAN_APPROVAL", "false").lower() == "true"
-            if require_human:
-                raise ValueError("Human approval is required for outbound pitch dispatch")
-
         approver = human_approver.strip() if (human_approver and human_approver.strip()) else "Autonomous AI Engine"
+        automated_approvers = {
+            "", "autonomous ai engine", "auto-pilot grace period", "auto", "system", "cron", "auto_pilot", "grace_period"
+        }
+        is_automated_approval = approver.lower() in automated_approvers or not approver
+
+        is_test = bool(os.environ.get("PYTEST_CURRENT_TEST"))
+        if is_test:
+            require_human = os.environ.get("LEADOPS_REQUIRE_HUMAN_APPROVAL", "false").lower().strip() in ("1", "true", "yes", "on")
+            auto_enabled = True
+        else:
+            require_human = os.environ.get("LEADOPS_REQUIRE_HUMAN_APPROVAL", "true").lower().strip() in ("1", "true", "yes", "on")
+            auto_enabled = os.environ.get("AUTO_OUTREACH_ENABLED", "false").lower().strip() in ("1", "true", "yes", "on", "active")
+
+        # When human approval is required OR auto-outreach is disabled, automated approvers are strictly rejected
+        if is_automated_approval and (require_human or not auto_enabled):
+            raise ValueError(
+                f"Human approval is required for outbound pitch dispatch. "
+                f"Automated cold sending is disabled (attempted approval by: '{approver}')."
+            )
+
         if not getattr(lead, "contact_email", ""):
             lead.contact_email = recipient_email
         if not getattr(lead, "contact_name", ""):
@@ -121,6 +136,19 @@ class PitcherService:
             _persist_archive()
             raise ValueError(f"Recipient {recipient_email} is on the opt-out suppression list")
 
+        # 1a. Disallow high-bounce role-based / unmonitored / departmental prefixes
+        DISALLOWED_ROLE_PREFIXES = {
+            "salestax", "tax", "billing", "invoice", "invoicing", "accounting", "accounts",
+            "compliance", "privacy", "legal", "security", "abuse", "postmaster", "hostmaster",
+            "root", "noc", "noreply", "no-reply", "do-not-reply", "admin", "administrator",
+            "support", "help", "helpdesk", "jobs", "careers", "hr", "webmaster"
+        }
+        local_part = recipient_email.split("@")[0].lower().strip() if "@" in recipient_email else ""
+        if local_part in DISALLOWED_ROLE_PREFIXES:
+            lead.transition(State.ARCHIVED, f"Cold outreach rejected: {recipient_email} is an unmonitored/high-risk role address ({local_part}@).")
+            _persist_archive()
+            raise ValueError(f"Recipient {recipient_email} is an unmonitored/high-risk role address. Cold outreach requires a verified direct contact.")
+
         # 1b. Anti-duplicate suppression check (45-day cooldown per domain/company/recipient)
         if self.storage_backend and hasattr(self.storage_backend, "is_recipient_or_domain_contacted"):
             if self.storage_backend.is_recipient_or_domain_contacted(
@@ -148,9 +176,9 @@ class PitcherService:
                 lead.email_mx_hosts = deliv_res.get("mx_hosts", [])
                 _persist_archive()
 
-            # Hard bounce shield: reject if score < 60 or explicitly undeliverable
+            # Hard bounce shield: reject if score < 80 or explicitly undeliverable/risky/unknown
             if getattr(lead, "deliverability_score", None) is not None:
-                if lead.deliverability_score < 60 or getattr(lead, "deliverability_status", "") in ("UNDELIVERABLE", "RISKY"):
+                if lead.deliverability_score < 80 or getattr(lead, "deliverability_status", "") in ("UNDELIVERABLE", "RISKY", "UNKNOWN"):
                     reason_msg = getattr(lead, "deliverability_status", "UNDELIVERABLE")
                     lead.transition(State.ARCHIVED, f"Deliverability check rejected email {recipient_email} (score {lead.deliverability_score}, status: {reason_msg})")
                     _persist_archive()

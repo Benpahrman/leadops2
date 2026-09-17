@@ -168,19 +168,22 @@ class ScoutAutomationSupervisor:
                         await asyncio.sleep(300)
                         continue
 
-                # When office hours open, dispatch any cold outreach pitches held overnight in background thread
-                try:
-                    import threading
-                    from agents.auto_outreach import auto_outreach_scheduler
-                    from agents.notifications import notification_manager
-                    threading.Thread(
-                        target=auto_outreach_scheduler.flush_pending_office_hours_queue,
-                        args=(self.storage, notification_manager),
-                        daemon=True,
-                        name="office-hours-flush",
-                    ).start()
-                except Exception as flush_err:
-                    logger.debug(f"Office hours outreach queue flush note: {flush_err}")
+                # When office hours open, dispatch cold outreach ONLY if auto-outreach is explicitly enabled and human approval is not required
+                auto_enabled = os.environ.get("AUTO_OUTREACH_ENABLED", "false").lower().strip() in ("1", "true", "yes", "on", "active")
+                require_human = os.environ.get("LEADOPS_REQUIRE_HUMAN_APPROVAL", "true").lower().strip() in ("1", "true", "yes", "on")
+                if auto_enabled and not require_human:
+                    try:
+                        import threading
+                        from agents.auto_outreach import auto_outreach_scheduler
+                        from agents.notifications import notification_manager
+                        threading.Thread(
+                            target=auto_outreach_scheduler.flush_pending_office_hours_queue,
+                            args=(self.storage, notification_manager),
+                            daemon=True,
+                            name="office-hours-flush",
+                        ).start()
+                    except Exception as flush_err:
+                        logger.debug(f"Office hours outreach queue flush note: {flush_err}")
 
                 await self._run_cycle()
                 rest_seconds = random.randint(self.min_rest_seconds, self.max_rest_seconds)

@@ -34,7 +34,7 @@ import httpx
 
 logger = logging.getLogger("tools.email_finder")
 
-# Directory, aggregator, and portal domains that should NOT be treated as prospect domains
+# Directory, aggregator, vendor, and portal domains that should NOT be treated as prospect domains
 AGGREGATOR_DIRECTORIES = {
     "loopnet.com", "crexi.com", "yelp.com", "yellowpages.com", "bbb.org",
     "psychologytoday.com", "superpages.com", "mapquest.com", "manta.com",
@@ -42,7 +42,22 @@ AGGREGATOR_DIRECTORIES = {
     "facebook.com", "linkedin.com", "twitter.com", "x.com", "instagram.com",
     "wikipedia.org", "zillow.com", "realtor.com", "redfin.com", "courtlistener.com",
     "justia.com", "findlaw.com", "lawyers.com", "avvo.com", "google.com", "bing.com",
-    "duckduckgo.com", "statefarm.com"
+    "duckduckgo.com", "statefarm.com",
+    # Vendor, intelligence, SaaS, electronics & software platforms (never prospects)
+    "hunter.io", "apollo.io", "zoominfo.com", "rocketreach.co", "lusha.com",
+    "knowlez.com", "clearbit.com", "lead411.com", "seamless.ai", "upread.io",
+    "snov.io", "voilanorbert.com", "dropcontact.com", "github.com", "gitlab.com",
+    "newark.com", "avnet.com", "microsoft.com", "apple.com", "amazon.com",
+    "cloudflare.com", "wordpress.com", "squarespace.com", "wix.com",
+}
+
+# High-risk, departmental, or unmonitored local-part prefixes that trigger bounces / spam traps
+DISALLOWED_ROLE_PREFIXES = {
+    "salestax", "tax", "billing", "invoice", "invoicing", "accounting", "accounts",
+    "compliance", "privacy", "legal", "security", "abuse", "postmaster", "hostmaster",
+    "root", "noc", "noreply", "no-reply", "do-not-reply", "admin", "administrator",
+    "support", "help", "helpdesk", "jobs", "careers", "hr", "webmaster", "marketing",
+    "press", "media", "feedback", "customerservice"
 }
 
 
@@ -509,10 +524,27 @@ def discover_verified_email(
         clean_email = email.lower().strip()
         if not clean_email or "@" not in clean_email or len(clean_email) < 6:
             return False
-        em_domain = clean_email.split("@")[-1]
 
-        if is_directory_or_portal(em_domain):
+        local_part = clean_email.split("@")[0].strip()
+        em_domain = clean_email.split("@")[-1].strip()
+
+        # Reject high-risk, unmonitored role-based prefixes
+        if local_part in DISALLOWED_ROLE_PREFIXES:
+            logger.info(f"🚫 [EMAIL FINDER] Rejecting role-based/unmonitored address: {clean_email}")
             return False
+
+        # Reject aggregator, directory, and vendor platforms
+        if is_directory_or_portal(em_domain):
+            logger.info(f"🚫 [EMAIL FINDER] Rejecting aggregator/vendor domain address: {clean_email}")
+            return False
+
+        # Strict domain alignment: If target company domain is known, candidate MUST match that domain
+        if domain:
+            clean_target = domain.lower().strip().lstrip("www.")
+            clean_em = em_domain.lower().strip().lstrip("www.")
+            if clean_em != clean_target and not clean_em.endswith(f".{clean_target}"):
+                logger.warning(f"🚫 [EMAIL FINDER] Rejecting candidate {clean_email}: domain '{clean_em}' does not match target prospect domain '{clean_target}'.")
+                return False
 
         # Already have a higher-confidence verified result?
         if any(c.get("deliverable") and c.get("confidence", 0) >= 0.9 for c in all_candidates):
