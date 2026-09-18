@@ -291,7 +291,7 @@ class HighVolumeProspectorEngine:
         logger.info(f"⚡ [HIGH-VOLUME BURST] Triggering immediate burst of {clamped_count} leads (Channel: {target_channel or 'All'})")
 
         discovered = []
-        # Lazy import to avoid circular: agents.scout_runner.worker → agents.scout → agents.scout_runner.worker
+        # Lazy import to avoid circular: agents.scout_runner.worker → agents.scout_runner → agents.scout_runner.worker
         from agents.scout_runner.worker import ScoutBackgroundWorker  # noqa: PLC0415
         worker = ScoutBackgroundWorker(storage=self.storage, portal=self.portal)
 

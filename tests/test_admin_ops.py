@@ -100,14 +100,16 @@ def test_governance_metrics_and_emergency_stop(test_setup):
 def test_admin_api_endpoints_rbac(test_setup):
     _, _, client = test_setup
 
-    # 1. Admin page requires admin role (in test env, auto-admin fallback grants access)
-    res = client.get("/admin")
-    assert res.status_code == 200
+    # 1. Admin page requires admin role and redirects to React SPA (ADR-0003)
+    res = client.get("/admin", follow_redirects=False)
+    assert res.status_code == 307
+    assert "/admin" in res.headers["location"]
 
     # 1b. Admin page accessible with explicit admin token
     admin_headers = {"Authorization": "Bearer mock_user_founder_lead_admin"}
-    res = client.get("/admin", headers=admin_headers)
-    assert res.status_code == 200
+    res = client.get("/admin", headers=admin_headers, follow_redirects=False)
+    assert res.status_code == 307
+    assert "/admin" in res.headers["location"]
 
     # 2. Pipeline API also accessible via admin auth
     res = client.get("/api/admin/pipeline", headers=admin_headers)

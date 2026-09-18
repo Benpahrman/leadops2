@@ -4,6 +4,7 @@ export default function SwarmTab({
   pipeline = [],
   renderDiscoveryBadge,
   handleViewSwarmProgress,
+  openSwarmProgressModal,
   handleOpenQaOverride,
   handleTriggerSwarm,
   actionInProgress = {},
@@ -65,7 +66,7 @@ export default function SwarmTab({
                     <td>
                       <div style={{ fontWeight: 700, color: '#fff' }}>{lead.company_name || 'Feed Target'}</div>
                       <div style={{ fontSize: '11px', color: 'var(--text-dim)', fontFamily: 'var(--mono)' }}>{lead.lead_id}</div>
-                      {renderDiscoveryBadge(lead.discovery_channel, lead.filing_case_number)}
+                      {typeof renderDiscoveryBadge === 'function' ? renderDiscoveryBadge(lead.discovery_channel, lead.filing_case_number) : null}
                     </td>
                     <td>
                       <div>{lead.tier_name || lead.tier_key || 'Weekly'}</div>
@@ -102,22 +103,22 @@ export default function SwarmTab({
                         <button
                           className="btn btn-outline"
                           style={{ padding: '4px 8px', fontSize: '11px' }}
-                          onClick={() => handleViewSwarmProgress(lead.lead_id, lead.company_name)}
+                          onClick={() => (handleViewSwarmProgress || openSwarmProgressModal)?.(lead.lead_id, lead.company_name)}
                         >
                           📊 Progress Logs
                         </button>
                         <button
                           className="btn btn-outline"
                           style={{ padding: '4px 8px', fontSize: '11px', color: 'var(--yellow)', borderColor: 'rgba(245, 158, 11, 0.4)' }}
-                          onClick={() => handleOpenQaOverride(lead.lead_id, lead.company_name)}
+                          onClick={() => handleOpenQaOverride?.(lead.lead_id, lead.company_name)}
                         >
                           ⚖️ Override QA
                         </button>
                         <button
                           className="btn btn-primary"
                           style={{ padding: '4px 8px', fontSize: '11px' }}
-                          onClick={() => handleTriggerSwarm(lead.lead_id)}
-                          disabled={actionInProgress[lead.lead_id]}
+                          onClick={() => handleTriggerSwarm?.(lead.lead_id)}
+                          disabled={actionInProgress?.[lead.lead_id]}
                         >
                           🚀 Launch
                         </button>

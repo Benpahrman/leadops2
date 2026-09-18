@@ -8,7 +8,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from agents.domain import Lead, State
-from agents.scout.high_volume_prospector import HighVolumeProspectorEngine, ProspectorCampaignMetrics
+from agents.scout_runner.high_volume_prospector import HighVolumeProspectorEngine, ProspectorCampaignMetrics
 from agents.pitcher import ensure_fresh_records_for_lead
 from agents.portal import PortalService, Sandbox
 from agents.storage import (
@@ -281,7 +281,7 @@ async def test_prospector_24_7_unhindered_by_work_hours():
     }
 
     # Simulate running outside office hours (midnight, Sunday, etc.)
-    with patch("agents.scout.high_volume_prospector.is_office_hours", return_value=(False, 28800, "Outside office hours")):
+    with patch("agents.scout_runner.high_volume_prospector.is_office_hours", return_value=(False, 28800, "Outside office hours")):
         with patch("agents.scout_runner.ScoutBackgroundWorker.discover_next_candidate", return_value=mock_lead):
             burst_res = await engine.trigger_burst(count=1)
             assert burst_res["ok"] is True

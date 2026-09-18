@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 from agents.domain import Lead, State, ALLOWED_TRANSITIONS
 from agents.admin_ops import AdminMissionControlService
 from agents.storage import SqliteStorageBackend
-from agents.scout.contact_enricher_agent import ContactEnricherResearcherAgent
+from agents.scout_runner.contact_enricher_agent import ContactEnricherResearcherAgent
 from agents.email.verifier import DeliverabilityVerifier, DeliverabilityStatus, VerificationResult
 
 
@@ -211,7 +211,7 @@ def test_admin_api_archived_and_enrich_endpoints(temp_storage):
 
     # 2. Test POST /api/admin/leads/{id}/enrich-contact
     with patch(
-        "agents.scout.contact_enricher_agent.ContactEnricherResearcherAgent.enrich_and_recover_lead",
+        "agents.scout_runner.contact_enricher_agent.ContactEnricherResearcherAgent.enrich_and_recover_lead",
         return_value={
             "ok": True,
             "recovered": True,

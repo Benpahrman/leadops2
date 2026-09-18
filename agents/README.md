@@ -16,15 +16,54 @@ An agent is an LLM-driven worker with a role, instructions, tools, and an explic
 | Delivery | Run scheduled syncs and report freshness | Destination writer, scheduler, health checks |
 | Retainer Monitor | Detect failures and coordinate bounded repairs | Health checks, incident queue, repair job launcher |
 
-## Tool boundary
+## Package Architecture & Modular Organization (ADR-0002)
 
-The current modules are tools or shared domain services:
+The codebase has been refactored into focused, domain-driven packages adhering to Clean Architecture principles:
 
-- `domain.py`: lifecycle state machine and pricing invariants
-- `portal.py`: sandbox, interaction, field-selection, CSV, and checkout operations
-- `payments.py`: idempotent application of already-verified payment events
-- `job_runner.py`: local specialist execution and QA artifact handoff
-- `progress.py`: customer-safe build status events
+```
+agents/
+├── api.py                     # Canonical FastAPI Application Factory
+├── worker.py                  # Canonical Autonomous Swarm Worker (Azure Container Apps)
+├── startup.py                 # Application Lifespan & Bootstrap Hooks
+├── __init__.py                # Package Root Manifest
+│
+├── domain/                    # Core Domain Layer (State machine, pricing, invariants)
+│   ├── lead.py                # Lead entity, lifecycle states, state transitions
+│   ├── pricing.py             # Tiers, pricing calculations, sprint deposit rules
+│   ├── events.py              # ProgressStatus, ProgressEvent, ProgressFeed
+│   └── artifacts.py           # BuildArtifact, ArtifactManifest
+│
+├── services/                  # Application Services Layer
+│   ├── admin_ops.py           # Admin Mission Control Service (Kanban, governance, SLA)
+│   ├── client_artifacts.py    # Client codebase generation, audit trail, dispute dossiers
+│   ├── portal.py              # Customer sandbox intake & assumption approval boundary
+│   └── provisioning.py        # Lead cloud infrastructure provisioning service
+│
+├── outreach/                  # Autonomous Outbound Engine
+│   ├── scheduler.py           # Grace period scheduler & anti-spam jitter engine
+│   ├── playbooks.py           # Strategic campaign blueprints & copy templates
+│   └── office_hours.py        # Business hours timing & delivery window calculators
+│
+├── infra/                     # Platform Infrastructure & Cross-Cutting
+│   ├── auth.py                # Clerk adapter, JWT verification, RBAC
+│   ├── observability.py       # Telemetry, OpenTelemetry spans, audit vault integration
+│   ├── logging.py             # Centralized structured production logging
+│   ├── middleware.py          # Rate limiting & security headers middleware
+│   └── websocket.py           # WebSocket connection manager for live progress streaming
+│
+├── storage/                   # Persistence Layer
+│   ├── models.py              # SQLAlchemy ORM Database Models
+│   ├── postgres.py            # PostgreSQL Repository Backend
+│   └── memory.py              # InMemory Testing Storage Backend
+│
+└── routes/                    # REST / SSE / Webhook Endpoints
+    ├── admin/                 # Admin Mission Control sub-routers (kanban, lifecycle, etc.)
+    ├── portal.py              # Customer Sandbox & intake endpoints
+    └── ...
+```
+
+### Backward-Compatible Facades
+To preserve 100% backward compatibility for existing callers (ADR-0002), thin facades remain at the root of `agents/` (`admin_ops.py`, `portal.py`, `auth.py`, `auto_outreach.py`, `models.py`, etc.) re-exporting symbols from their dedicated domain packages.
 
 An LLM agent should call these through narrow tool functions. It must not mutate `Lead` fields directly, invent source evidence, bypass access controls, or mark a payment successful from a browser redirect.
 

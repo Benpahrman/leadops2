@@ -3,7 +3,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from agents.scout.county_filing_extractor import (
+from agents.scout_runner.county_filing_extractor import (
     CountyFilingPartyExtractor,
     DiscoveredFilingEntity,
 )
@@ -90,9 +90,9 @@ class CountyFilingPartyExtractorTests(unittest.TestCase):
         self.assertTrue(any("Lone Star Asset Lending" in n for n in names))
         self.assertTrue(any("Thorne" in n for n in names))
 
-    @patch("agents.scout.county_filing_extractor.search_company_intelligence")
-    @patch("agents.scout.county_filing_extractor.extract_contact_info_from_url")
-    @patch("agents.scout.county_filing_extractor.find_linkedin_decision_maker")
+    @patch("agents.scout_runner.county_filing_extractor.search_company_intelligence")
+    @patch("agents.scout_runner.county_filing_extractor.extract_contact_info_from_url")
+    @patch("agents.scout_runner.county_filing_extractor.find_linkedin_decision_maker")
     def test_enrich_filing_prospect(self, mock_linkedin, mock_extract_contact, mock_search_intel):
         """Test complete enrichment of discovered filing entity into qualified target."""
         mock_search_intel.return_value = {

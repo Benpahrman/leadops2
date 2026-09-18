@@ -10,13 +10,25 @@ The monolithic `agents/scout_runner.py` (2,274 LOC) has been cleanly decomposed 
 
 ```
 agents/scout_runner/
-├── __init__.py           # Barrel re-export preserving identical public API
-├── catalog.py            # VERTICAL_CATALOG: 10+ high-yield public record verticals
-├── worker.py             # ScoutBackgroundWorker: B2B prospector, WAF verification, lead qualification
-├── supervisor.py         # ScoutAutomationSupervisor: bounded cycles, rate-limits, office hours
-├── web_scout.py          # B2BWebScoutWorker: DuckDuckGo search, contact crawling & enrichment
-├── cli.py                # Command-line interface runner & micro-scrape probe
-└── README.md             # Living architectural specification
+├── __init__.py                     # Unified re-export for runner & all specialist engines
+├── catalog.py                      # VERTICAL_CATALOG: 10+ high-yield public record verticals
+├── worker.py                       # ScoutBackgroundWorker: B2B prospector, WAF verification
+├── supervisor.py                   # ScoutAutomationSupervisor: bounded cycles, office hours
+├── web_scout.py                    # B2BWebScoutWorker: search, contact crawling & enrichment
+├── cli.py                          # Command-line interface runner & micro-scrape probe
+├── national_county_orchestrator.py # 3,000+ US counties crawler
+├── state_bar_prospector.py         # Bar association legal scrapers
+├── sos_entity_prospector.py        # Secretary of State registry crawler
+├── contact_enricher_agent.py       # Decision-maker email/LinkedIn finder
+├── county_filing_extractor.py      # Court docket party extractor
+├── high_volume_prospector.py       # High-volume batch campaign prospector
+├── hiring_intent_prospector.py     # Clerk job posting detector
+├── local_business_prospector.py    # Local municipal business discovery
+├── niche_brainstormer_agent.py     # Niche vertical ideation agent
+├── scout_pipeline.py               # Candidate verification & sandbox publisher
+├── wa_county_orchestrator.py       # Washington state county orchestrator
+├── website_form_submitter.py       # Web contact form submitter fallback
+└── README.md                       # Living architectural specification
 ```
 
 ---

@@ -9,7 +9,7 @@ from ..auth import ClerkAuthService, ClerkUser, get_current_user
 from agents.dashboard_pkg import CustomerDashboardService
 from agents.llm import LLMAgentEngine
 from ..portal import PortalService
-from agents.scout.scout_pipeline import ScoutPortalPipeline
+from agents.scout_runner.scout_pipeline import ScoutPortalPipeline
 from ..storage import StorageBackend
 
 

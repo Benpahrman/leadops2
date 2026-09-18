@@ -14,11 +14,17 @@ Conforms to:
 flowchart TD
     API["FastAPI App (agents/api.py)"] --> AdminRouter["agents.routes.admin.router\n(Aggregated Master Router)"]
 
-    AdminRouter --> Pipeline["pipeline.py\nKanban, States, Emergency Stop, Telemetry"]
+    AdminRouter --> PipelineRouter["pipeline/\n(Decomposed Pipeline Sub-Routers)"]
     AdminRouter --> Tickets["tickets.py\nTickets CRUD, SLA Breaches, Cancellations"]
     AdminRouter --> Catalog["catalog.py\nScraper Catalog, Live Runs, Daily Grid"]
     AdminRouter --> Outreach["outreach.py\nScout Workers, Auto-Outreach, Prospector"]
     AdminRouter --> Inboxes["inboxes.py\nFleet Inboxes, Warmup Cycles, Deliverability"]
+
+    PipelineRouter --> Kanban["kanban.py\nKanban Board & Lead Listing"]
+    PipelineRouter --> Lifecycle["lifecycle.py\nTransitions, Overrides & Deliverability"]
+    PipelineRouter --> Governance["governance.py\nEmergency Stop, Purge & Telemetry"]
+    PipelineRouter --> Artifacts["artifacts.py\nDossiers & Dispute Evidence"]
+    PipelineRouter --> Mobile["mobile_actions.py\n1-Click Mobile Action Webhooks"]
 
     AdminRouter -.-> Redirect["/admin & /admin/control\n307 Redirect to React Vite SPA\n(ADR-0003 Decoupling)"]
 ```
@@ -29,14 +35,20 @@ flowchart TD
 
 ```
 agents/routes/admin/
-├── __init__.py      # Master router aggregating all sub-routers & ADR-0003 redirect
-├── models.py        # Pydantic request models for all admin endpoints
-├── pipeline.py      # Pipeline Kanban, lead state transitions, emergency stop, purge, telemetry
-├── tickets.py       # Support tickets CRUD, SLA breach detection, cancellation requests
-├── catalog.py       # Scraper catalog, AST code inspection, live runs, QA overrides, daily grid
-├── outreach.py      # Scout triggers, web scout, county orchestrators, prospector campaigns
-├── inboxes.py       # Fleet inboxes, warmup cycles, 4-vector deliverability suite, Microsoft OAuth
-└── README.md        # Living architecture documentation
+├── __init__.py          # Master router aggregating all sub-routers & ADR-0003 redirect
+├── models.py            # Pydantic request models for all admin endpoints
+├── pipeline/            # Decomposed Pipeline Sub-Routers:
+│   ├── __init__.py      # Aggregated pipeline router
+│   ├── kanban.py        # Pipeline Kanban, lead queries, deletion
+│   ├── lifecycle.py     # State transitions, manual overrides, deliverability verification
+│   ├── governance.py    # Emergency stop, system purge, live telemetry, daily briefing
+│   ├── artifacts.py     # Client artifacts, audit trail, chargeback dispute defense dossier
+│   └── mobile_actions.py # 1-click mobile operator action token approvals
+├── tickets.py           # Support tickets CRUD, SLA breach detection, cancellation requests
+├── catalog.py           # Scraper catalog, AST code inspection, live runs, QA overrides, daily grid
+├── outreach.py          # Scout triggers, web scout, county orchestrators, prospector campaigns
+├── inboxes.py           # Fleet inboxes, warmup cycles, 4-vector deliverability suite, Microsoft OAuth
+└── README.md            # Living architecture documentation
 ```
 
 ---

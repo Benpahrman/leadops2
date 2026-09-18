@@ -16,12 +16,12 @@ Conforms to:
 
 from __future__ import annotations
 
+import os
 import logging
-from fastapi import APIRouter
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends
+from fastapi.responses import RedirectResponse
 
 from agents.auth import require_admin, ClerkUser
-from ..templates import render_admin_html
 from .models import *
 from .pipeline import router as pipeline_router
 from .tickets import router as tickets_router
@@ -40,15 +40,16 @@ router.include_router(catalog_router)
 router.include_router(outreach_router)
 router.include_router(inboxes_router)
 
-# ADR-0003: Serves HTML for test harness / fallback, while React SPA serves production UI
-@router.get("/admin", response_class=HTMLResponse, tags=["Admin Mission Control"])
-@router.get("/admin/control", response_class=HTMLResponse, tags=["Admin Mission Control"])
-def admin_mission_control_page():
+# ADR-0003: Strict Backend-Frontend Decoupling (Directive: use react frontend for the website)
+@router.get("/admin", tags=["Admin Mission Control"])
+@router.get("/admin/control", tags=["Admin Mission Control"])
+def admin_mission_control_page(user: ClerkUser = Depends(require_admin)):
     """
-    Serves admin mission control page.
-    In production, the React SPA renders the interactive frontend.
+    Enforces strict backend-frontend decoupling.
+    Redirects operator to the React Vite SPA frontend (/admin).
     """
-    return render_admin_html()
+    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+    return RedirectResponse(url=f"{frontend_url}/admin", status_code=307)
 
 
 __all__ = [

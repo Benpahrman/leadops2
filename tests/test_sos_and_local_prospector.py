@@ -3,8 +3,8 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from agents.scout.sos_entity_prospector import SOSEntityProspector, DiscoveredSOSEntity
-from agents.scout.local_business_prospector import LocalBusinessProspector, DiscoveredLocalBusiness
+from agents.scout_runner.sos_entity_prospector import SOSEntityProspector, DiscoveredSOSEntity
+from agents.scout_runner.local_business_prospector import LocalBusinessProspector, DiscoveredLocalBusiness
 
 
 class SOSAndLocalProspectorTests(unittest.TestCase):
@@ -12,7 +12,7 @@ class SOSAndLocalProspectorTests(unittest.TestCase):
         self.sos_prospector = SOSEntityProspector()
         self.local_prospector = LocalBusinessProspector()
 
-    @patch("agents.scout.sos_entity_prospector.search_web")
+    @patch("agents.scout_runner.sos_entity_prospector.search_web")
     def test_sos_discover_new_registrations(self, mock_search_web):
         """Test discovering newly registered title and escrow companies from SOS registries."""
         mock_search_web.return_value = [
@@ -31,9 +31,9 @@ class SOSAndLocalProspectorTests(unittest.TestCase):
         self.assertEqual(ent.filing_number, "800112233")
         self.assertEqual(ent.state, "TX")
 
-    @patch("agents.scout.sos_entity_prospector.search_company_intelligence")
-    @patch("agents.scout.sos_entity_prospector.extract_contact_info_from_url")
-    @patch("agents.scout.sos_entity_prospector.find_linkedin_decision_maker")
+    @patch("agents.scout_runner.sos_entity_prospector.search_company_intelligence")
+    @patch("agents.scout_runner.sos_entity_prospector.extract_contact_info_from_url")
+    @patch("agents.scout_runner.sos_entity_prospector.find_linkedin_decision_maker")
     def test_enrich_sos_prospect(self, mock_linkedin, mock_extract_contact, mock_search_intel):
         """Test enriching newly formed entity into qualified prospect."""
         mock_search_intel.return_value = {"website": "https://www.lonestartitlesolutions.com"}
@@ -58,7 +58,7 @@ class SOSAndLocalProspectorTests(unittest.TestCase):
         self.assertEqual(prospect["discovery_channel"], "SOS_NEW_BUSINESS")
         self.assertIn("Title Company operations in TX", prospect["pitch_body"])
 
-    @patch("agents.scout.local_business_prospector.search_web")
+    @patch("agents.scout_runner.local_business_prospector.search_web")
     def test_local_business_discover(self, mock_search_web):
         """Test local business discovery for title companies by city and state."""
         mock_search_web.return_value = [
@@ -78,9 +78,9 @@ class SOSAndLocalProspectorTests(unittest.TestCase):
         self.assertEqual(b.city, "Houston")
         self.assertEqual(b.state, "TX")
 
-    @patch("agents.scout.local_business_prospector.search_company_intelligence")
-    @patch("agents.scout.local_business_prospector.extract_contact_info_from_url")
-    @patch("agents.scout.local_business_prospector.find_linkedin_decision_maker")
+    @patch("agents.scout_runner.local_business_prospector.search_company_intelligence")
+    @patch("agents.scout_runner.local_business_prospector.extract_contact_info_from_url")
+    @patch("agents.scout_runner.local_business_prospector.find_linkedin_decision_maker")
     def test_enrich_local_prospect(self, mock_linkedin, mock_extract_contact, mock_search_intel):
         """Test local prospect enrichment with geo-targeted pitch."""
         mock_search_intel.return_value = {"website": "https://www.apextitlehouston.com"}

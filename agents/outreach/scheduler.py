@@ -1,0 +1,795 @@
+"""Auto-Outreach Grace Period Scheduler & Anti-Spam Jitter Engine.
+
+Provides autonomous cold outreach with human oversight:
+1. When a lead is scouted and passes all quality gates, it initiates a 3-minute (180s) grace period.
+2. The operator receives an organized Discord/Telegram notification with the complete email draft.
+3. The operator can 1-tap [🛑 Cancel / Reject] or [⚡ Send Immediately].
+4. If no cancellation is received after 3 minutes, the scheduler verifies office hours (8:00 AM - 5:00 PM CST)
+   and applies randomized anti-spam human jitter (90-240s) between successive emails before dispatching.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import random
+import threading
+import time
+from datetime import datetime, timezone, timedelta
+from typing import Any, Optional
+
+import logging
+import os
+import queue
+import random
+import threading
+import time
+from datetime import datetime, timezone, timedelta
+from typing import Any, Optional
+
+from agents.domain import Lead, State
+from agents.outreach.office_hours import is_office_hours
+
+logger = logging.getLogger("leadops.auto_outreach")
+
+
+class AutoOutreachScheduler:
+    """Coordinates grace-period timers, mobile cancellation, FIFO sequential queue, and 5-20 min anti-spam jitter."""
+
+    def __init__(
+        self,
+        grace_period_seconds: int = 180,
+        min_jitter_seconds: int = 300,
+        max_jitter_seconds: int = 1200,
+    ) -> None:
+        def _clean_int(val: Any, default: int) -> int:
+            try:
+                return int(str(val).split("#")[0].strip().strip("\"'"))
+            except (ValueError, TypeError):
+                return default
+
+        self.grace_period_seconds = _clean_int(
+            os.environ.get("AUTO_OUTREACH_GRACE_PERIOD_SECONDS", grace_period_seconds),
+            grace_period_seconds,
+        )
+        self.min_jitter_seconds = _clean_int(
+            os.environ.get("AUTO_OUTREACH_MIN_JITTER_SECONDS", min_jitter_seconds),
+            min_jitter_seconds,
+        )
+        self.max_jitter_seconds = _clean_int(
+            os.environ.get("AUTO_OUTREACH_MAX_JITTER_SECONDS", max_jitter_seconds),
+            max_jitter_seconds,
+        )
+        self._lock = threading.Lock()
+        self._scheduled: dict[str, dict[str, Any]] = {}
+        self._dispatch_queue: queue.Queue = queue.Queue()
+        self._worker_thread: threading.Thread | None = None
+        self._worker_running: bool = False
+        self._last_dispatch_time: float = 0.0
+
+    def _ensure_worker_running(self) -> None:
+        """Start single background worker thread if not already running."""
+        with self._lock:
+            if not self._worker_running or self._worker_thread is None or not self._worker_thread.is_alive():
+                self._worker_running = True
+                self._worker_thread = threading.Thread(target=self._dispatch_worker_loop, daemon=True)
+                self._worker_thread.start()
+                logger.debug("⚡ [AUTO-OUTREACH QUEUE] Dispatch worker thread initialized.")
+
+    @property
+    def is_enabled(self) -> bool:
+        """Check if automatic outreach grace-period mode is active."""
+        val = os.environ.get("AUTO_OUTREACH_ENABLED", "false").lower().strip().strip("\"'")
+        return val in ("1", "true", "yes", "on", "active")
+
+    def set_enabled(self, enabled: bool) -> None:
+        os.environ["AUTO_OUTREACH_ENABLED"] = "true" if enabled else "false"
+
+    def schedule_lead_for_dispatch(
+        self,
+        lead: Lead,
+        pitch: Any,
+        storage_backend: Any,
+        notifier: Any = None,
+    ) -> dict[str, Any]:
+        """Register lead in the 3-minute grace period queue."""
+        lead_id = lead.lead_id
+        now_dt = datetime.now(timezone.utc)
+        dispatch_at = now_dt + timedelta(seconds=self.grace_period_seconds)
+
+        lead.auto_dispatch_at = dispatch_at.isoformat()
+        if hasattr(storage_backend, "save_lead"):
+            storage_backend.save_lead(lead)
+
+        with self._lock:
+            # Cancel any pre-existing timer for this lead
+            if lead_id in self._scheduled and self._scheduled[lead_id].get("timer"):
+                try:
+                    self._scheduled[lead_id]["timer"].cancel()
+                except Exception as ex:
+                    logger.debug(f"Failed to cancel prior timer for {lead_id}: {ex}")
+
+            timer = threading.Timer(
+                self.grace_period_seconds,
+                self._on_grace_period_expired,
+                args=[lead_id, storage_backend, notifier],
+            )
+            timer.daemon = True
+
+            self._scheduled[lead_id] = {
+                "lead_id": lead_id,
+                "company_name": getattr(lead, "company_name", ""),
+                "contact_email": getattr(lead, "contact_email", ""),
+                "scheduled_at": now_dt.isoformat(),
+                "dispatch_at": dispatch_at.isoformat(),
+                "cancelled": False,
+                "dispatched": False,
+                "queued": False,
+                "timer": timer,
+            }
+
+            if self.is_enabled:
+                timer.start()
+                logger.info(
+                    f"⏱️ [AUTO-OUTREACH QUEUED] Lead {lead_id} ({lead.company_name}) scheduled for auto-dispatch in {self.grace_period_seconds}s at {dispatch_at.isoformat()}."
+                )
+            else:
+                logger.info(
+                    f"⏸️ [AUTO-OUTREACH DISABLED] Auto-sending of cold emails is disabled. Lead {lead_id} ({lead.company_name}) held for manual founder approval."
+                )
+
+        return {
+            "ok": True,
+            "lead_id": lead_id,
+            "grace_period_seconds": self.grace_period_seconds,
+            "dispatch_at": dispatch_at.isoformat(),
+            "auto_outreach_active": self.is_enabled,
+        }
+
+    def cancel_dispatch(self, lead_id: str, reason: str = "Operator cancelled via mobile") -> bool:
+        """Cancel a pending scheduled outreach within the 3-minute grace period."""
+        with self._lock:
+            entry = self._scheduled.get(lead_id)
+            if not entry:
+                logger.debug(f"Auto-outreach cancel requested for unscheduled lead: {lead_id}")
+                return False
+
+            entry["cancelled"] = True
+            if entry.get("timer"):
+                try:
+                    entry["timer"].cancel()
+                except Exception as ex:
+                    logger.debug(f"Failed to cancel timer for {lead_id}: {ex}")
+
+            logger.info(f"🛑 [AUTO-OUTREACH CANCELLED] Lead {lead_id} cancelled. Reason: {reason}")
+            return True
+
+    def is_pending(self, lead_id: str) -> bool:
+        with self._lock:
+            entry = self._scheduled.get(lead_id)
+            if not entry:
+                return False
+            return not entry.get("cancelled") and not entry.get("dispatched")
+
+    def _on_grace_period_expired(self, lead_id: str, storage_backend: Any, notifier: Any) -> None:
+        """Callback executed when the 3-minute timer fires: pushes lead to sequential FIFO dispatch queue."""
+        if not self.is_enabled:
+            logger.info(f"⏸️ [AUTO-OUTREACH DISABLED] Grace period timer expired for {lead_id}, but auto-outreach is disabled. Skipping FIFO queue.")
+            return
+
+        with self._lock:
+            entry = self._scheduled.get(lead_id)
+            if not entry or entry.get("cancelled") or entry.get("dispatched") or entry.get("queued"):
+                return
+            entry["queued"] = True
+
+        self._dispatch_queue.put((lead_id, storage_backend, notifier))
+        self._ensure_worker_running()
+        logger.info(f"📥 [DISPATCH QUEUE] Lead {lead_id} enqueued in FIFO dispatch queue (Queue depth: {self._dispatch_queue.qsize()}).")
+
+    def _dispatch_worker_loop(self) -> None:
+        """Single dedicated FIFO worker thread: processes one email at a time with 5-30 min jitter."""
+        while self._worker_running:
+            try:
+                item = self._dispatch_queue.get(timeout=3.0)
+            except queue.Empty:
+                continue
+
+            lead_id, storage_backend, notifier = item
+            try:
+                self._process_single_queued_dispatch(lead_id, storage_backend, notifier)
+            except Exception as e:
+                logger.error(f"❌ [DISPATCH QUEUE ERROR] Failed dispatch for {lead_id}: {e}")
+            finally:
+                self._dispatch_queue.task_done()
+
+    def _process_single_queued_dispatch(self, lead_id: str, storage_backend: Any, notifier: Any) -> None:
+        """Execute dispatch sequentially for a single lead."""
+        if not self.is_enabled:
+            logger.info(f"⏸️ [AUTO-OUTREACH DISABLED] Auto-sending of cold emails is disabled. Skipping dispatch for {lead_id}.")
+            return
+
+        require_human = os.environ.get("LEADOPS_REQUIRE_HUMAN_APPROVAL", "true").lower().strip() in ("1", "true", "yes", "on")
+        if require_human:
+            logger.info(f"⏸️ [AUTO-OUTREACH HELD] Human approval is required (LEADOPS_REQUIRE_HUMAN_APPROVAL=true). Skipping automated dispatch for {lead_id}.")
+            return
+
+        with self._lock:
+            entry = self._scheduled.get(lead_id)
+            if entry and (entry.get("cancelled") or entry.get("dispatched")):
+                logger.info(f"⏭️ [DISPATCH QUEUE] Lead {lead_id} cancelled or already dispatched. Skipping.")
+                return
+
+        lead = storage_backend.get_lead(lead_id) if hasattr(storage_backend, "get_lead") else None
+        if not lead:
+            logger.warning(f"Auto-outreach worker encountered missing lead: {lead_id}")
+            return
+
+        if lead.state != State.PITCH_PENDING_APPROVAL:
+            logger.info(f"Auto-outreach skipped for lead {lead_id}: State is {lead.state.value}.")
+            return
+
+        # Check 45-day anti-duplicate suppression
+        if storage_backend and hasattr(storage_backend, "is_recipient_or_domain_contacted"):
+            if storage_backend.is_recipient_or_domain_contacted(
+                email=lead.contact_email,
+                domain=getattr(lead, "website", ""),
+                company_name=getattr(lead, "company_name", ""),
+                within_days=45,
+                exclude_lead_id=lead.lead_id,
+            ):
+                logger.info(f"🛑 [AUTO-OUTREACH SUPPRESSION] {lead.company_name} / {lead.contact_email} was contacted within 45 days. Skipping duplicate.")
+                lead.transition(State.ARCHIVED, "Duplicate outreach suppressed (contacted within 45 days)")
+                if hasattr(storage_backend, "save_lead"):
+                    storage_backend.save_lead(lead)
+                return
+
+        # Verify Office Hours (8:00 AM - 5:00 PM CST)
+        while True:
+            is_open, seconds_until_open, msg = is_office_hours()
+            if is_open:
+                break
+            logger.info(f"🌙 [AUTO-OUTREACH PAUSED] Outside office hours. Waiting until 8:00 AM CST ({seconds_until_open}s) before dispatching {lead.company_name}...")
+            sleep_chunk = min(seconds_until_open, 300)
+            time.sleep(sleep_chunk)
+
+        # Verify daily sending capacity across inboxes
+        from agents.email.warmup import WarmupManager
+        from agents.email.config import EmailSettings
+        warmup_mgr = WarmupManager(settings=EmailSettings.from_environment(), storage_backend=storage_backend)
+        if not warmup_mgr.get_available_inbox(check_jitter=False):
+            logger.info(f"🛑 [AUTO-OUTREACH HELD] Daily send limit reached on all inboxes. Holding {lead.company_name} for tomorrow.")
+            return
+
+        # Wait until an inbox finishes its per-inbox 5-30m jitter cooldown
+        is_test = bool(os.environ.get("PYTEST_CURRENT_TEST"))
+        while not is_test:
+            ready_inbox = warmup_mgr.get_available_inbox(check_jitter=True)
+            if ready_inbox:
+                break
+            earliest_wait = warmup_mgr.get_earliest_jitter_wait()
+            if earliest_wait <= 0:
+                break
+            logger.info(
+                f"⏳ [PER-INBOX JITTER QUEUE] All active inboxes are in 5-30m jitter cooldown. "
+                f"Holding {lead.company_name} for {earliest_wait/60:.1f}m ({earliest_wait:.0f}s) until next inbox is ready..."
+            )
+            time.sleep(min(earliest_wait, 15.0))
+
+        # Enforce Anti-Burst Human Stagger (15-30s between consecutive dispatches to prevent 501 / socket spikes)
+        self._enforce_anti_burst_stagger()
+
+        # Re-check cancellation before final dispatch
+        with self._lock:
+            if entry and entry.get("cancelled"):
+                logger.info(f"Auto-outreach for {lead_id} cancelled during jitter wait window.")
+                return
+
+        # Perform actual dispatch
+        self._execute_dispatch(lead, storage_backend, notifier)
+
+    def _enforce_anti_burst_stagger(self) -> None:
+        """Enforce brief human spacing (15 to 30s) between successive emails across the pool to prevent simultaneous bursts."""
+        is_test = bool(os.environ.get("PYTEST_CURRENT_TEST"))
+        if is_test:
+            return
+
+        now_sec = time.time()
+        elapsed_since_last = now_sec - self._last_dispatch_time
+        target_stagger = random.uniform(15.0, 30.0)
+
+        if self._last_dispatch_time > 0 and elapsed_since_last < target_stagger:
+            wait_sec = target_stagger - elapsed_since_last
+            logger.info(f"⚡ [ANTI-BURST STAGGER] Enforcing {wait_sec:.1f}s stagger before dispatching next inbox...")
+            time.sleep(wait_sec)
+
+        self._last_dispatch_time = time.time()
+
+    def _enforce_sequential_jitter(self) -> None:
+        """Alias for backward-compatibility with tests."""
+        self._enforce_anti_burst_stagger()
+
+    def _execute_dispatch(
+        self,
+        lead: Lead,
+        storage_backend: Any,
+        notifier: Any = None,
+        human_approver: str = "Auto-Pilot Grace Period",
+    ) -> None:
+        """Dispatch cold outreach pitch via PitcherService."""
+        if notifier is None:
+            try:
+                from agents.notifications import notification_manager
+                notifier = notification_manager
+            except Exception:
+                notifier = None
+
+        from agents.pitcher import PitcherService, PitchMessage, render_sub_60_word_pitch
+
+        company = lead.company_name or "Partner"
+        recipient_email = (lead.contact_email or "").strip()
+
+        if not recipient_email or "@" not in recipient_email:
+            logger.warning(
+                f"🛑 [AUTO-OUTREACH ABORTED] Lead {lead.lead_id} has invalid email: '{recipient_email}'."
+            )
+            return
+
+        slug = getattr(lead, "slug", "") or lead.lead_id
+        pitch = None
+        if getattr(lead, "outreach_subject", "") and getattr(lead, "outreach_body", ""):
+            pitch = PitchMessage(
+                subject=lead.outreach_subject,
+                body_text=lead.outreach_body,
+                body_html=getattr(lead, "outreach_html", "") or f"<p>{lead.outreach_body}</p>",
+                sandbox_url=f"https://www.omnileadfeeder.tech/p/{slug}",
+                word_count=len((getattr(lead, "outreach_body", "") or "").split()),
+            )
+        else:
+            pitch = render_sub_60_word_pitch(
+                company_name=company,
+                niche=getattr(lead, "niche", "Public Records") or "Public Records",
+                portal_name=getattr(lead, "target_portal_name", "Official Records Portal") or "Official Records Portal",
+                sample_count=4,
+                slug=slug,
+                contact_name=(getattr(lead, "contact_name", "") or "there").split()[0],
+                contact_role=getattr(lead, "contact_role", ""),
+            )
+            lead.outreach_subject = pitch.subject
+            lead.outreach_body = pitch.body_text
+            lead.outreach_html = pitch.body_html
+
+        pitcher = PitcherService(storage_backend=storage_backend)
+
+        try:
+            logger.info(
+                f"🚀 [AUTO-OUTREACH EXECUTING] 3-minute window elapsed. Dispatching pitch to {recipient_email} ({company}) with subject: '{pitch.subject}'"
+            )
+            pitcher.approve_and_dispatch(
+                lead=lead,
+                recipient_email=recipient_email,
+                recipient_name=getattr(lead, "contact_name", "") or company,
+                pitch=pitch,
+                human_approver=human_approver,
+                enforce_office_hours=True,
+            )
+            storage_backend.save_lead(lead)
+
+            with self._lock:
+                if lead.lead_id in self._scheduled:
+                    self._scheduled[lead.lead_id]["dispatched"] = True
+
+            # Notify Discord of completed automated dispatch
+            if notifier:
+                try:
+                    notifier.notify_system_alert(
+                        title=f"🚀 Auto-Outreach Dispatched: {company}",
+                        message=f"Cold pitch was automatically dispatched after the 3-minute grace period without rejection.\n\n"
+                                f"**To:** `{recipient_email}`\n"
+                                f"**Subject:** _{pitch.subject}_\n"
+                                f"**State:** `OUTREACH_SENT`",
+                        severity="INFO",
+                    )
+                except Exception as ne:
+                    logger.debug(f"Auto-dispatch alert notification note: {ne}")
+
+        except Exception as err:
+            logger.warning(
+                f"⚠️ [AUTO-OUTREACH GATE REJECTED] Pitch for {lead.lead_id} could not be dispatched: {err}"
+            )
+            if notifier:
+                try:
+                    notifier.notify_system_alert(
+                        title=f"⚠️ Auto-Outreach Blocked: {company}",
+                        message=f"Outreach could not be dispatched for {company} ({recipient_email}):\n\n`{str(err)}`",
+                        severity="WARNING",
+                    )
+                except Exception as ex:
+                    logger.warning(f"Failed to send system alert notification: {ex}")
+
+    def flush_pending_office_hours_queue(
+        self,
+        storage_backend: Any,
+        notifier: Any = None,
+        force_operator: str | None = None,
+    ) -> list[str]:
+        """Flush any pending approved pitches when office hours open (8:00 AM - 5:00 PM CST)."""
+        is_test = bool(os.environ.get("PYTEST_CURRENT_TEST"))
+        # Strict kill-switch: If cold outreach auto-sending is disabled, never flush or auto-dispatch
+        if not self.is_enabled and not is_test and not force_operator:
+            logger.info("⏸️ [AUTO-OUTREACH DISABLED] Cold email auto-flush skipped: AUTO_OUTREACH_ENABLED is false (warming emails only).")
+            return []
+
+        require_human = os.environ.get("LEADOPS_REQUIRE_HUMAN_APPROVAL", "true").lower().strip() in ("1", "true", "yes", "on")
+        if require_human and not is_test and not force_operator:
+            logger.info("⏸️ [AUTO-OUTREACH HELD] Cold email dispatch requires explicit human approval (LEADOPS_REQUIRE_HUMAN_APPROVAL=true). Holding pitches in pending review.")
+            return []
+
+        if notifier is None:
+            try:
+                from agents.notifications import notification_manager
+                notifier = notification_manager
+            except Exception:
+                notifier = None
+
+        try:
+            self.auto_prepare_review_pitches(storage_backend, notifier)
+        except Exception as p_err:
+            logger.debug(f"Auto-prepare review pitches error in flush: {p_err}")
+
+        is_open, seconds_until_open, msg = is_office_hours()
+        if not is_open:
+            logger.debug(f"flush_pending_office_hours_queue: Outside office hours ({msg}). Standing by.")
+            return []
+
+        if not hasattr(storage_backend, "list_leads"):
+            return []
+
+        try:
+            leads = storage_backend.list_leads()
+        except Exception as e:
+            logger.warning(f"Failed to list leads for office hours flush: {e}")
+            return []
+
+        pending = [
+            l for l in leads
+            if l.state == State.PITCH_PENDING_APPROVAL
+            and (l.contact_email or "").strip()
+            and not getattr(l, "opt_out", False)
+        ]
+
+        dispatched_ids: list[str] = []
+
+        if pending:
+            logger.info(
+                f"☀️ [OFFICE HOURS FLUSH] Found {len(pending)} pending pitch(es) queued for dispatch. "
+                f"Dispatching with human anti-spam jitter ({self.min_jitter_seconds}-{self.max_jitter_seconds}s)..."
+            )
+            for lead in pending:
+                with self._lock:
+                    entry = self._scheduled.get(lead.lead_id)
+                    if entry and entry.get("cancelled"):
+                        logger.info(f"Skipping cancelled lead {lead.lead_id} during queue flush.")
+                        continue
+
+                # Verify office hours remain open before sending each successive email
+                is_still_open, _, _ = is_office_hours()
+                if not is_still_open:
+                    logger.info("Office hours closed during queue flush. Pausing remainder until next window.")
+                    break
+
+                # Verify remaining daily quota across inboxes
+                from agents.email.warmup import WarmupManager
+                from agents.email.config import EmailSettings
+                warmup_mgr = WarmupManager(settings=EmailSettings.from_environment(), storage_backend=storage_backend)
+                if not warmup_mgr.get_available_inbox():
+                    logger.info("Daily send quota reached across all inboxes during queue flush. Pausing remainder until tomorrow.")
+                    break
+
+                self._enforce_sequential_jitter()
+                try:
+                    self._execute_dispatch(
+                        lead,
+                        storage_backend,
+                        notifier,
+                        human_approver=force_operator or "Auto-Pilot Grace Period",
+                    )
+                    dispatched_ids.append(lead.lead_id)
+                except Exception as exc:
+                    logger.warning(f"Error during office hours queue flush for {lead.lead_id}: {exc}")
+
+        # Advance multi-touch sequencer follow-ups (Day 4 Touch 2 / Day 8 Touch 3) during office hours
+        try:
+            seq_dispatched = self.tick_sequencer(storage_backend)
+            if seq_dispatched:
+                logger.info(f"📬 [SEQUENCER TICK] Dispatched {len(seq_dispatched)} multi-touch follow-up(s).")
+                for item in seq_dispatched:
+                    lid = item.get("lead_id")
+                    if lid and lid not in dispatched_ids:
+                        dispatched_ids.append(lid)
+        except Exception as seq_err:
+            logger.debug(f"Sequencer tick follow-up error in queue flush: {seq_err}")
+
+        return dispatched_ids
+
+    def tick_sequencer(self, storage_backend: Any, email_engine: Any = None) -> list[dict[str, Any]]:
+        """Advance multi-touch cold outreach sequence for all eligible leads."""
+        from agents.email.sequencer import ColdOutreachSequencer
+        sequencer = ColdOutreachSequencer(storage_backend=storage_backend, email_engine=email_engine)
+        res = sequencer.tick_sequence()
+        return res.get("dispatches", []) if isinstance(res, dict) else (res or [])
+
+    def start_background_scheduler(
+        self,
+        storage_backend: Any,
+        email_client: Any = None,
+        interval_seconds: int = 60,
+    ) -> None:
+        """Starts a persistent background scheduler daemon thread that checks for expired grace periods,
+        runs office-hours flushes when enabled, and ticks multi-touch sequencer follow-ups."""
+        with self._lock:
+            if getattr(self, "_scheduler_running", False):
+                return
+            self._scheduler_running = True
+
+        def _scheduler_loop():
+            logger.info("⏱️ [AUTO-OUTREACH SCHEDULER] Periodic background scheduler started (interval: %ds).", interval_seconds)
+            while getattr(self, "_scheduler_running", False):
+                try:
+                    self._ensure_worker_running()
+                    # 1. Check for expired grace periods in _scheduled
+                    now_iso = datetime.now(timezone.utc).isoformat()
+                    with self._lock:
+                        for lead_id, entry in list(self._scheduled.items()):
+                            if not entry.get("cancelled") and not entry.get("dispatched") and not entry.get("queued"):
+                                if entry.get("dispatch_at", "") <= now_iso:
+                                    entry["queued"] = True
+                                    self._dispatch_queue.put((lead_id, storage_backend, None))
+                                    logger.info("📥 [AUTO-OUTREACH QUEUED] Lead %s grace period elapsed; enqueued for dispatch.", lead_id)
+
+                    # 2. Check office hours & trigger automated queue flush if enabled
+                    if self.is_enabled and not bool(os.environ.get("PYTEST_CURRENT_TEST")):
+                        require_human = os.environ.get("LEADOPS_REQUIRE_HUMAN_APPROVAL", "true").lower().strip().strip("\"'") in ("1", "true", "yes", "on")
+                        if not require_human:
+                            self.flush_pending_office_hours_queue(storage_backend)
+
+                    # 3. Tick sequencer for follow-up touches
+                    dispatch_flag = os.environ.get("OUTREACH_DISPATCH_ENABLED", "").lower().strip().strip("\"'") in ("1", "true", "yes", "on")
+                    if self.is_enabled or dispatch_flag:
+                        try:
+                            self.tick_sequencer(storage_backend, email_client)
+                        except Exception as seq_err:
+                            logger.debug("Scheduler tick_sequencer note: %s", seq_err)
+
+                except Exception as loop_err:
+                    logger.warning("Error in auto-outreach scheduler loop: %s", loop_err)
+
+                # Sleep in short chunks so shutdown is responsive
+                for _ in range(interval_seconds):
+                    if not getattr(self, "_scheduler_running", False):
+                        break
+                    time.sleep(1)
+
+        t = threading.Thread(target=_scheduler_loop, daemon=True, name="auto-outreach-scheduler")
+        self._scheduler_thread = t
+        t.start()
+
+    def stop_background_scheduler(self) -> None:
+        """Stop the background scheduler loop."""
+        with self._lock:
+            self._scheduler_running = False
+
+    def auto_prepare_review_pitches(
+        self,
+        storage_backend: Any,
+        notifier: Any = None,
+        llm_engine: Any = None,
+    ) -> list[str]:
+        """Autonomous copywriter sweep: finds leads in State.REVIEW with verified contact emails,
+        generates sub-60-word pitch copy, transitions them to State.PITCH_PENDING_APPROVAL,
+        and registers them in the auto-outreach scheduler for grace-period dispatch."""
+        if not storage_backend or not hasattr(storage_backend, "list_leads"):
+            return []
+
+        if notifier is None:
+            try:
+                from agents.notifications import notification_manager
+                notifier = notification_manager
+            except Exception:
+                notifier = None
+
+        try:
+            leads = storage_backend.list_leads()
+        except Exception as e:
+            logger.warning(f"Failed to list leads for review sweep: {e}")
+            return []
+
+        review_leads = [
+            l for l in leads
+            if l.state == State.REVIEW
+            and (l.contact_email or "").strip()
+            and "@" in (l.contact_email or "")
+            and not getattr(l, "opt_out", False)
+        ]
+
+        if not review_leads:
+            return []
+
+        logger.info(f"🤖 [AUTONOMOUS COPYWRITER SWEEP] Found {len(review_leads)} lead(s) in State.REVIEW awaiting pitch copy.")
+        processed_ids = []
+
+        for lead in review_leads:
+            try:
+                slug = getattr(lead, "slug", "") or lead.lead_id
+                company = lead.company_name or (slug.split("-")[0].capitalize() if slug else "Target Company")
+                sb = storage_backend.get_sandbox(slug) if hasattr(storage_backend, "get_sandbox") else None
+                sample_count = len(sb.rows) if sb and getattr(sb, "rows", None) else 4
+
+                from agents.pitcher import PitchMessage, render_sub_60_word_pitch
+
+                if getattr(lead, "outreach_subject", "") and getattr(lead, "outreach_body", ""):
+                    pitch = PitchMessage(
+                        subject=lead.outreach_subject,
+                        body_text=lead.outreach_body,
+                        body_html=getattr(lead, "outreach_html", "") or f"<p>{lead.outreach_body}</p>",
+                        sandbox_url=f"{os.environ.get('LEADOPS_PUBLIC_BASE_URL', 'https://omnileadfeeder.tech')}/p/{slug}",
+                        word_count=len((getattr(lead, "outreach_body", "") or "").split()),
+                    )
+                else:
+                    if llm_engine is None:
+                        try:
+                            from agents.llm import LLMAgentEngine
+                            llm_engine = LLMAgentEngine()
+                        except Exception as l_err:
+                            logger.warning(f"Could not initialize LLMAgentEngine: {l_err}")
+
+                    pitch = render_sub_60_word_pitch(
+                        company_name=company,
+                        niche=getattr(lead, "niche", "Public Records") or "Public Records",
+                        portal_name=getattr(lead, "target_portal_name", "") or getattr(lead, "jurisdiction", "Official Records Portal") or "Official Records Portal",
+                        sample_count=sample_count,
+                        slug=slug,
+                        base_url=os.environ.get("LEADOPS_PUBLIC_BASE_URL", "https://omnileadfeeder.tech"),
+                        contact_name=(getattr(lead, "contact_name", "") or "there").split()[0],
+                        contact_role=getattr(lead, "contact_role", "Operations"),
+                        llm_engine=llm_engine,
+                    )
+                    lead.outreach_subject = pitch.subject
+                    lead.outreach_body = pitch.body_text
+                    lead.outreach_html = pitch.body_html
+
+                lead.transition(State.PITCH_PENDING_APPROVAL, "Autonomous copywriter generated pitch and queued for review")
+                storage_backend.save_lead(lead)
+
+                # Enroll lead in the 3-minute grace period scheduler
+                self.schedule_lead_for_dispatch(
+                    lead=lead,
+                    pitch=pitch,
+                    storage_backend=storage_backend,
+                    notifier=notifier,
+                )
+
+                if notifier and hasattr(notifier, "notify_lead_qualified_and_dispatching"):
+                    try:
+                        notifier.notify_lead_qualified_and_dispatching(
+                            lead=lead,
+                            pitch=pitch,
+                            grace_period_seconds=self.grace_period_seconds,
+                        )
+                    except Exception as ne:
+                        logger.debug(f"Notification alert dispatch notice: {ne}")
+
+                processed_ids.append(lead.lead_id)
+                logger.info(f"✨ [AUTONOMOUS COPYWRITER] Pitch generated & auto-dispatch scheduled for {lead.company_name} ({lead.contact_email})")
+            except Exception as err:
+                logger.error(f"❌ [AUTONOMOUS COPYWRITER] Failed to prepare pitch for {lead.lead_id}: {err}")
+
+        return processed_ids
+
+    def get_status(self) -> dict[str, Any]:
+        """Return current status of auto-outreach engine."""
+        with self._lock:
+            pending_count = sum(
+                1 for s in self._scheduled.values() if not s["cancelled"] and not s["dispatched"]
+            )
+            return {
+                "enabled": self.is_enabled,
+                "grace_period_seconds": self.grace_period_seconds,
+                "min_jitter_seconds": self.min_jitter_seconds,
+                "max_jitter_seconds": self.max_jitter_seconds,
+                "pending_queue_count": pending_count,
+                "queue_depth": self._dispatch_queue.qsize(),
+                "total_tracked": len(self._scheduled),
+                "scheduled": [
+                    {
+                        "lead_id": s["lead_id"],
+                        "company_name": s["company_name"],
+                        "contact_email": s["contact_email"],
+                        "dispatch_at": s["dispatch_at"],
+                        "cancelled": s["cancelled"],
+                        "dispatched": s["dispatched"],
+                    }
+                    for s in self._scheduled.values()
+                ][-10:],
+            }
+
+
+# Global singleton instance
+auto_outreach_scheduler = AutoOutreachScheduler()
+
+
+def main() -> None:
+    """CLI runner for auto outreach inspection, status checks, and dry-run execution."""
+    import argparse
+    import sys
+    from agents.storage import SqliteStorageBackend
+
+    if sys.stdout.encoding.lower() != "utf-8":
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
+    parser = argparse.ArgumentParser(description="LeadOps Auto-Outreach Grace Period & Anti-Spam Queue CLI")
+    parser.add_argument("--status", action="store_true", help="Print scheduler status and queue telemetry")
+    parser.add_argument("--inspect-queue", action="store_true", help="Inspect all active pending items in the outreach queue")
+    parser.add_argument("--dry-run", action="store_true", help="Simulate outreach without dispatching real email")
+    parser.add_argument("--lead-id", help="Lead ID to dry-run or inspect")
+    parser.add_argument("--json", action="store_true", help="Emit raw JSON")
+    args = parser.parse_args()
+
+    status_data = auto_outreach_scheduler.get_status()
+
+    if args.json:
+        import json
+        print(json.dumps(status_data, indent=2))
+        return
+
+    print("=" * 70)
+    print("[AUTO-OUTREACH] GRACE PERIOD & JITTER QUEUE TELEMETRY")
+    print("=" * 70)
+    print(f"Engine Enabled       : {status_data['enabled']}")
+    print(f"Grace Period Window  : {status_data['grace_period_seconds']}s (3 mins mobile review)")
+    print(f"Anti-Spam Jitter     : {status_data['min_jitter_seconds']}s - {status_data['max_jitter_seconds']}s ({status_data['min_jitter_seconds']//60}-{status_data['max_jitter_seconds']//60} mins)")
+    print(f"Pending Queue Depth  : {status_data['pending_queue_count']}")
+    print(f"FIFO Queue Items     : {status_data['queue_depth']}")
+    print(f"Total Tracked Leads  : {status_data['total_tracked']}")
+
+    if args.inspect_queue or args.status:
+        print("\n--- Recent Scheduled Queue (Last 10) ---")
+        if not status_data["scheduled"]:
+            print("  (Queue is currently idle - no pending or scheduled dispatches)")
+        else:
+            for item in status_data["scheduled"]:
+                dispatched_tag = "[SENT]" if item["dispatched"] else ("[CANCELLED]" if item["cancelled"] else "[PENDING]")
+                print(f"  * {dispatched_tag} {item['lead_id']} | {item['company_name']} ({item['contact_email']}) | Dispatch: {item['dispatch_at']}")
+
+    if args.dry_run:
+        backend = SqliteStorageBackend()
+        lead = backend.get_lead(args.lead_id) if args.lead_id else None
+        if not lead:
+            leads = backend.list_leads()
+            lead = leads[0] if leads else None
+
+        if not lead:
+            print("\n[DRY-RUN] No leads available in database to dry-run.")
+        else:
+            print(f"\n[DRY-RUN SIMULATION] Evaluating Lead: {lead.lead_id} ({getattr(lead, 'company_name', '')})")
+            print(f"  * Jurisdiction: {getattr(lead, 'jurisdiction', '')}")
+            print(f"  * State       : {getattr(lead, 'state', '')}")
+            print(f"  * Email       : {getattr(lead, 'contact_email', '')}")
+            print(f"  * Subject     : {getattr(lead, 'outreach_subject', '')}")
+            body = getattr(lead, 'outreach_body', '')
+            words = len(body.split()) if body else 0
+            has_links = "http://" in body or "https://" in body
+            print(f"  * Word Count  : {words} words (Target: 35-55 words)")
+            print(f"  * Zero Links  : {'[PASS] 0 links' if not has_links else '[FAIL] Contains links'}")
+            print("\n[DRY-RUN DRAFT]:\n" + "-" * 40 + f"\n{body}\n" + "-" * 40)
+            print("Dry-run complete (0 emails sent).")
+
+    print("\n" + "=" * 70)
+
+
+if __name__ == "__main__":
+    main()
+

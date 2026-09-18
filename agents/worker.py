@@ -106,7 +106,7 @@ class AutonomousSwarmWorker:
         logger.info("Executing Scout Recon on: %s", url)
 
         # Run scout via pipeline
-        from .scout.scout_pipeline import ScoutPortalPipeline
+        from .scout_runner.scout_pipeline import ScoutPortalPipeline
         from .portal import PortalService
         portal = PortalService(storage=self.storage)
         pipeline = ScoutPortalPipeline(portal)
@@ -177,6 +177,10 @@ class AutonomousSwarmWorker:
         logger.info("Lifecycle email sent for lead %s (event: %s)", lead_id, event_name)
 
 
-if __name__ == "__main__":
+def main() -> None:
     worker = AutonomousSwarmWorker()
     worker.run()
+
+
+if __name__ == "__main__":
+    main()

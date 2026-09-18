@@ -1,8 +1,10 @@
-"""Vendor-neutral lifecycle and pricing rules for LeadOps."""
+"""Lead domain entity, lifecycle states, and state transition rules."""
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+
+from .pricing import Tier, TIERS, BUYOUT, TIER_ALIASES
 
 
 class State(str, Enum):
@@ -40,50 +42,6 @@ class PaymentEvent(str, Enum):
     FINAL_PAID = "final.paid"
     SUBSCRIPTION_ACTIVE = "subscription.active"
     BUYOUT_PAID = "buyout.paid"
-
-
-@dataclass(frozen=True)
-class Tier:
-    name: str
-    price_cents: int
-    cadence: str
-    max_fields: int
-    delivery: str
-    recurring: bool = True
-
-
-TIERS: dict[str, Tier] = {
-    "weekly": Tier("Weekly Sync", 25_000, "monthly", 15, "1x weekly"),
-    "daily": Tier("Daily Sync", 50_000, "monthly", 15, "5x weekly"),
-    "ai": Tier("AI / Heavy Extraction", 85_000, "monthly", 25, "daily"),
-}
-
-BUYOUT = Tier("Full Buyout", 150_000, "one_time", 25, "client-owned", False)
-
-TIER_ALIASES: dict[str, str] = {
-    "a": "daily",
-    "tier_a": "daily",
-    "tier-a": "daily",
-    "tier a": "daily",
-    "tier 1": "daily",
-    "b": "weekly",
-    "tier_b": "weekly",
-    "tier-b": "weekly",
-    "tier b": "weekly",
-    "tier 2": "weekly",
-    "c": "weekly",
-    "tier_c": "weekly",
-    "tier-c": "weekly",
-    "tier c": "weekly",
-    "tier 3": "weekly",
-    "standard": "weekly",
-    "starter": "weekly",
-    "basic": "weekly",
-    "pro": "daily",
-    "growth": "daily",
-    "enterprise": "ai",
-    "heavy": "ai",
-}
 
 
 ALLOWED_TRANSITIONS = {
@@ -146,7 +104,7 @@ class Lead:
     created_at: str = ""
     upsell_sent: bool = False
     referral_sent: bool = False
-    winback_stage: int = 0  # 0=not started, 1/2/3=email sent, 4=completed
+    winback_stage: int = 0
     heartbeat_count: int = 0
     referred_by: str = ""
     claimed_by: str = ""
@@ -164,25 +122,22 @@ class Lead:
     discovery_channel: str = "CATALOG_SEARCH"
     filing_case_number: str = ""
     updated_at: str = ""
-    # Audit-triggered lifecycle fields
-    sandbox_first_viewed_at: str = ""  # TRIG-05: tracks when prospect first viewed sandbox
-    abandoned_sandbox_sent: bool = False  # TRIG-05: abandoned sandbox recovery email sent
-    multi_county_bundle_sent: bool = False  # TRIG-01: multi-county expansion offer sent
-    last_lifecycle_email_at: str = ""  # TRIG-07: fatigue guard — last lifecycle email timestamp
-    checkout_initiated_at: str = ""  # TRIG-06: PayPal checkout window opened timestamp
-    welcome_sent: bool = False  # TRIG-02: welcome email auto-fired on intake
+    sandbox_first_viewed_at: str = ""
+    abandoned_sandbox_sent: bool = False
+    multi_county_bundle_sent: bool = False
+    last_lifecycle_email_at: str = ""
+    checkout_initiated_at: str = ""
+    welcome_sent: bool = False
     deliverability_score: int | None = None
     deliverability_status: str = ""
     deliverability_checked_at: str = ""
-    email_provider: str = ""  # google, microsoft, other
+    email_provider: str = ""
     email_mx_hosts: list[str] = field(default_factory=list)
-    # Location & County tracking fields
     city: str = ""
     state_code: str = ""
     county: str = ""
     county_fips: str = ""
-    # Multi-touch sequencer tracking fields
-    outreach_touch_count: int = 0  # 0=uncontacted, 1=touch 1 sent, 2=touch 2 bump, 3=touch 3 breakup
+    outreach_touch_count: int = 0
     last_outreach_at: str = ""
     next_outreach_at: str = ""
     outreach_replied: bool = False
@@ -264,3 +219,12 @@ class Lead:
         if not fields or len(fields) > self.tier.max_fields:
             raise ValueError(f"{self.tier.name} supports 1-{self.tier.max_fields} fields")
         self.selected_fields = list(dict.fromkeys(fields))
+
+__all__ = [
+    "State",
+    "SequenceState",
+    "PaymentEvent",
+    "ALLOWED_TRANSITIONS",
+    "InvalidTransition",
+    "Lead",
+]

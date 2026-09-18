@@ -442,8 +442,11 @@ export default function AdminPage() {
         {activeTab === 'swarm' && (
           <SwarmTab
             pipeline={pipeline.pipeline}
-            activeBuilds={pipeline.activeBuilds}
-            openSwarmProgressModal={modals.openSwarmProgressModal}
+            renderDiscoveryBadge={renderDiscoveryBadge}
+            handleViewSwarmProgress={modals.handleViewSwarmProgress}
+            handleOpenQaOverride={modals.handleOpenQaOverride}
+            handleTriggerSwarm={pipeline.handleTriggerSwarm}
+            actionInProgress={pipeline.actionInProgress}
           />
         )}
 

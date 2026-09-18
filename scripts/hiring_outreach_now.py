@@ -24,8 +24,8 @@ if hasattr(sys.stdout, "reconfigure"):
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from agents.scout.hiring_intent_prospector import HiringIntentProspector
-from agents.scout.website_form_submitter import WebsiteContactFormSubmitter
+from agents.scout_runner.hiring_intent_prospector import HiringIntentProspector
+from agents.scout_runner.website_form_submitter import WebsiteContactFormSubmitter
 from agents.tools.geo_county_resolver import GeoCountyResolver
 from agents.logging_config import get_logger
 

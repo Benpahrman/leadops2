@@ -184,7 +184,7 @@ def get_county_orchestrator_status(
     _: ClerkUser = Depends(require_admin),
 ):
     """Retrieve current 50-state and county-by-county orchestrator progress, active jurisdiction, and stats."""
-    from agents.scout.national_county_orchestrator import get_national_county_orchestrator
+    from agents.scout_runner.national_county_orchestrator import get_national_county_orchestrator
     orchestrator = get_national_county_orchestrator()
     active = orchestrator.get_active_jurisdiction()
     full_state = orchestrator.state.to_dict()
@@ -200,7 +200,7 @@ def advance_county_orchestrator_cursor(
     _: ClerkUser = Depends(require_admin),
 ):
     """Manually advance the national prospecting cursor to the next county/state."""
-    from agents.scout.national_county_orchestrator import get_national_county_orchestrator
+    from agents.scout_runner.national_county_orchestrator import get_national_county_orchestrator
     orchestrator = get_national_county_orchestrator()
     new_active = orchestrator.advance_cursor()
     return {
@@ -216,7 +216,7 @@ def set_county_orchestrator_state_focus(
     _: ClerkUser = Depends(require_admin),
 ):
     """Lock scouting to a specific state (e.g. 'WA', 'TX', 'FL') or unlock for 50-state sweep (null/empty)."""
-    from agents.scout.national_county_orchestrator import get_national_county_orchestrator
+    from agents.scout_runner.national_county_orchestrator import get_national_county_orchestrator
     orchestrator = get_national_county_orchestrator()
     active = orchestrator.set_state_focus(req.state_code)
     mode = f"locked to {req.state_code.upper()}" if req.state_code else "unlocked (50-state national sweep)"
@@ -234,7 +234,7 @@ def get_prospector_status_endpoint(
     portal_service=Depends(get_portal_service),
 ):
     """Retrieve 14-day campaign status, office hours telemetry, and deduplication statistics."""
-    from agents.scout.high_volume_prospector import get_high_volume_prospector
+    from agents.scout_runner.high_volume_prospector import get_high_volume_prospector
     engine = get_high_volume_prospector(storage=storage_backend, portal=portal_service)
     return engine.get_status()
 
@@ -247,7 +247,7 @@ def start_prospector_campaign_endpoint(
     portal_service=Depends(get_portal_service),
 ):
     """Start or restart the 14-day high-volume autonomous prospecting campaign."""
-    from agents.scout.high_volume_prospector import get_high_volume_prospector
+    from agents.scout_runner.high_volume_prospector import get_high_volume_prospector
     engine = get_high_volume_prospector(storage=storage_backend, portal=portal_service)
     duration = req.duration_days if req and req.duration_days else 14
     volume = req.volume_per_cycle if req and req.volume_per_cycle else 3
@@ -262,7 +262,7 @@ def pause_prospector_campaign_endpoint(
     portal_service=Depends(get_portal_service),
 ):
     """Pause the continuous high-volume prospecting campaign loop."""
-    from agents.scout.high_volume_prospector import get_high_volume_prospector
+    from agents.scout_runner.high_volume_prospector import get_high_volume_prospector
     engine = get_high_volume_prospector(storage=storage_backend, portal=portal_service)
     return engine.pause_campaign()
 
@@ -274,7 +274,7 @@ def resume_prospector_campaign_endpoint(
     portal_service=Depends(get_portal_service),
 ):
     """Resume the 14-day high-volume prospecting campaign loop."""
-    from agents.scout.high_volume_prospector import get_high_volume_prospector
+    from agents.scout_runner.high_volume_prospector import get_high_volume_prospector
     engine = get_high_volume_prospector(storage=storage_backend, portal=portal_service)
     return engine.resume_campaign()
 
@@ -287,7 +287,7 @@ def toggle_prospector_24_7(
     portal_service=Depends(get_portal_service),
 ):
     """Toggle High-Volume Prospector 24/7 all-day prospecting on or off."""
-    from agents.scout.high_volume_prospector import get_high_volume_prospector
+    from agents.scout_runner.high_volume_prospector import get_high_volume_prospector
     engine = get_high_volume_prospector(storage=storage_backend, portal=portal_service)
     stat = engine.set_24_7_mode(req.enabled)
     return {"ok": True, "run_24_7": engine.run_24_7, "status": stat}
@@ -301,7 +301,7 @@ async def trigger_prospector_burst_endpoint(
     portal_service=Depends(get_portal_service),
 ):
     """Execute an immediate high-volume discovery pass with real-time audit journey."""
-    from agents.scout.high_volume_prospector import get_high_volume_prospector
+    from agents.scout_runner.high_volume_prospector import get_high_volume_prospector
     engine = get_high_volume_prospector(storage=storage_backend, portal=portal_service)
     count = req.count if req and req.count else 3
     channel = req.channel if req and req.channel else None

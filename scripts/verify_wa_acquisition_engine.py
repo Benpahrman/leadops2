@@ -17,10 +17,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agents.tools.geo_county_resolver import GeoCountyResolver
-from agents.scout.wa_county_orchestrator import WashingtonCountyOrchestrator
-from agents.scout.niche_brainstormer_agent import NicheBrainstormerAgent
-from agents.scout.hiring_intent_prospector import HiringIntentProspector, DiscoveredHiringProspect
-from agents.scout.website_form_submitter import WebsiteContactFormSubmitter
+from agents.scout_runner.wa_county_orchestrator import WashingtonCountyOrchestrator
+from agents.scout_runner.niche_brainstormer_agent import NicheBrainstormerAgent
+from agents.scout_runner.hiring_intent_prospector import HiringIntentProspector, DiscoveredHiringProspect
+from agents.scout_runner.website_form_submitter import WebsiteContactFormSubmitter
 
 
 def test_wa_county_resolution():

@@ -15,7 +15,7 @@ import httpx
 from agents.office_hours import is_office_hours
 from agents.domain import State
 from agents.portal import PortalService
-from agents.scout.scout_pipeline import ScoutCandidate, ScoutPortalPipeline
+from agents.scout_runner.scout_pipeline import ScoutCandidate, ScoutPortalPipeline
 from agents.storage import StorageBackend, normalize_company_name, normalize_domain
 import agents.scout_runner as _scout_runner
 
@@ -52,11 +52,11 @@ def fetch_page_content(*args: Any, **kwargs: Any) -> Any:
 from agents.swarm.datasets import AUTHENTIC_REGISTRY_DATASETS
 from agents.logging_config import get_logger
 from agents.llm import LLMAgentEngine, is_disallowed_buyer
-from agents.scout.county_filing_extractor import CountyFilingPartyExtractor
-from agents.scout.state_bar_prospector import StateBarProspector
-from agents.scout.sos_entity_prospector import SOSEntityProspector
-from agents.scout.local_business_prospector import LocalBusinessProspector
-from agents.scout.national_county_orchestrator import get_national_county_orchestrator
+from agents.scout_runner.county_filing_extractor import CountyFilingPartyExtractor
+from agents.scout_runner.state_bar_prospector import StateBarProspector
+from agents.scout_runner.sos_entity_prospector import SOSEntityProspector
+from agents.scout_runner.local_business_prospector import LocalBusinessProspector
+from agents.scout_runner.national_county_orchestrator import get_national_county_orchestrator
 from agents.outreach_playbooks import (
     format_county_filing_pitch,
     format_state_bar_pitch,

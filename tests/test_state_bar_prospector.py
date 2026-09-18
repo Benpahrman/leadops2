@@ -3,7 +3,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-from agents.scout.state_bar_prospector import (
+from agents.scout_runner.state_bar_prospector import (
     StateBarProspector,
     DiscoveredBarAttorney,
 )
@@ -13,7 +13,7 @@ class StateBarProspectorTests(unittest.TestCase):
     def setUp(self):
         self.prospector = StateBarProspector()
 
-    @patch("agents.scout.state_bar_prospector.search_web")
+    @patch("agents.scout_runner.state_bar_prospector.search_web")
     def test_discover_attorneys(self, mock_search_web):
         """Test searching State Bar directory listings for probate and real estate attorneys."""
         mock_search_web.return_value = [
@@ -52,9 +52,9 @@ class StateBarProspectorTests(unittest.TestCase):
         self.assertEqual(firm, "Meyers Estate Counsel PLLC")
         self.assertEqual(bar_no, "0998822")
 
-    @patch("agents.scout.state_bar_prospector.search_company_intelligence")
-    @patch("agents.scout.state_bar_prospector.extract_contact_info_from_url")
-    @patch("agents.scout.state_bar_prospector.find_linkedin_decision_maker")
+    @patch("agents.scout_runner.state_bar_prospector.search_company_intelligence")
+    @patch("agents.scout_runner.state_bar_prospector.extract_contact_info_from_url")
+    @patch("agents.scout_runner.state_bar_prospector.find_linkedin_decision_maker")
     def test_enrich_bar_prospect(self, mock_linkedin, mock_extract_contact, mock_search_intel):
         """Test enrichment of bar attorney into qualified target with State Bar pitch."""
         mock_search_intel.return_value = {

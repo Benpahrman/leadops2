@@ -12,7 +12,7 @@ from agents.portal import PortalService
 from agents.storage import StorageBackend
 from agents.llm import LLMAgentEngine, is_disallowed_buyer
 from agents.swarm.datasets import AUTHENTIC_REGISTRY_DATASETS
-from agents.scout.scout_pipeline import ScoutPortalPipeline
+from agents.scout_runner.scout_pipeline import ScoutPortalPipeline
 
 logger = logging.getLogger("leadops.scout.web")
 
