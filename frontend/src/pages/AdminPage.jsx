@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useAuth, useUser, SignIn } from '@clerk/clerk-react';
 import { resolveAdminAuth } from '../services/api';
 import { useToast } from '../context/ToastContext';
@@ -61,7 +61,7 @@ export default function AdminPage() {
     return false;
   });
 
-  const resolveToken = async () => {
+  const resolveToken = useCallback(async () => {
     try {
       if (isSignedIn && getToken) {
         const t = await getToken();
@@ -71,7 +71,7 @@ export default function AdminPage() {
       console.warn('Clerk session token note:', e);
     }
     return resolveAdminAuth();
-  };
+  }, [isSignedIn, getToken]);
 
   // URL Query Helper
   const getInitialParam = (key, fallback) => {
@@ -88,9 +88,9 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState(() => getInitialParam('tab', 'prospector'));
 
   // Discovery Badge Renderer
-  const renderDiscoveryBadge = (channel, filingCaseNumber) => (
+  const renderDiscoveryBadge = useCallback((channel, filingCaseNumber) => (
     <DiscoveryBadge channel={channel} filingCaseNumber={filingCaseNumber} />
-  );
+  ), []);
 
   // Command Palette State & Hotkey Listener (Cmd+K / Ctrl+K)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -104,6 +104,10 @@ export default function AdminPage() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  // Forward refs to eliminate any TDZ or stale closures across interdependent hooks
+  const inboxesRef = useRef(null);
+  const prospectorRef = useRef(null);
 
   // 1. Modals Hook
   const modals = useAdminModals({
@@ -121,6 +125,7 @@ export default function AdminPage() {
     loadAdminData: null,
     user,
   });
+  inboxesRef.current = inboxes;
 
   // 3. Pipeline Hook
   const pipeline = useAdminPipeline({
@@ -129,11 +134,23 @@ export default function AdminPage() {
     setConfirmModal: modals.setConfirmModal,
     closeConfirmModal: modals.closeConfirmModal,
     onAdminDataLoaded: ({ inboxesData, prospectorData, countyData }) => {
-      if (inboxesData?.inboxes) inboxes.setInboxes(inboxesData.inboxes);
-      if (inboxesData?.fleet_summary) inboxes.setFleetSummary(inboxesData.fleet_summary);
-      if (inboxesData?.warmup_cycle) inboxes.setWarmupCycle(inboxesData.warmup_cycle);
-      if (prospectorData) prospector.setProspectorStatus(prospectorData);
-      if (countyData?.ok) prospector.setCountyOrchestrator(countyData);
+      const targetInboxes = inboxesRef.current || inboxes;
+      const targetProspector = prospectorRef.current;
+      if (inboxesData?.inboxes && typeof targetInboxes?.setInboxes === 'function') {
+        targetInboxes.setInboxes(inboxesData.inboxes);
+      }
+      if (inboxesData?.fleet_summary && typeof targetInboxes?.setFleetSummary === 'function') {
+        targetInboxes.setFleetSummary(inboxesData.fleet_summary);
+      }
+      if (inboxesData?.warmup_cycle && typeof targetInboxes?.setWarmupCycle === 'function') {
+        targetInboxes.setWarmupCycle(inboxesData.warmup_cycle);
+      }
+      if (prospectorData && typeof targetProspector?.setProspectorStatus === 'function') {
+        targetProspector.setProspectorStatus(prospectorData);
+      }
+      if (countyData?.ok && typeof targetProspector?.setCountyOrchestrator === 'function') {
+        targetProspector.setCountyOrchestrator(countyData);
+      }
     },
     scoreModalState: modals.scoreModal,
     setScoreModalState: modals.setScoreModal,
@@ -147,6 +164,7 @@ export default function AdminPage() {
     searchQuery: pipeline.searchQuery,
     loadAdminData: pipeline.loadAdminData,
   });
+  prospectorRef.current = prospector;
 
   // 5. Scrapers Hook
   const scrapers = useAdminScrapers({

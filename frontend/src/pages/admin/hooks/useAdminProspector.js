@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   startProspectorCampaign,
   pauseProspectorCampaign,
@@ -308,26 +308,34 @@ export function useAdminProspector({
     ]
   );
 
-  const loadCandidateEvaluations = useCallback(async () => {
+  const evaluationsLoadingRef = useRef(false);
+  const resolveTokenRef = useRef(resolveToken);
+  resolveTokenRef.current = resolveToken;
+
+  const loadCandidateEvaluations = useCallback(async (channelOverride = null) => {
+    if (evaluationsLoadingRef.current) return;
+    evaluationsLoadingRef.current = true;
     setEvaluationsLoading(true);
     try {
-      const token = await resolveToken();
-      const res = await fetchCandidateEvaluations(100, selectedProspectorChannel, null, token);
+      const token = await resolveTokenRef.current();
+      const channel = channelOverride !== null ? channelOverride : selectedProspectorChannel;
+      const res = await fetchCandidateEvaluations(100, channel, null, token);
       if (res && res.evaluations) {
         setCandidateEvaluations(res.evaluations);
       }
     } catch (err) {
       console.warn('Could not load candidate evaluations:', err);
     } finally {
+      evaluationsLoadingRef.current = false;
       setEvaluationsLoading(false);
     }
-  }, [resolveToken, selectedProspectorChannel]);
+  }, [selectedProspectorChannel]);
 
   useEffect(() => {
     if (candidateScope === 'EVALUATED') {
       loadCandidateEvaluations();
     }
-  }, [candidateScope, selectedProspectorChannel, loadCandidateEvaluations]);
+  }, [candidateScope, selectedProspectorChannel]);
 
   return {
     prospectorStatus,

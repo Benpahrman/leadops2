@@ -44,12 +44,12 @@ class EndpointRateLimiter(BaseHTTPMiddleware):
         super().__init__(app)
         # path_pattern -> (calls, period_seconds)
         self.limits = limits or {
-            "/api/sandbox/": (20, 60),      # 20 req/min for sandbox operations
-            "/api/sandbox/.*/pay-": (5, 60),  # 5 req/min for payment endpoints
-            "/api/sandbox/.*/chat": (10, 60), # 10 req/min for chat
-            "/api/admin/": (30, 60),         # 30 req/min for admin
-            "/api/portal/": (30, 60),        # 30 req/min for portal
-            "/api/webhook": (10, 60),        # 10 req/min for webhooks
+            "/api/sandbox/": (60, 60),       # 60 req/min for sandbox operations
+            "/api/sandbox/.*/pay-": (10, 60), # 10 req/min for payment endpoints
+            "/api/sandbox/.*/chat": (30, 60), # 30 req/min for chat
+            "/api/admin/": (300, 60),         # 300 req/min for admin dashboard telemetry & operations
+            "/api/portal/": (120, 60),        # 120 req/min for portal
+            "/api/webhook": (60, 60),         # 60 req/min for webhooks
         }
         self.lock = threading.Lock()
         self.counters = {}
