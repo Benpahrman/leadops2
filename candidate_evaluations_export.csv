@@ -1,0 +1,2 @@
+id,company_name,channel,contact_email,status,reason,jurisdiction,lead_id,evaluated_at
+1,Acme Title Test,county_filing_party,contact@acmetitle.com,QUALIFIED,Passed gates,"King County, WA",,2026-09-17T01:50:48.106404+00:00

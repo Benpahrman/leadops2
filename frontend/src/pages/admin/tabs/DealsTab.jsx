@@ -149,6 +149,83 @@ export default function DealsTab({
           <option value={100}>100 per page</option>
         </select>
 
+        {/* Export to CSV Button */}
+        <button
+          className="btn btn-outline"
+          style={{
+            fontSize: '13px',
+            padding: '10px 14px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            borderColor: 'var(--cyan)',
+            color: 'var(--cyan)',
+            background: 'rgba(56, 189, 248, 0.08)',
+            fontWeight: 700,
+          }}
+          onClick={() => {
+            const listToExport = filteredLeads.length > 0 ? filteredLeads : pipeline;
+            const header = [
+              'Company Name',
+              'Contact Name',
+              'Role',
+              'Email',
+              'Phone',
+              'LinkedIn',
+              'Website',
+              'Jurisdiction',
+              'Channel',
+              'Docket Number',
+              'Target Portal',
+              'Opportunity Score',
+              'Deliverability Score',
+              'Lifecycle State',
+              'Deposit Paid',
+              'Final Paid',
+              'Subscription Active',
+              'Tier',
+              'Lead ID',
+              'Sandbox URL',
+              'Created At',
+            ];
+            const origin = typeof window !== 'undefined' ? window.location.origin : '';
+            const rows = listToExport.map((lead) => [
+              `"${(lead.company_name || '').replace(/"/g, '""')}"`,
+              `"${(lead.contact_name || '').replace(/"/g, '""')}"`,
+              `"${(lead.contact_role || '').replace(/"/g, '""')}"`,
+              `"${(lead.contact_email || '').replace(/"/g, '""')}"`,
+              `"${(lead.contact_phone || '').replace(/"/g, '""')}"`,
+              `"${(lead.decision_maker_linkedin || '').replace(/"/g, '""')}"`,
+              `"${(lead.website || '').replace(/"/g, '""')}"`,
+              `"${(lead.jurisdiction || '').replace(/"/g, '""')}"`,
+              `"${(lead.discovery_channel || '').replace(/"/g, '""')}"`,
+              `"${(lead.filing_case_number || '').replace(/"/g, '""')}"`,
+              `"${(lead.target_portal_name || '').replace(/"/g, '""')}"`,
+              lead.automation_opportunity_score || 75,
+              lead.deliverability_score || 95,
+              `"${(lead.state || '').replace(/"/g, '""')}"`,
+              lead.deposit_paid ? 'Yes' : 'No',
+              lead.final_paid ? 'Yes' : 'No',
+              lead.subscription_active ? 'Yes' : 'No',
+              `"${(lead.tier_key || '').replace(/"/g, '""')}"`,
+              `"${(lead.lead_id || '').replace(/"/g, '""')}"`,
+              `"${origin}/sandbox/${lead.slug || lead.lead_id}"`,
+              `"${(lead.created_at || '').replace(/"/g, '""')}"`,
+            ]);
+            const csvContent = [header.join(','), ...rows.map((r) => r.join(','))].join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `deals_export_${new Date().toISOString().slice(0, 10)}.csv`;
+            link.click();
+            URL.revokeObjectURL(url);
+          }}
+          title="Download deals as a CSV spreadsheet (opens directly in Excel or Google Sheets)"
+        >
+          <span>📥</span> Export to CSV
+        </button>
+
         {pipeline.filter((l) => l.state === 'PITCH_PENDING_APPROVAL').length > 0 && (
           <button
             className="btn btn-primary"
