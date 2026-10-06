@@ -1,7 +1,7 @@
  # LeadOps
 
 LeadOps automates the path from a tailored prospect sandbox to recurring data delivery or a full source-code buyout.
-
+[![Sponsor](https://img.shields.io/endpoint?url=https://readmepay.com/badge/astral-sh/uv/shield.json)](https://readmepay.com/click/active/1)
 ## Current implementation
 
 The initial domain slice is vendor-neutral and already enforces:
